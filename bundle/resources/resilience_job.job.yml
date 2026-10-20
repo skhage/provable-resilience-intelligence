@@ -1,0 +1,17 @@
+# Provable Resilience Intelligence — Orchestration Job
+# Daily pipeline refresh + score computation
+
+resources:
+  jobs:
+    resilience_daily:
+      name: provable-resilience-intelligence-daily
+      tasks:
+        - task_key: run_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.resilience_pipeline.id}
+      schedule:
+        quartz_cron_expression: '0 0 6 * * ?'
+        timezone_id: America/Chicago
+      tags:
+        telco_project: provable_resilience_intelligence
+        team: resilience-engineering

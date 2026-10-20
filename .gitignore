@@ -1,0 +1,72 @@
+# Provable Resilience Intelligence — .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# DAB artifacts
+.databricks/
+bundle/.databricks/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit
+*.pem
+*.key
+.env
+.env.*
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data artifacts (use UC Volumes instead)
+data/*.parquet
+data/*.csv
+data/*.json
+!data/.gitkeep
+
+# MLflow artifacts
+mlruns/
+mlartifacts/
+
+# Logs
+*.log
+logs/
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Node.js (React app local builds)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Bundle deployment state
+bundle/.bundle/
+.bundle/
+
+# Spark checksum files
+*.crc

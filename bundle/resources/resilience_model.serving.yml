@@ -1,0 +1,22 @@
+# Provable Resilience Intelligence — ML Model Serving
+# Span risk classification + optical anomaly detection
+
+resources:
+  model_serving_endpoints:
+    span_risk_endpoint:
+      name: provable-resilience-span-risk
+      config:
+        served_entities:
+          - entity_name: span_risk_classifier
+            entity_version: 1
+            workload_size: Small
+            scale_to_zero_enabled: true
+        auto_capture_config:
+          catalog_name: ${var.catalog}
+          schema_name: ${var.schema}
+          table_name_prefix: span_risk_inference
+      tags:
+        - key: telco_project
+          value: provable_resilience_intelligence
+        - key: team
+          value: resilience-engineering

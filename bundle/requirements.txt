@@ -1,0 +1,17 @@
+# Provable Resilience Intelligence — Python dependencies
+# Used by CI pipeline and local development
+
+# Testing
+pytest>=7.0
+ruff>=0.1.0
+
+# Core (available on Databricks Runtime)
+# pyspark — provided by DBR
+# databricks-sdk — provided by DBR
+# mlflow — provided by DBR
+
+# App dependencies (for local app development)
+fastapi>=0.100.0
+uvicorn>=0.20.0
+pydantic>=2.0
+httpx>=0.24.0

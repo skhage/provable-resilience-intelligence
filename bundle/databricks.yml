@@ -1,0 +1,4 @@
+# SUPERSEDED — DO NOT USE
+# Bundle root moved to project root: ../databricks.yml
+# (DEVOPS-BUNDLE-ROOT-RESTRUCTURE: DAB cannot resolve ../ in source_code_path)
+# This file is kept for reference. Safe to delete after Git push.

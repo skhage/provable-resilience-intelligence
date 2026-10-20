@@ -1,0 +1,679 @@
+{
+  "datasets": [
+    {
+      "catalog": "cdm_tmforum",
+      "displayName": "Resilience KPI",
+      "name": "ds_kpi_resilience",
+      "queryLines": [
+        "SELECT MEASURE(avg_resilience_score) as avg_score \n",
+        "FROM resilience_score"
+      ],
+      "schema": "provable_resilience_intelligence"
+    },
+    {
+      "catalog": "cdm_tmforum",
+      "displayName": "Revenue at Risk KPI",
+      "name": "ds_kpi_revenue",
+      "queryLines": [
+        "SELECT MEASURE(total_revenue_at_risk) as total_rev \n",
+        "FROM revenue_at_risk"
+      ],
+      "schema": "provable_resilience_intelligence"
+    },
+    {
+      "catalog": "cdm_tmforum",
+      "displayName": "Outages KPI",
+      "name": "ds_kpi_outages",
+      "queryLines": [
+        "SELECT MEASURE(proactive_intervention_count) as proactive_count \n",
+        "FROM prevented_outages"
+      ],
+      "schema": "provable_resilience_intelligence"
+    },
+    {
+      "catalog": "cdm_tmforum",
+      "displayName": "Diversity KPI",
+      "name": "ds_kpi_diversity",
+      "queryLines": [
+        "SELECT MEASURE(diversity_coverage_pct) as div_pct \n",
+        "FROM diversity_coverage"
+      ],
+      "schema": "provable_resilience_intelligence"
+    },
+    {
+      "catalog": "cdm_tmforum",
+      "displayName": "Resilience by Service Type",
+      "name": "ds_resilience_bar",
+      "queryLines": [
+        "SELECT service_type, \n",
+        "MEASURE(avg_resilience_score) as avg_score \n",
+        "FROM resilience_score \n",
+        "GROUP BY ALL \n",
+        "ORDER BY avg_score DESC"
+      ],
+      "schema": "provable_resilience_intelligence"
+    },
+    {
+      "catalog": "cdm_tmforum",
+      "displayName": "Revenue at Risk by Urgency",
+      "name": "ds_revenue_bar",
+      "queryLines": [
+        "SELECT risk_urgency, severity, \n",
+        "MEASURE(total_revenue_at_risk) as rev_at_risk \n",
+        "FROM revenue_at_risk \n",
+        "GROUP BY ALL"
+      ],
+      "schema": "provable_resilience_intelligence"
+    },
+    {
+      "catalog": "cdm_tmforum",
+      "displayName": "Outages by Intervention Type",
+      "name": "ds_outages_pie",
+      "queryLines": [
+        "SELECT intervention_type, \n",
+        "MEASURE(total_problems) as total_problems \n",
+        "FROM prevented_outages \n",
+        "GROUP BY ALL"
+      ],
+      "schema": "provable_resilience_intelligence"
+    },
+    {
+      "catalog": "cdm_tmforum",
+      "displayName": "SRLG Risk Summary",
+      "name": "ds_srlg",
+      "queryLines": [
+        "SELECT srlg_type, severity, \n",
+        "COUNT(*) as risk_count \n",
+        "FROM shared_risk_group \n",
+        "GROUP BY srlg_type, severity"
+      ],
+      "schema": "provable_resilience_intelligence"
+    }
+  ],
+  "pages": [
+    {
+      "displayName": "Resilience Scorecard",
+      "layout": [
+        {
+          "position": {
+            "height": 2,
+            "width": 12,
+            "x": 0,
+            "y": 0
+          },
+          "widget": {
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Lakelink Fiber — Provable Resilience Scorecard\n",
+                "\n",
+                "Executive view of network resilience, revenue exposure, proactive interventions, and shared-risk infrastructure across all service types. Use **Ask Genie** for natural language drill-downs."
+              ]
+            },
+            "name": "header"
+          }
+        },
+        {
+          "position": {
+            "height": 3,
+            "width": 3,
+            "x": 0,
+            "y": 2
+          },
+          "widget": {
+            "name": "kpi-resilience",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi_resilience",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "expression": "`avg_score`",
+                      "name": "avg_score"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "encodings": {
+                "value": {
+                  "displayName": "Avg Resilience Score",
+                  "fieldName": "avg_score",
+                  "format": {
+                    "decimalPlaces": {
+                      "places": 1,
+                      "type": "max"
+                    },
+                    "type": "number-plain"
+                  },
+                  "formatTemplate": "{{ @formatted }} / 100"
+                }
+              },
+              "frame": {
+                "description": "Network-wide health index (higher is better)",
+                "showDescription": true,
+                "showTitle": true,
+                "title": "Avg Resilience Score"
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 3,
+            "width": 3,
+            "x": 3,
+            "y": 2
+          },
+          "widget": {
+            "name": "kpi-revenue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi_revenue",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "expression": "`total_rev`",
+                      "name": "total_rev"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "encodings": {
+                "value": {
+                  "displayName": "Revenue at Risk",
+                  "fieldName": "total_rev",
+                  "format": {
+                    "abbreviation": "compact",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "places": 1,
+                      "type": "max"
+                    },
+                    "type": "number-currency"
+                  }
+                }
+              },
+              "frame": {
+                "description": "Estimated impact from active service problems",
+                "showDescription": true,
+                "showTitle": true,
+                "title": "Total Revenue at Risk"
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 3,
+            "width": 3,
+            "x": 6,
+            "y": 2
+          },
+          "widget": {
+            "name": "kpi-interventions",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi_outages",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "expression": "`proactive_count`",
+                      "name": "proactive_count"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "encodings": {
+                "value": {
+                  "displayName": "Proactive Interventions",
+                  "fieldName": "proactive_count",
+                  "format": {
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "places": 1,
+                      "type": "max"
+                    },
+                    "type": "number-plain"
+                  }
+                }
+              },
+              "frame": {
+                "description": "Auto/preventive fixes applied",
+                "showDescription": true,
+                "showTitle": true,
+                "title": "Proactive Interventions"
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 3,
+            "width": 3,
+            "x": 9,
+            "y": 2
+          },
+          "widget": {
+            "name": "kpi-diversity",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi_diversity",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "expression": "`div_pct`",
+                      "name": "div_pct"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "encodings": {
+                "value": {
+                  "displayName": "Diversity Coverage",
+                  "fieldName": "div_pct",
+                  "format": {
+                    "decimalPlaces": {
+                      "places": 1,
+                      "type": "max"
+                    },
+                    "type": "number-percent"
+                  }
+                }
+              },
+              "frame": {
+                "description": "Services with diverse/protect paths",
+                "showDescription": true,
+                "showTitle": true,
+                "title": "Diversity Coverage"
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 8,
+            "width": 6,
+            "x": 0,
+            "y": 5
+          },
+          "widget": {
+            "name": "bar-resilience-svc",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_resilience_bar",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "expression": "`service_type`",
+                      "name": "service_type"
+                    },
+                    {
+                      "expression": "`avg_score`",
+                      "name": "avg_score"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "encodings": {
+                "x": {
+                  "displayName": "Avg Resilience Score",
+                  "fieldName": "avg_score",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "displayName": "Service Type",
+                  "fieldName": "service_type",
+                  "scale": {
+                    "sort": {
+                      "by": "value"
+                    },
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Resilience Score by Service Type"
+              },
+              "version": 3,
+              "widgetType": "bar"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 8,
+            "width": 6,
+            "x": 6,
+            "y": 5
+          },
+          "widget": {
+            "name": "bar-revenue-urgency",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_revenue_bar",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "expression": "`risk_urgency`",
+                      "name": "risk_urgency"
+                    },
+                    {
+                      "expression": "`severity`",
+                      "name": "severity"
+                    },
+                    {
+                      "expression": "`rev_at_risk`",
+                      "name": "rev_at_risk"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "encodings": {
+                "color": {
+                  "displayName": "Severity",
+                  "fieldName": "severity",
+                  "scale": {
+                    "mappings": [
+                      {
+                        "color": "#F26522",
+                        "value": "critical"
+                      },
+                      {
+                        "color": "#D35400",
+                        "value": "major"
+                      },
+                      {
+                        "color": "#E8A838",
+                        "value": "warning"
+                      },
+                      {
+                        "color": "#4D4D4D",
+                        "value": "indeterminate"
+                      },
+                      {
+                        "color": "#8CBCB9",
+                        "value": "minor"
+                      },
+                      {
+                        "color": "#006272",
+                        "value": "cleared"
+                      }
+                    ],
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "displayName": "Risk Urgency",
+                  "fieldName": "risk_urgency",
+                  "scale": {
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "immediate",
+                        "elevated",
+                        "moderate",
+                        "low"
+                      ]
+                    },
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "displayName": "Revenue at Risk ($)",
+                  "fieldName": "rev_at_risk",
+                  "format": {
+                    "abbreviation": "compact",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "places": 0,
+                      "type": "max"
+                    },
+                    "type": "number-currency"
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue at Risk by Urgency × Severity"
+              },
+              "version": 3,
+              "widgetType": "bar"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 7,
+            "width": 4,
+            "x": 0,
+            "y": 13
+          },
+          "widget": {
+            "name": "pie-outages",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_outages_pie",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "expression": "`intervention_type`",
+                      "name": "intervention_type"
+                    },
+                    {
+                      "expression": "`total_problems`",
+                      "name": "total_problems"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "encodings": {
+                "angle": {
+                  "displayName": "Total Problems",
+                  "fieldName": "total_problems",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "displayName": "Intervention Type",
+                  "fieldName": "intervention_type",
+                  "scale": {
+                    "mappings": [
+                      {
+                        "color": "#006272",
+                        "value": "proactive"
+                      },
+                      {
+                        "color": "#F26522",
+                        "value": "reactive"
+                      },
+                      {
+                        "color": "#E8E8E8",
+                        "value": "non_actionable"
+                      }
+                    ],
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "description": "Proactive vs reactive vs non-actionable",
+                "showDescription": true,
+                "showTitle": true,
+                "title": "Problems by Intervention Type"
+              },
+              "version": 3,
+              "widgetType": "pie"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 7,
+            "width": 8,
+            "x": 4,
+            "y": 13
+          },
+          "widget": {
+            "name": "heatmap-srlg",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_srlg",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "expression": "`srlg_type`",
+                      "name": "srlg_type"
+                    },
+                    {
+                      "expression": "`severity`",
+                      "name": "severity"
+                    },
+                    {
+                      "expression": "`risk_count`",
+                      "name": "risk_count"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "encodings": {
+                "color": {
+                  "fieldName": "risk_count",
+                  "scale": {
+                    "colorRamp": {
+                      "colors": {
+                        "end": "#006272",
+                        "start": "#E8E8E8"
+                      },
+                      "mode": "custom-sequential"
+                    },
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": true
+                },
+                "x": {
+                  "displayName": "SRLG Type",
+                  "fieldName": "srlg_type",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "displayName": "Severity",
+                  "fieldName": "severity",
+                  "scale": {
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "critical",
+                        "high",
+                        "medium",
+                        "low"
+                      ]
+                    },
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "description": "Shared Risk Link Group count by type and severity",
+                "showDescription": true,
+                "showTitle": true,
+                "title": "SRLG Risk Summary"
+              },
+              "version": 3,
+              "widgetType": "heatmap"
+            }
+          }
+        }
+      ],
+      "name": "scorecard",
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "genieSpace": {
+      "enablementMode": "ENABLED",
+      "isEnabled": true,
+      "overrideId": "01f1cc02b4c7110aaa64d6bccad5d95f"
+    },
+    "theme": {
+      "canvasBackgroundColor": {
+        "dark": "#1A2930",
+        "light": "#F5F4F0"
+      },
+      "fontColor": {
+        "dark": "#E8E8E8",
+        "light": "#4D4D4D"
+      },
+      "selectionColor": {
+        "dark": "#00A3A1",
+        "light": "#006272"
+      },
+      "visualizationColors": [
+        "#006272",
+        "#F26522",
+        "#00A3A1",
+        "#4D4D4D",
+        "#8CBCB9",
+        "#D35400",
+        "#1A3A4A"
+      ],
+      "widgetBackgroundColor": {
+        "dark": "#0D1117",
+        "light": "#FFFFFF"
+      },
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

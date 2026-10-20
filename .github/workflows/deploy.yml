@@ -1,0 +1,52 @@
+# Provable Resilience Intelligence — Deploy Pipeline
+# Deploys DAB to dev on develop merge, prod on main merge
+
+name: Deploy
+
+on:
+  push:
+    branches: [main, develop]
+
+jobs:
+  deploy-dev:
+    name: Deploy to Dev
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Deploy bundle (dev)
+        working-directory: bundle
+        run: databricks bundle deploy --target dev
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+  deploy-prod:
+    name: Deploy to Production
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Deploy bundle (prod)
+        working-directory: bundle
+        run: databricks bundle deploy --target prod
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+      - name: Tag release
+        run: |
+          # Calendar-based auto-tag for traceability; milestone semver tags (v0.1.0) are manual.
+          # See BRANCH-STRATEGY.md for tag conventions.
+          VERSION=$(date +v%Y.%m.%d-${GITHUB_SHA::7})
+          git tag $VERSION
+          git push origin $VERSION

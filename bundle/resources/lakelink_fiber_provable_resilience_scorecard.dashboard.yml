@@ -1,0 +1,9 @@
+resources:
+  dashboards:
+    lakelink_fiber_provable_resilience_scorecard:
+      display_name: "Lakelink Fiber — Provable Resilience Scorecard"
+      warehouse_id: ${var.warehouse_id}
+      file_path: ../src/lakelink_fiber_provable_resilience_scorecard.lvdash.json
+      permissions:
+        - group_name: users
+          level: CAN_VIEW

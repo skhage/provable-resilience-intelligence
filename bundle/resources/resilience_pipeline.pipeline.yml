@@ -1,0 +1,17 @@
+# Provable Resilience Intelligence — SDP Pipeline
+# Bronze → Silver (SID-aligned) → Gold (resilience scores)
+
+resources:
+  pipelines:
+    resilience_pipeline:
+      name: provable-resilience-intelligence-pipeline
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      channel: PREVIEW
+      continuous: false
+      libraries:
+        - notebook:
+            path: ../pipeline/resilience_scoring_pipeline.py
+      configuration:
+        resilience.catalog: ${var.catalog}
+        resilience.schema: ${var.schema}

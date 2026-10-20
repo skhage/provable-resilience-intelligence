@@ -1,0 +1,16 @@
+# Lakelink Fiber — Provable Resilience Intelligence App
+# Scorecard & Action Queue with Lakebase state management
+command:
+  - uvicorn
+  - resilience_scorecard.backend.app:app
+  - --host=0.0.0.0
+  - --port=8000
+env:
+  - name: RESILIENCE_SCORECARD_LAKEBASE_HOST
+    value: "ep-summer-hill-d2s98kn6.database.us-east-1.cloud.databricks.com"
+  - name: RESILIENCE_SCORECARD_LAKEBASE_ENDPOINT
+    value: "projects/telco-provable-resilience-intelligence-project/branches/production/endpoints/primary"
+  - name: RESILIENCE_SCORECARD_CATALOG
+    value: "cdm_tmforum"
+  - name: RESILIENCE_SCORECARD_SCHEMA
+    value: "provable_resilience_intelligence"

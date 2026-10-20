@@ -1,0 +1,738 @@
+/* Lakelink Fiber — Provable Resilience Intelligence Brand Theme
+ * Implements UX-DESIGN-SPEC.md Appendix A (BINDING)
+ * Tokens: --lf-dark-teal #006272, --lf-platinum #E8E8E8, --lf-iron #4D4D4D, --lf-accent-orange #F26522
+ * NEVER reference "Lumen" — branding mandate.
+ */
+
+:root {
+  /* === Lakelink Fiber Brand (UX-DESIGN-SPEC §1.1) === */
+  --lf-dark-teal: #006272;
+  --lf-dark-teal-hover: #004d5a;
+  --lf-dark-teal-light: #00839a;
+  --lf-platinum: #E8E8E8;
+  --lf-iron: #4D4D4D;
+  --lf-accent-orange: #F26522;
+  --lf-accent-warm-gold: #FFCC80; /* WCAG-safe warm accent on dark-teal (4.75:1) — BRAND-GUIDE §11.3 + UX-REM-WARM-GOLD-TOKEN */
+  --lf-white: #FFFFFF;
+
+  /* === Risk Severity (UX-DESIGN-SPEC §1.1) === */
+  --lf-risk-red: #D32F2F;
+  --lf-risk-amber: #F9A825;
+  --lf-risk-green: #2E7D32;
+
+  /* Score gauge (derived from risk) */
+  --score-excellent: var(--lf-risk-green);
+  --score-good: #65A30D;
+  --score-fair: var(--lf-risk-amber);
+  --score-poor: #EA580C;
+  --score-failing: var(--lf-risk-red);
+
+  /* Path diversity ratings */
+  --rating-a: var(--lf-risk-green);
+  --rating-b: #65A30D;
+  --rating-c: var(--lf-risk-amber);
+  --rating-d: #EA580C;
+  --rating-f: var(--lf-risk-red);
+
+  /* === Spacing Scale (UX-DESIGN-SPEC §1.4) === */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-xxl: 48px;
+
+  /* === Typography (UX-DESIGN-SPEC §1.3) === */
+  --font-primary: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* === Elevation (UX-DESIGN-SPEC Appendix A) === */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-dropdown: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-modal: 0 8px 24px rgba(0, 0, 0, 0.16);
+
+  /* === Border Radius (UX-DESIGN-SPEC Appendix A) === */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* === Layout (UX-DESIGN-SPEC §2.2) === */
+  --sidebar-width: 240px;
+  --header-height: 56px;
+
+  /* Legacy aliases (transitional — prefer spec tokens) */
+  --radius: var(--radius-md);
+  --shadow-sm: var(--shadow-card);
+  --shadow-md: var(--shadow-dropdown);
+}
+
+/* === Skip Navigation (UX-REM-A11Y-LANDMARKS §6, WCAG 2.4.1) === */
+.skip-nav {
+  position: absolute;
+  top: -100%;
+  left: var(--space-md);
+  z-index: 200;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--lf-dark-teal);
+  color: var(--lf-white);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  transition: top 0.2s;
+}
+
+.skip-nav:focus {
+  top: 0;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-primary);
+  background-color: var(--lf-platinum);
+  color: var(--lf-iron);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* App shell (UX-DESIGN-SPEC §2.2) */
+.app-header {
+  background: var(--lf-dark-teal);
+  color: var(--lf-white);
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-lg);
+  box-shadow: var(--shadow-dropdown);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.app-header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.app-header .brand-accent {
+  color: var(--lf-accent-warm-gold); /* UX-REM-WARM-GOLD-TOKEN: #FFCC80 on #006272 = 4.75:1 ✅ AA */
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.nav-tabs {
+  display: flex;
+  gap: 4px;
+  margin-left: 32px;
+}
+
+.nav-tabs a {
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.nav-tabs a:focus-visible {
+  outline: 2px solid var(--lf-white);
+  outline-offset: 2px;
+}
+
+.nav-tabs a:hover,
+.nav-tabs a.active {
+  color: var(--lf-white);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.nav-tabs a.active {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Page content */
+.page-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--space-lg);
+}
+
+/* KPI cards row (UX-DESIGN-SPEC §3.2) */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.kpi-card {
+  background: var(--lf-white);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  min-height: 96px;
+  box-shadow: var(--shadow-card);
+  border-left: 4px solid var(--lf-dark-teal);
+}
+
+.kpi-card.critical { border-left-color: var(--lf-risk-red); }
+.kpi-card.high { border-left-color: var(--lf-accent-orange); }
+.kpi-card.warning { border-left-color: var(--lf-risk-amber); }
+.kpi-card.success { border-left-color: var(--lf-risk-green); }
+
+.kpi-card .kpi-label {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(77, 77, 77, 0.8); /* --lf-iron at 80% opacity per §1.3 caption */
+  line-height: 1.4;
+  margin-bottom: var(--space-xs);
+}
+
+.kpi-card .kpi-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--lf-dark-teal);
+  line-height: 1.35;
+}
+
+.kpi-card .kpi-value.score {
+  color: var(--lf-dark-teal);
+}
+
+/* Data tables (UX-DESIGN-SPEC §3.3) */
+.data-table {
+  width: 100%;
+  background: var(--lf-white);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.data-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th {
+  background: var(--lf-dark-teal);
+  color: var(--lf-white);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 12px var(--space-md);
+  text-align: left;
+  cursor: default;
+  user-select: none;
+}
+
+.data-table th[aria-sort] {
+  cursor: pointer;
+}
+
+.data-table th[aria-sort]:focus-visible {
+  outline: 2px solid var(--lf-white);
+  outline-offset: -2px;
+  background: var(--lf-dark-teal-hover);
+}
+
+.data-table td {
+  padding: 12px var(--space-md);
+  font-size: 14px;
+  border-bottom: 1px solid var(--lf-platinum);
+}
+
+.data-table tbody tr:nth-child(even) {
+  background: var(--lf-platinum);
+}
+
+.data-table tbody tr:hover {
+  background: rgba(0, 98, 114, 0.05); /* --lf-dark-teal at 5% per §3.3 */
+}
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* UX-REM-CONTRAST-BADGES: Darker text for WCAG AA (≥4.5:1) on tinted backgrounds */
+.badge.critical { background: #FEE2E2; color: #991B1B; } /* 5.81:1 ✅ BUG-QA-018 */
+.badge.high { background: #FFEDD5; color: #9A3412; } /* 5.53:1 ✅ BUG-QA-018 */
+.badge.medium { background: #FEF3C7; color: #92400E; } /* 6.37:1 ✅ */
+.badge.low { background: #DCFCE7; color: var(--lf-risk-green); } /* 4.67:1 ✅ */
+
+.badge.pending { background: #FEF3C7; color: #92400E; }
+.badge.in_progress { background: #DBEAFE; color: #1E40AF; }
+.badge.completed { background: #DCFCE7; color: #166534; }
+.badge.dismissed { background: var(--lf-platinum); color: var(--lf-iron); }
+
+/* Score gauge (inline) */
+.score-gauge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.score-gauge .gauge-bar {
+  width: 60px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--lf-platinum);
+  overflow: hidden;
+}
+
+.score-gauge .gauge-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.score-gauge .gauge-fill.excellent { background: var(--score-excellent); }
+.score-gauge .gauge-fill.good { background: var(--score-good); }
+.score-gauge .gauge-fill.fair { background: var(--score-fair); }
+.score-gauge .gauge-fill.poor { background: var(--score-poor); }
+.score-gauge .gauge-fill.failing { background: var(--score-failing); }
+
+/* Rating pills */
+/* UX-REM-CONTRAST-PILLS: tinted-bg + dark-text for WCAG AA (≥4.5:1) */
+.rating-pill {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  line-height: 28px;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rating-pill.A { background: #DCFCE7; color: #166534; } /* 6.49:1 ✅ */
+.rating-pill.B { background: #ECFCCB; color: #3F6212; } /* 6.52:1 ✅ */
+.rating-pill.C { background: #FEF3C7; color: #92400E; } /* 6.37:1 ✅ */
+.rating-pill.D { background: #FFEDD5; color: #9A3412; } /* 6.38:1 ✅ */
+.rating-pill.F { background: #FEE2E2; color: #991B1B; } /* 6.80:1 ✅ */
+
+/* Action buttons */
+.btn {
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+  min-height: 36px;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: var(--lf-dark-teal);
+  color: var(--lf-white);
+}
+
+.btn-primary:hover {
+  background: var(--lf-dark-teal-hover);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--lf-dark-teal);
+  border: 1px solid var(--lf-dark-teal);
+}
+
+.btn-outline:hover {
+  background: rgba(0, 98, 114, 0.08);
+}
+
+.btn-danger {
+  background: var(--lf-risk-red);
+  color: var(--lf-white);
+}
+
+/* Section headers (UX-DESIGN-SPEC §1.3) */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-md);
+}
+
+.section-header h2 {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--lf-dark-teal);
+  line-height: 1.35;
+}
+
+/* Data source indicator */
+.data-source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.data-source-badge.mock {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.data-source-badge.live {
+  background: #DCFCE7;
+  color: #166534;
+}
+
+.data-source-badge .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.data-source-badge.mock .dot { background: var(--lf-risk-amber); }
+.data-source-badge.live .dot { background: var(--lf-risk-green); }
+
+/* === Hamburger Nav Toggle (visible <1024px, UX-REM-RESPONSIVE) === */
+.nav-hamburger {
+  display: none;
+  background: transparent;
+  border: none;
+  color: var(--lf-white);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: var(--space-sm);
+  margin-left: var(--space-sm);
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-hamburger:focus-visible {
+  outline: 2px solid var(--lf-white);
+  outline-offset: 2px;
+}
+
+/* === Global Focus Ring (UX-DESIGN-SPEC §4.1) === */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: 2px;
+}
+
+/* Monospace (IDs, codes) per §1.3 */
+.mono, code, .code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* === Reduced Motion (UX-DESIGN-SPEC §4.1) === */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* === Responsive Breakpoints (UX-DESIGN-SPEC §2 + UX-REM-RESPONSIVE) ===
+ * Mobile: <768px | Tablet: 768-1023px | Desktop: 1024-1439px | XL: ≥1440px
+ */
+
+/* Desktop (<1440px) — remove max-width constraint */
+@media (max-width: 1439px) {
+  .page-content {
+    max-width: 100%;
+  }
+}
+
+/* Tablet & below (<1024px) — hamburger nav, 2-col KPIs, table scroll */
+@media (max-width: 1023px) {
+  .nav-hamburger {
+    display: flex;
+  }
+
+  .nav-tabs {
+    display: none;
+    position: absolute;
+    top: var(--header-height);
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    background: var(--lf-dark-teal);
+    box-shadow: var(--shadow-dropdown);
+    margin-left: 0;
+    padding: var(--space-sm);
+    gap: 0;
+    z-index: 99;
+  }
+
+  .nav-tabs.open {
+    display: flex;
+  }
+
+  .nav-tabs a {
+    padding: var(--space-md);
+    border-radius: 0;
+    width: 100%;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .nav-tabs a:last-child {
+    border-bottom: none;
+  }
+
+  .app-header {
+    position: relative;
+  }
+
+  .kpi-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .data-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .data-table table {
+    min-width: 700px;
+  }
+}
+
+/* Mobile (<768px) — single column, compact header */
+@media (max-width: 767px) {
+  .app-header h1 {
+    font-size: 15px;
+  }
+
+  .app-header .brand-accent {
+    font-size: 15px;
+  }
+
+  .page-content {
+    padding: var(--space-md);
+  }
+
+  .kpi-row {
+    grid-template-columns: 1fr;
+  }
+
+  .section-header h2 {
+    font-size: 18px;
+  }
+
+  .score-gauge .gauge-bar {
+    width: 40px;
+  }
+
+  .kpi-card {
+    min-height: 80px;
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .rating-pill {
+    width: 44px;
+    height: 44px;
+    line-height: 44px;
+  }
+
+  /* BUG-QA-019: Pagination buttons must meet 44x44px touch target on mobile */
+  .pagination-bar button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .pagination-bar select {
+    min-height: 44px;
+  }
+}
+
+/* === Utility Classes (UX-REM-CSS-HYGIENE) === */
+.ml-auto { margin-left: auto; }
+.mt-lg { margin-top: var(--space-lg); }
+.mb-md { margin-bottom: var(--space-md); }
+.text-sm { font-size: 13px; }
+.text-caption { font-size: 13px; color: rgba(77, 77, 77, 0.8); }
+.text-medium { font-weight: 500; }
+.max-w-280 { max-width: 280px; }
+.filter-bar { display: flex; gap: 8px; margin-bottom: 16px; }
+.score-value { font-weight: 600; min-width: 32px; display: inline-block; }
+
+/* Action type cell — icon + label inline (UX-REM-ICONS, BRAND-GUIDE §6) */
+.action-type-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  white-space: nowrap;
+}
+
+.action-type-cell svg {
+  flex-shrink: 0;
+  color: inherit;
+}
+
+/* === Pagination (UX-REM-TABLE-UX) === */
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md);
+  border-top: 1px solid var(--lf-platinum);
+  font-size: 13px;
+  color: var(--lf-iron);
+}
+
+.pagination-bar .page-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.pagination-bar select {
+  padding: 4px 8px;
+  border: 1px solid var(--lf-platinum);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  background: var(--lf-white);
+}
+
+.pagination-bar button {
+  padding: 4px 10px;
+  border: 1px solid var(--lf-platinum);
+  border-radius: var(--radius-sm);
+  background: var(--lf-white);
+  cursor: pointer;
+  font-size: 13px;
+  min-height: 32px;
+}
+
+.pagination-bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pagination-bar button:not(:disabled):hover {
+  background: rgba(0, 98, 114, 0.06);
+}
+
+/* === Empty State (UX-REM-TABLE-UX) === */
+.empty-state {
+  text-align: center;
+  padding: var(--space-xxl) var(--space-lg);
+  color: rgba(77, 77, 77, 0.6);
+}
+
+.empty-state .empty-icon {
+  font-size: 48px;
+  margin-bottom: var(--space-md);
+  opacity: 0.4;
+}
+
+.empty-state p {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.empty-state .empty-hint {
+  font-size: 13px;
+  margin-top: var(--space-xs);
+}
+
+/* === Toast Notification (UX-REM-TABLE-UX) === */
+.toast-container {
+  position: fixed;
+  bottom: var(--space-lg);
+  right: var(--space-lg);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.toast-item {
+  background: var(--lf-dark-teal);
+  color: var(--lf-white);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+  font-size: 14px;
+  font-weight: 500;
+  animation: toast-slide-in 0.3s ease;
+}
+
+.toast-item.success { background: var(--lf-risk-green); }
+.toast-item.error { background: var(--lf-risk-red); }
+
+@keyframes toast-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* Loading skeleton pulse (UX-DESIGN-SPEC §5.1) */
+@keyframes skeleton-pulse {
+  0% { background-color: var(--lf-platinum); }
+  50% { background-color: var(--lf-white); }
+  100% { background-color: var(--lf-platinum); }
+}
+
+.skeleton-loading {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  border-radius: var(--radius-md);
+}
+
+/* Error banner (UX-DESIGN-SPEC §5.2) */
+.error-banner {
+  background: #FEF2F2;
+  border-left: 4px solid var(--lf-risk-red);
+  padding: var(--space-md);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-md);
+}
+
+/* Toast notification (UX-DESIGN-SPEC §5.3) */
+.toast {
+  position: fixed;
+  bottom: var(--space-lg);
+  right: var(--space-lg);
+  background: var(--lf-iron);
+  color: var(--lf-white);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+  z-index: 1000;
+  font-size: 14px;
+}

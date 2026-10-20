@@ -1,0 +1,41 @@
+# Provable Resilience Intelligence — CI Pipeline
+# Validates DAB config + runs lint/tests on every PR to develop or main
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  validate:
+    name: Bundle Validate + Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Validate DAB (dev)
+        working-directory: bundle
+        run: databricks bundle validate --target dev
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install ruff pytest
+          pip install -r bundle/requirements.txt
+
+      - name: Lint (ruff)
+        run: ruff check src/ apps/ pipeline/ tests/ --ignore E501
+
+      - name: Unit tests
+        run: pytest tests/ -v --tb=short

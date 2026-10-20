@@ -1,0 +1,14 @@
+# Provable Resilience Intelligence — Scorecard App
+# React/FastAPI resilience dashboard for Lakelink Fiber
+
+resources:
+  apps:
+    resilience_scorecard:
+      name: resilience-scorecard-${workspace.current_user.domain_friendly_name}
+      description: >-
+        Lakelink Fiber Provable Resilience Scorecard —
+        real-time resilience scores, SRLG analysis, proactive action queue
+      source_code_path: ../../apps/resilience-scorecard
+      # DEVOPS-BUNDLE-ROOT-RESTRUCTURE: databricks.yml at project root.
+      # source_code_path resolves relative to this yml file location (bundle/resources/).
+      # ../../apps/resilience-scorecard traverses up to project root then into apps/.

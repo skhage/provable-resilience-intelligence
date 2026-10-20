@@ -1,0 +1,59 @@
+# Provable Resilience Intelligence — Declarative Automation Bundle
+# Governed resilience scoring for Lakelink Fiber enterprise services
+# SID/TMForum-aligned data model on Databricks
+#
+# Bundle root is at the PROJECT ROOT so that all asset paths resolve:
+#   - Pipeline source:     bundle/pipeline/
+#   - App source:          apps/resilience-scorecard/
+#   - Dashboard JSON:      bundle/src/
+#   - CI/CD:               .github/workflows/
+#   - Tests:               tests/
+#   - Branch strategy:     BRANCH-STRATEGY.md
+#
+# Previous bundle root was bundle/databricks.yml. Moved here for
+# DEVOPS-BUNDLE-ROOT-RESTRUCTURE: DAB does not support ../ in
+# source_code_path, so the app resource could not reach apps/.
+
+bundle:
+  name: provable-resilience-intelligence
+  git:
+    origin_url: https://github.com/skhage/provable-resilience-intelligence.git
+    branch: main
+
+include:
+  - bundle/resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for all tables
+    default: cdm_tmforum
+  schema:
+    description: Schema for resilience intelligence assets
+    default: provable_resilience_intelligence
+  warehouse_id:
+    description: SQL warehouse for queries and dashboards
+    lookup:
+      warehouse: Serverless Starter Warehouse
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      root_path: /Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: cdm_tmforum
+      schema: provable_resilience_intelligence
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: cdm_tmforum
+      schema: provable_resilience_intelligence
+    # WARNING: /Shared root path is writable by all workspace users.
+    # After creating the service principal, uncomment run_as AND
+    # change root_path to /Workspace/Users/<sp-name>/.bundle/...
+    # run_as:
+    #   service_principal_name: provable-resilience-prod
