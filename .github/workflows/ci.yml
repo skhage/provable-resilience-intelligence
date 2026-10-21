@@ -34,7 +34,7 @@ jobs:
           pip install -r bundle/requirements.txt
 
       - name: Lint (ruff)
-        run: ruff check src/ apps/ pipeline/ tests/ --ignore E501
+        run: ruff check src/ apps/ bundle/pipeline/ pipelines/ tests/ --ignore E501
 
       - name: Unit tests
         run: pytest tests/ -v --tb=short
