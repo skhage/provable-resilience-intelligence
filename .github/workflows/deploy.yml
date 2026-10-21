@@ -19,7 +19,6 @@ jobs:
         uses: databricks/setup-cli@main
 
       - name: Deploy bundle (dev)
-        working-directory: bundle
         run: databricks bundle deploy --target dev
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
@@ -37,7 +36,6 @@ jobs:
         uses: databricks/setup-cli@main
 
       - name: Deploy bundle (prod)
-        working-directory: bundle
         run: databricks bundle deploy --target prod
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}

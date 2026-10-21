@@ -26,6 +26,11 @@ ENV/
 .databricks/
 bundle/.databricks/
 
+# Superseded bundle files (DAB root moved to project root)
+bundle/databricks.yml
+bundle/resources/resilience_dashboard.dashboard.yml
+bundle/dashboards/.gitkeep
+
 # OS
 .DS_Store
 Thumbs.db
@@ -48,6 +53,11 @@ data/*.json
 # MLflow artifacts
 mlruns/
 mlartifacts/
+
+# MLflow model registration markers (0-byte workspace refs)
+optical_anomaly_detection
+resilience_agent_evaluation
+span_risk_classification
 
 # Logs
 *.log

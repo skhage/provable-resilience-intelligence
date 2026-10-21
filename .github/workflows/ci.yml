@@ -18,7 +18,6 @@ jobs:
         uses: databricks/setup-cli@main
 
       - name: Validate DAB (dev)
-        working-directory: bundle
         run: databricks bundle validate --target dev
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
