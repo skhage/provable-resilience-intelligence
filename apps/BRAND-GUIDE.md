@@ -225,7 +225,21 @@ Switch from solid-bg + white-text to tinted-bg + dark-text for WCAG compliance:
 | D | `#9A3412` | `#FFEDD5` | 6.38:1 ✅ |
 | F | `#991B1B` | `#FEE2E2` | 6.80:1 ✅ |
 
-### 11.3 Brand Accent on Dark Header
+### 11.3 Hazard Type Badge Colors (HAZARD-VIS-SPEC §2)
+
+**Added 2026-10-21 Session 10** — 5 hazard types with tinted-bg + dark-text badges.
+
+| Hazard Type | Text Hex | Background Hex | Ratio |
+| --- | --- | --- | --- |
+| Severe Weather | `#7C2D12` | `#FFF7ED` | 8.83:1 ✅ AAA |
+| Earthquake | `#581C87` | `#FAF5FF` | 10.14:1 ✅ AAA |
+| Flood | `#1E3A5F` | `#EFF6FF` | 10.57:1 ✅ AAA |
+| Wildfire | `#991B1B` | `#FEF2F2` | 7.60:1 ✅ AAA |
+| Dig Ticket | `#854D0E` | `#FEFCE8` | 6.62:1 ✅ AA |
+
+CSS tokens: `--lf-hazard-weather: #B45309`, `--lf-hazard-earthquake: #7C3AED`, `--lf-hazard-flood: #2563EB`, `--lf-hazard-wildfire: #DC2626`, `--lf-hazard-dig: #CA8A04`
+
+### 11.4 Brand Accent on Dark Header
 
 Orange `#F26522` on dark-teal `#006272` = 2.23:1 — **fails ALL WCAG levels**.
 Use one of these for the `.brand-accent` text on the dark-teal header:

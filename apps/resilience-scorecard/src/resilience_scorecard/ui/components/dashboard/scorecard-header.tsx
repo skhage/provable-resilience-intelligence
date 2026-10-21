@@ -95,7 +95,7 @@ export function ScorecardHeader() {
           <Suspense
             fallback={
               <div className="kpi-row" aria-busy="true" aria-label="Loading KPI summary">
-                {Array.from({ length: 8 }).map((_, i) => (
+                {Array.from({ length: 9 }).map((_, i) => ( /* BUG-DW-034: match 9 KPI cards including Revenue at Risk */
                   <Skeleton key={i} className="h-24 w-full rounded-lg" />
                 ))}
               </div>

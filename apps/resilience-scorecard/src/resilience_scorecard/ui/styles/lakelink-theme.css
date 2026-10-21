@@ -279,7 +279,7 @@ body {
 .badge.pending { background: #FEF3C7; color: #92400E; }
 .badge.in_progress { background: #DBEAFE; color: #1E40AF; }
 .badge.completed { background: #DCFCE7; color: #166534; }
-.badge.dismissed { background: var(--lf-platinum); color: var(--lf-iron); }
+.badge.cancelled { background: var(--lf-platinum); color: var(--lf-iron); }
 
 /* Score gauge (inline) */
 .score-gauge {
@@ -592,7 +592,7 @@ select:focus-visible,
 .mt-lg { margin-top: var(--space-lg); }
 .mb-md { margin-bottom: var(--space-md); }
 .text-sm { font-size: 13px; }
-.text-caption { font-size: 13px; color: rgba(77, 77, 77, 0.8); }
+.text-caption { font-size: 13px; color: #4D4D4D; } /* BUG-DW-033: solid iron — 6.90:1 on platinum, 8.45:1 on white — AAA ✅ */
 .text-medium { font-weight: 500; }
 .max-w-280 { max-width: 280px; }
 .filter-bar { display: flex; gap: 8px; margin-bottom: 16px; }

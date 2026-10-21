@@ -110,7 +110,7 @@ function ActionTableContent() {
     <>
       {/* Status filter tabs (UX-REM-A11Y-LANDMARKS §5 + UX-REM-A11Y-FILTER-PRESSED) */}
       <div role="group" aria-label="Status filters" className="filter-bar">
-        {[undefined, "pending", "in_progress", "completed", "dismissed"].map((s) => (
+        {[undefined, "pending", "in_progress", "completed", "cancelled"].map((s) => (
           <button
             key={s ?? "all"}
             className={`btn ${statusFilter === s ? "btn-primary" : "btn-outline"}`}

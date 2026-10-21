@@ -43,7 +43,7 @@ class ActionStatus(str, Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
-    DISMISSED = "dismissed"
+    CANCELLED = "cancelled"
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +120,7 @@ class ActionQueueSummaryOut(BaseModel):
     pending_count: int
     in_progress_count: int
     completed_count: int
-    dismissed_count: int
+    cancelled_count: int
     critical_pending: int
 
 

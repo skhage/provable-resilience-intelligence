@@ -94,7 +94,7 @@ SELECT
   SUM(CASE WHEN r.overall_score >= 60 AND r.overall_score < 75 THEN 1 ELSE 0 END) AS medium_risk_count,
   SUM(CASE WHEN r.overall_score >= 75 THEN 1 ELSE 0 END)  AS low_risk_count,
   CAST(SUM(r.active_alarms) AS BIGINT)               AS total_single_point_failures,
-  CAST(COUNT(DISTINCT r.srlg_count) AS INT)          AS total_srlg_groups,
+  (SELECT CAST(COUNT(DISTINCT srlg_id) AS INT) FROM shared_risk_group) AS total_srlg_groups,
   ROUND(SUM(r.revenue_at_risk_usd), 2)               AS total_revenue_at_risk_usd
 FROM resilience_score_snapshot r
 """
@@ -343,10 +343,7 @@ class CatalogSqlService:
         if rows is None:
             return None
 
-        # Normalize status: UC uses 'cancelled', frontend expects 'dismissed'
-        for r in rows:
-            if r.get("status") == "cancelled":
-                r["status"] = "dismissed"
+        # BUG-DW-030: No normalization needed — UI now uses 'cancelled' to match UC data
 
         # Apply filters
         if status_filter:
@@ -364,7 +361,7 @@ class CatalogSqlService:
               SUM(CASE WHEN status = 'pending'     THEN 1 ELSE 0 END) AS pending_count,
               SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress_count,
               SUM(CASE WHEN status = 'completed'   THEN 1 ELSE 0 END) AS completed_count,
-              SUM(CASE WHEN status IN ('cancelled','dismissed') THEN 1 ELSE 0 END) AS dismissed_count,
+              SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_count,
               SUM(CASE WHEN status = 'pending' AND priority = 'critical' THEN 1 ELSE 0 END) AS critical_pending
             FROM proactive_action
         """
@@ -377,6 +374,6 @@ class CatalogSqlService:
             "pending_count": int(row.get("pending_count", 0)),
             "in_progress_count": int(row.get("in_progress_count", 0)),
             "completed_count": int(row.get("completed_count", 0)),
-            "dismissed_count": int(row.get("dismissed_count", 0)),
+            "cancelled_count": int(row.get("cancelled_count", 0)),
             "critical_pending": int(row.get("critical_pending", 0)),
         }

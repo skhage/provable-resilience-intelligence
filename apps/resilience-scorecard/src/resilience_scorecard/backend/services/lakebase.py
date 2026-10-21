@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS proactive_actions (
     service_name    TEXT NOT NULL,
     risk_trigger    TEXT NOT NULL,
     priority        TEXT NOT NULL DEFAULT 'medium',  -- critical | high | medium | low
-    status          TEXT NOT NULL DEFAULT 'pending', -- pending | in_progress | completed | dismissed
+    status          TEXT NOT NULL DEFAULT 'pending', -- pending | in_progress | completed | cancelled
     assigned_to     TEXT,
     description     TEXT NOT NULL,
     resolution_notes TEXT,
@@ -208,7 +208,7 @@ class LakebaseActionClient:
                     COUNT(*) FILTER (WHERE status = 'pending') AS pending_count,
                     COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress_count,
                     COUNT(*) FILTER (WHERE status = 'completed') AS completed_count,
-                    COUNT(*) FILTER (WHERE status = 'dismissed') AS dismissed_count,
+                    COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled_count,
                     COUNT(*) FILTER (WHERE status = 'pending' AND priority = 'critical') AS critical_pending
                 FROM proactive_actions
             """)

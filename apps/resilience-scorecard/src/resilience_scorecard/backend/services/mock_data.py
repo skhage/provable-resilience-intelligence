@@ -117,13 +117,10 @@ def generate_mock_summary(scores: list[dict]) -> dict:
     """Derive summary stats from mock scores."""
     levels = {"critical": 0, "high": 0, "medium": 0, "low": 0}
     total_spf = 0
-    srlg_ids: set[int] = set()
-
     for s in scores:
         level = _risk_level(s["resilience_score"])
         levels[level] += 1
         total_spf += s["single_point_failures"]
-        srlg_ids.add(s["srlg_count"])
 
     return {
         "total_services": len(scores),
@@ -133,7 +130,7 @@ def generate_mock_summary(scores: list[dict]) -> dict:
         "medium_risk_count": levels["medium"],
         "low_risk_count": levels["low"],
         "total_single_point_failures": total_spf,
-        "total_srlg_groups": len(srlg_ids),
+        "total_srlg_groups": 809,  # BUG-DW-031: realistic mock matching shared_risk_group table count
         "total_revenue_at_risk_usd": round(sum(s.get("revenue_at_risk_usd", 0) for s in scores), 2),
     }
 
@@ -196,7 +193,7 @@ def generate_mock_actions() -> list[dict]:
 
 def generate_mock_action_summary(actions: list[dict]) -> dict:
     """Derive action queue summary from mock actions."""
-    counts = {"pending": 0, "in_progress": 0, "completed": 0, "dismissed": 0}
+    counts = {"pending": 0, "in_progress": 0, "completed": 0, "cancelled": 0}
     crit_pending = 0
     for a in actions:
         counts[a["status"]] = counts.get(a["status"], 0) + 1
@@ -208,6 +205,6 @@ def generate_mock_action_summary(actions: list[dict]) -> dict:
         "pending_count": counts["pending"],
         "in_progress_count": counts["in_progress"],
         "completed_count": counts["completed"],
-        "dismissed_count": counts["dismissed"],
+        "cancelled_count": counts["cancelled"],
         "critical_pending": crit_pending,
     }
