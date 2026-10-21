@@ -364,6 +364,14 @@ body {
   outline-offset: 2px;
 }
 
+/* BUG-DW-035: Visual disabled feedback for all .btn variants */
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .btn-primary {
   background: var(--lf-dark-teal);
   color: var(--lf-white);
@@ -662,6 +670,49 @@ select:focus-visible,
 @keyframes hazard-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
+}
+
+/* Hazard detail expandable row (HAZARD-VIS-SPEC §5) */
+.hazard-detail-row td {
+  padding: 0 var(--space-md) var(--space-md) var(--space-md);
+  background: rgba(0, 98, 114, 0.03);
+  border-bottom: 1px solid var(--lf-platinum);
+}
+
+.hazard-detail-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-sm) var(--space-md);
+  padding: var(--space-sm) 0;
+  font-size: 13px;
+}
+
+.hazard-detail-content .detail-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(77, 77, 77, 0.7);
+  margin-bottom: 2px;
+}
+
+.hazard-detail-content .detail-value {
+  color: var(--lf-iron);
+  font-weight: 500;
+}
+
+.expand-toggle {
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  cursor: pointer;
+  color: var(--lf-dark-teal);
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+}
+
+.expand-toggle:hover {
+  background: rgba(0, 98, 114, 0.08);
 }
 
 /* === Pagination (UX-REM-TABLE-UX) === */

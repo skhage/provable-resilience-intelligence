@@ -119,6 +119,54 @@ SELECT
 FROM resilience_score_snapshot r
 """
 
+_HAZARD_LIST_SQL = """
+SELECT
+  h.hazard_id,
+  h.hazard_type,
+  COALESCE(h.description, CONCAT(UPPER(REPLACE(h.hazard_type, '_', ' ')), ' near ', ROUND(h.latitude, 2), ', ', ROUND(h.longitude, 2))) AS name,
+  COALESCE(h.severity, 'medium') AS severity,
+  CONCAT(ROUND(h.latitude, 2), '\u00b0N, ', ROUND(ABS(h.longitude), 2), '\u00b0W') AS location,
+  COALESCE(hz_cnt.spans_affected, 0) AS spans_affected,
+  CASE WHEN h.event_end IS NULL THEN TRUE ELSE FALSE END AS is_active,
+  COALESCE(h.created_at, h.event_start) AS last_update
+FROM geographic_hazard_event h
+LEFT JOIN (
+  SELECT hazard_id, CAST(COUNT(DISTINCT span_id) AS INT) AS spans_affected
+  FROM hazard_span_proximity
+  WHERE distance_km < 25
+  GROUP BY hazard_id
+) hz_cnt ON hz_cnt.hazard_id = h.hazard_id
+WHERE h.event_end IS NULL
+ORDER BY
+  CASE COALESCE(h.severity, 'medium')
+    WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
+  COALESCE(h.created_at, h.event_start) DESC
+LIMIT 200
+"""
+
+_HAZARD_SUMMARY_SQL = """
+SELECT
+  (SELECT COUNT(*) FROM geographic_hazard_event WHERE event_end IS NULL) AS active_hazards,
+  (SELECT COUNT(DISTINCT p.span_id)
+   FROM hazard_span_proximity p
+   JOIN geographic_hazard_event h ON p.hazard_id = h.hazard_id
+   WHERE h.event_end IS NULL AND p.distance_km < 5) AS spans_at_risk,
+  (SELECT COUNT(DISTINCT sp.service_id)
+   FROM hazard_span_proximity p
+   JOIN geographic_hazard_event h ON p.hazard_id = h.hazard_id
+   JOIN service_path sp ON p.span_id = sp.span_id
+   WHERE h.event_end IS NULL AND p.distance_km < 5) AS services_impacted,
+  (SELECT COALESCE(ROUND(SUM(si.mrc_usd * 12), 2), 0)
+   FROM service_inventory si
+   WHERE si.service_id IN (
+     SELECT DISTINCT sp.service_id
+     FROM hazard_span_proximity p
+     JOIN geographic_hazard_event h ON p.hazard_id = h.hazard_id
+     JOIN service_path sp ON p.span_id = sp.span_id
+     WHERE h.event_end IS NULL AND p.distance_km < 5
+   )) AS revenue_exposed_usd
+"""
+
 _ACTIONS_SQL = """
 SELECT
   a.action_id,
@@ -136,11 +184,33 @@ SELECT
   a.trigger_reason     AS description,
   a.resolution_notes,
   a.created_at,
-  COALESCE(a.resolved_at, a.created_at) AS updated_at
+  COALESCE(a.resolved_at, a.created_at) AS updated_at,
+  -- Hazard context (HAZARD-VIS-SPEC §5) via span_id → nearest active hazard
+  hz.hazard_type,
+  hz.description       AS hazard_name,
+  hz.severity          AS hazard_severity,
+  hz_cnt.spans_affected AS hazard_spans_affected,
+  hz.latitude          AS hazard_latitude,
+  hz.longitude         AS hazard_longitude,
+  hz.created_at        AS hazard_last_update
 FROM proactive_action a
 JOIN service_inventory s       ON a.service_id = s.service_id
 LEFT JOIN geographic_site ga   ON s.site_a_id  = ga.site_id
 LEFT JOIN geographic_site gz   ON s.site_z_id  = gz.site_id
+LEFT JOIN (
+  SELECT p.span_id, p.hazard_id,
+         ROW_NUMBER() OVER (PARTITION BY p.span_id ORDER BY p.distance_km) AS rn
+  FROM hazard_span_proximity p
+  JOIN geographic_hazard_event h ON p.hazard_id = h.hazard_id
+  WHERE h.event_end IS NULL AND p.distance_km < 25
+) nearest_hz ON nearest_hz.span_id = a.span_id AND nearest_hz.rn = 1
+LEFT JOIN geographic_hazard_event hz ON nearest_hz.hazard_id = hz.hazard_id
+LEFT JOIN (
+  SELECT hazard_id, CAST(COUNT(DISTINCT span_id) AS INT) AS spans_affected
+  FROM hazard_span_proximity
+  WHERE distance_km < 25
+  GROUP BY hazard_id
+) hz_cnt ON hz_cnt.hazard_id = nearest_hz.hazard_id
 ORDER BY
   CASE a.priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
   a.created_at DESC
@@ -332,6 +402,30 @@ class CatalogSqlService:
         score = row.get("resilience_score", 0) or 0
         row["path_diversity_rating"] = _score_to_rating(score)
         return row
+
+    def get_hazard_list(self) -> list[dict] | None:
+        """Return active hazard events for the hazard summary table."""
+        rows = self._execute(_HAZARD_LIST_SQL)
+        if rows is None:
+            return None
+        # Ensure boolean for is_active
+        for r in rows:
+            r["is_active"] = bool(r.get("is_active", False))
+            r["spans_affected"] = int(r.get("spans_affected", 0))
+        return rows
+
+    def get_hazard_summary(self) -> dict | None:
+        """Return hazard KPI summary: active hazards, spans at risk, services impacted, revenue exposed."""
+        rows = self._execute(_HAZARD_SUMMARY_SQL)
+        if rows is None or len(rows) == 0:
+            return None
+        row = rows[0]
+        return {
+            "active_hazards": int(row.get("active_hazards", 0)),
+            "spans_at_risk": int(row.get("spans_at_risk", 0)),
+            "services_impacted": int(row.get("services_impacted", 0)),
+            "revenue_exposed_usd": float(row.get("revenue_exposed_usd", 0) or 0),
+        }
 
     def list_actions(
         self,

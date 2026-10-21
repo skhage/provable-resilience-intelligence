@@ -3,7 +3,7 @@
  * Shows pending/in-progress actions with status update buttons.
  * State is persisted in Lakebase Postgres.
  */
-import { Suspense, useState, useCallback, useEffect } from "react";
+import { Suspense, useState, useCallback, useEffect, Fragment } from "react";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,8 +21,12 @@ import {
   AlertTriangle,
   Scissors,
   HelpCircle,
+  ChevronDown,
+  ChevronUp,
+  MapPin,
   type LucideIcon,
 } from "lucide-react";
+import { HazardTypeCell } from "@/components/hazards";
 
 /** Lucide icon per action type — brand guide §6: 1.5px stroke, 16px inline */
 const ICON_PROPS = { size: 16, strokeWidth: 1.5, "aria-hidden": true as const } as const;
@@ -73,6 +77,16 @@ function ActionTableContent() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
   const [toasts, setToasts] = useState<Array<{ id: number; message: string; variant: string }>>([]);
+  const [expandedActions, setExpandedActions] = useState<Set<string>>(new Set());
+
+  const toggleExpand = useCallback((actionId: string) => {
+    setExpandedActions((prev) => {
+      const next = new Set(prev);
+      if (next.has(actionId)) next.delete(actionId);
+      else next.add(actionId);
+      return next;
+    });
+  }, []);
   const { data: actions } = useListActionsSuspense({
     params: { status_filter: statusFilter },
     ...selector(),
@@ -153,52 +167,126 @@ function ActionTableContent() {
                   (safeCurrentPage - 1) * pageSize,
                   safeCurrentPage * pageSize,
                 );
-              })().map((a) => (
-                <tr key={a.action_id}>
-                  <td>
-                    <span title={a.action_type} className="action-type-cell">
-                      {(() => {
-                        const Icon = ACTION_TYPE_ICONS[a.action_type] ?? HelpCircle;
-                        return <Icon {...ICON_PROPS} />;
-                      })()}
-                      {" "}{a.action_type.replace(/_/g, " ")}
-                    </span>
-                  </td>
-                  <td className="text-medium">{a.service_name}</td>
-                  <td className="text-sm max-w-280">{a.risk_trigger}</td>
-                  <td>
-                    <span className={`badge ${a.priority}`}>{a.priority}</span>
-                  </td>
-                  <td>
-                    <span className={`badge ${a.status}`}>
-                      {a.status.replace("_", " ")}
-                    </span>
-                  </td>
-                  <td>{a.assigned_to ?? "—"}</td>
-                  <td>
-                    {a.status === "pending" && (
-                      <button
-                        className="btn btn-primary"
-                        disabled={isPending}
-                        onClick={() => handleStatusChange(a.action_id, "in_progress")}
-                        aria-label={`Start action for ${a.service_name}`}
-                      >
-                        Start
-                      </button>
+              })().map((a) => {
+                const hasHazard = !!a.hazard_type;
+                const isExpanded = expandedActions.has(a.action_id);
+                return (
+                  <Fragment key={a.action_id}>
+                    <tr>
+                      <td>
+                        <span title={a.action_type} className="action-type-cell">
+                          {(() => {
+                            const Icon = ACTION_TYPE_ICONS[a.action_type] ?? HelpCircle;
+                            return <Icon {...ICON_PROPS} />;
+                          })()}
+                          {" "}{a.action_type.replace(/_/g, " ")}
+                        </span>
+                      </td>
+                      <td className="text-medium">
+                        {a.service_name}
+                        {hasHazard && (
+                          <button
+                            className="expand-toggle ml-auto"
+                            onClick={() => toggleExpand(a.action_id)}
+                            aria-expanded={isExpanded}
+                            aria-label={`${isExpanded ? "Collapse" : "Expand"} hazard details for ${a.service_name}`}
+                          >
+                            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </button>
+                        )}
+                      </td>
+                      <td className="text-sm max-w-280">{a.risk_trigger}</td>
+                      <td>
+                        <span className={`badge ${a.priority}`}>{a.priority}</span>
+                      </td>
+                      <td>
+                        <span className={`badge ${a.status}`}>
+                          {a.status.replace("_", " ")}
+                        </span>
+                      </td>
+                      <td>{a.assigned_to ?? "—"}</td>
+                      <td>
+                        {a.status === "pending" && (
+                          <button
+                            className="btn btn-primary"
+                            disabled={isPending}
+                            onClick={() => handleStatusChange(a.action_id, "in_progress")}
+                            aria-label={`Start action for ${a.service_name}`}
+                          >
+                            Start
+                          </button>
+                        )}
+                        {a.status === "in_progress" && (
+                          <button
+                            className="btn btn-primary"
+                            disabled={isPending}
+                            onClick={() => handleStatusChange(a.action_id, "completed")}
+                            aria-label={`Complete action for ${a.service_name}`}
+                          >
+                            Complete
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {/* HAZARD-VIS-SPEC §5: Expandable hazard detail row */}
+                    {hasHazard && isExpanded && (
+                      <tr className="hazard-detail-row">
+                        <td colSpan={7}>
+                          <div className="hazard-detail-content">
+                            <div>
+                              <div className="detail-label">Hazard</div>
+                              <div className="detail-value">
+                                <HazardTypeCell type={a.hazard_type!} animated />
+                              </div>
+                            </div>
+                            <div>
+                              <div className="detail-label">Event</div>
+                              <div className="detail-value">{a.hazard_name ?? "—"}</div>
+                            </div>
+                            <div>
+                              <div className="detail-label">Severity</div>
+                              <div className="detail-value">
+                                <span className={`badge severity-${a.hazard_severity}`}>
+                                  {a.hazard_severity}
+                                </span>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="detail-label">Spans Affected</div>
+                              <div className="detail-value">{a.hazard_spans_affected ?? "—"}</div>
+                            </div>
+                            {a.hazard_latitude != null && a.hazard_longitude != null && (
+                              <div>
+                                <div className="detail-label">Coordinates</div>
+                                <div className="detail-value mono">
+                                  <MapPin size={12} strokeWidth={1.5} aria-hidden className="" />{" "}
+                                  {a.hazard_latitude.toFixed(2)}°, {a.hazard_longitude.toFixed(2)}°
+                                </div>
+                              </div>
+                            )}
+                            {a.hazard_containment_pct != null && (
+                              <div>
+                                <div className="detail-label">Containment</div>
+                                <div className="detail-value">{a.hazard_containment_pct}%</div>
+                              </div>
+                            )}
+                            {a.hazard_last_update && (
+                              <div>
+                                <div className="detail-label">Last Update</div>
+                                <div className="detail-value">
+                                  <time dateTime={String(a.hazard_last_update)}>
+                                    {new Date(String(a.hazard_last_update)).toLocaleString()}
+                                  </time>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                    {a.status === "in_progress" && (
-                      <button
-                        className="btn btn-primary"
-                        disabled={isPending}
-                        onClick={() => handleStatusChange(a.action_id, "completed")}
-                        aria-label={`Complete action for ${a.service_name}`}
-                      >
-                        Complete
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
 

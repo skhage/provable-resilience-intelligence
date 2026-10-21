@@ -105,6 +105,15 @@ class ProactiveActionOut(BaseModel):
     resolution_notes: str | None = None
     created_at: datetime
     updated_at: datetime
+    # Hazard context (HAZARD-VIS-SPEC §5) — populated when action is hazard-triggered
+    hazard_type: str | None = Field(default=None, description="Hazard type key (e.g. wildfire, flood)")
+    hazard_name: str | None = Field(default=None, description="Hazard event description/name")
+    hazard_severity: str | None = Field(default=None, description="Hazard severity: critical|high|medium|low")
+    hazard_spans_affected: int | None = Field(default=None, description="Span count in proximity zone")
+    hazard_latitude: float | None = Field(default=None, description="Hazard epicenter latitude")
+    hazard_longitude: float | None = Field(default=None, description="Hazard epicenter longitude")
+    hazard_containment_pct: float | None = Field(default=None, description="Containment % (wildfire)")
+    hazard_last_update: datetime | None = Field(default=None, description="Last hazard event update")
 
 
 class ActionStatusUpdate(BaseModel):
@@ -122,6 +131,30 @@ class ActionQueueSummaryOut(BaseModel):
     completed_count: int
     cancelled_count: int
     critical_pending: int
+
+
+# ---------------------------------------------------------------------------
+# Hazard Summary Models (HAZARD-VIS-SPEC §6.1)
+# ---------------------------------------------------------------------------
+
+class HazardListItemOut(BaseModel):
+    """Single hazard event for the hazard summary table (HAZARD-VIS-SPEC §6.2)."""
+    hazard_id: str
+    hazard_type: str
+    name: str
+    severity: str
+    location: str
+    spans_affected: int = Field(ge=0)
+    is_active: bool
+    last_update: datetime
+
+
+class HazardSummaryOut(BaseModel):
+    """Hazard dashboard KPI summary — active hazards impacting the Lakelink Fiber network."""
+    active_hazards: int = Field(ge=0, description="Count of geographic hazard events with no end date")
+    spans_at_risk: int = Field(ge=0, description="Distinct spans within direct impact zone (<5 km)")
+    services_impacted: int = Field(ge=0, description="Distinct services with at least one span at risk")
+    revenue_exposed_usd: float = Field(ge=0, description="Annual revenue exposed (MRC×12) for impacted services")
 
 
 # ---------------------------------------------------------------------------

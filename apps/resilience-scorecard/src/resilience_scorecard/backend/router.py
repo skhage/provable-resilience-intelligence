@@ -15,6 +15,8 @@ from .core import Dependencies
 from .models import (
     ActionQueueSummaryOut,
     ActionStatusUpdate,
+    HazardListItemOut,
+    HazardSummaryOut,
     HealthOut,
     ProactiveActionOut,
     ResilienceScoreOut,
@@ -24,6 +26,8 @@ from .models import (
 from .services.mock_data import (
     generate_mock_actions,
     generate_mock_action_summary,
+    generate_mock_hazard_list,
+    generate_mock_hazard_summary,
     generate_mock_scores,
     generate_mock_summary,
 )
@@ -172,6 +176,51 @@ def get_service_score(service_id: str, csql: Dependencies.CatalogSql):
         if s["service_id"] == service_id:
             return s
     raise HTTPException(status_code=404, detail=f"Service {service_id} not found")
+
+
+# ---------------------------------------------------------------------------
+# Hazard Summary (HAZARD-VIS-SPEC §6.1)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/hazards",
+    response_model=list[HazardListItemOut],
+    operation_id="listHazards",
+)
+def list_hazards(csql: Dependencies.CatalogSql):
+    """List active hazard events for the hazard summary table (HAZARD-VIS-SPEC §6.2)."""
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            hazards = csql.get_hazard_list()
+            if hazards is not None:
+                return hazards
+        except Exception:
+            logger.warning("Live hazard list failed, falling back to mock", exc_info=True)
+
+    return generate_mock_hazard_list()
+
+
+@router.get(
+    "/hazards/summary",
+    response_model=HazardSummaryOut,
+    operation_id="getHazardSummary",
+)
+def get_hazard_summary(csql: Dependencies.CatalogSql):
+    """Hazard KPI summary: active hazards, spans at risk, services impacted, revenue exposed.
+
+    Uses live geographic_hazard_event and hazard_span_proximity gold tables.
+    Falls back to mock data when tables are unavailable.
+    """
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            summary = csql.get_hazard_summary()
+            if summary is not None:
+                return summary
+        except Exception:
+            logger.warning("Live hazard summary failed, falling back to mock", exc_info=True)
+
+    return generate_mock_hazard_summary()
 
 
 # ---------------------------------------------------------------------------

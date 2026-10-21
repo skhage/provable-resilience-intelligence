@@ -10,3 +10,5 @@ export {
   ICON_PROPS,
 } from "./hazard-type-cell";
 export type { HazardTypeCellProps } from "./hazard-type-cell";
+export { HazardKpiRow } from "./hazard-kpi-row";
+export { HazardSummaryTable } from "./hazard-summary-table";
