@@ -279,6 +279,7 @@ class CatalogSqlService:
             "low_risk_count": int(row.get("low_risk_count", 0)),
             "total_single_point_failures": int(row.get("total_single_point_failures", 0)),
             "total_srlg_groups": int(row.get("total_srlg_groups", 0)),
+            "total_revenue_at_risk_usd": float(row.get("total_revenue_at_risk_usd", 0) or 0),
         }
 
     def get_risk_distribution(self) -> list[dict] | None:

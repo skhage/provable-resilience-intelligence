@@ -77,6 +77,7 @@ class ResilienceSummaryOut(BaseModel):
     low_risk_count: int
     total_single_point_failures: int
     total_srlg_groups: int
+    total_revenue_at_risk_usd: float | None = Field(default=None, description="Sum of monthly revenue at risk across all services (USD)")
 
 
 class RiskDistributionOut(BaseModel):

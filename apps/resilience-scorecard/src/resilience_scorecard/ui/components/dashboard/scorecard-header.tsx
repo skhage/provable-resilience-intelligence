@@ -61,6 +61,16 @@ function ScorecardHeaderContent() {
         <div className="kpi-label">Monitored Services</div>
         <div className="kpi-value">{summary.total_services}</div>
       </div>
+      {/* UX-REVENUE-DISPLAY: Core business metric (~$47.7M/year project value) */}
+      {summary.total_revenue_at_risk_usd != null && (
+        <div className="kpi-card critical"
+             role="group" aria-label={`Revenue at Risk: $${(summary.total_revenue_at_risk_usd / 1_000_000).toFixed(1)}M`}>
+          <div className="kpi-label">Revenue at Risk</div>
+          <div className="kpi-value">
+            ${(summary.total_revenue_at_risk_usd / 1_000_000).toFixed(1)}M
+          </div>
+        </div>
+      )}
     </div>
   );
 }

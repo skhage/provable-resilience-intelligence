@@ -107,6 +107,7 @@ def generate_mock_scores() -> list[dict]:
             "srlg_count": srlg,
             "single_point_failures": spf,
             "snapshot_timestamp": (now - timedelta(minutes=random.randint(0, 120))).isoformat(),
+            "revenue_at_risk_usd": round(random.uniform(50_000, 800_000), 2),
         })
 
     return scores
@@ -133,6 +134,7 @@ def generate_mock_summary(scores: list[dict]) -> dict:
         "low_risk_count": levels["low"],
         "total_single_point_failures": total_spf,
         "total_srlg_groups": len(srlg_ids),
+        "total_revenue_at_risk_usd": round(sum(s.get("revenue_at_risk_usd", 0) for s in scores), 2),
     }
 
 
