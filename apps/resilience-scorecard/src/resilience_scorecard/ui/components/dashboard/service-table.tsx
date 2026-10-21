@@ -59,7 +59,7 @@ function ServiceTableContent() {
     return (
       <div className="data-table">
         <div className="empty-state">
-          <div className="empty-icon" aria-hidden="true">📊</div>
+          <div className="empty-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
           <p>No services found</p>
           <p className="empty-hint">Service data has not been loaded yet.</p>
         </div>
@@ -173,7 +173,7 @@ export function ServiceTable() {
         <ErrorBoundary
           onReset={reset}
           fallbackRender={({ resetErrorBoundary }) => (
-            <div className="data-table" style={{ padding: 24 }}>
+            <div className="data-table error-fallback">
               <p>Failed to load service scores</p>
               <button className="btn btn-outline" onClick={resetErrorBoundary}>
                 Retry

@@ -28,6 +28,7 @@ class AppConfig(BaseSettings):
     )
     catalog: str = Field(default="cdm_tmforum")
     schema_name: str = Field(default="provable_resilience_intelligence", alias="schema")
+    warehouse_id: str = Field(default="7b65956f30d66feb")  # Serverless Starter Warehouse
 
 
 # ---------------------------------------------------------------------------
@@ -43,9 +44,15 @@ def _get_lakebase_client(request: Request):
     return request.app.state.lakebase_client
 
 
+def _get_catalog_sql(request: Request):
+    """Return the CatalogSqlService from app state."""
+    return request.app.state.catalog_sql
+
+
 class Dependencies:
     Config = Annotated[AppConfig, Depends(_get_config)]
     LakebaseClient = Annotated[object, Depends(_get_lakebase_client)]  # typed loosely to avoid circular import
+    CatalogSql = Annotated[object, Depends(_get_catalog_sql)]
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +79,15 @@ def create_app(routers: list[APIRouter], lifespan=None) -> FastAPI:
         lb_client = LakebaseActionClient(config)
         app.state.lakebase_client = lb_client
         logger.info("Lakebase action client initialized (host=%s)", config.lakebase_host)
+
+        # Initialize Unity Catalog SQL service for live scorecard data
+        from .services.catalog_sql import CatalogSqlService
+        catalog_sql = CatalogSqlService(config)
+        app.state.catalog_sql = catalog_sql
+        logger.info(
+            "CatalogSqlService initialized (available=%s, warehouse=%s)",
+            catalog_sql.is_available, config.warehouse_id,
+        )
 
         if lifespan:
             async with lifespan(app):

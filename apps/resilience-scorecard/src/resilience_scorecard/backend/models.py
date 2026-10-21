@@ -30,7 +30,13 @@ class PathDiversityRating(str, Enum):
 class ActionType(str, Enum):
     REROUTE = "reroute"
     DISPATCH = "dispatch"
+    DISPATCH_CREW = "dispatch_crew"
     NOTIFY = "notify"
+    NOTIFY_CUSTOMER = "notify_customer"
+    ESCALATE = "escalate"
+    ESCALATE_NOC = "escalate_noc"
+    PREPOSITION = "preposition"
+    PREPOSITION_SPLICE = "preposition_splice"
 
 
 class ActionStatus(str, Enum):
@@ -58,6 +64,7 @@ class ResilienceScoreOut(BaseModel):
     srlg_count: int = Field(ge=0)
     single_point_failures: int = Field(ge=0)
     snapshot_timestamp: datetime
+    revenue_at_risk_usd: float | None = Field(default=None, description="Monthly revenue at risk in USD")
 
 
 class ResilienceSummaryOut(BaseModel):

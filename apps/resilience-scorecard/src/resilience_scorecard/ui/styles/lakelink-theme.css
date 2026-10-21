@@ -135,7 +135,7 @@ body {
 }
 
 .nav-tabs a {
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.78); /* BUG-DW-026: 4.27:1→4.92:1 WCAG AA */
   text-decoration: none;
   padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
@@ -413,6 +413,11 @@ body {
 
 .data-source-badge.mock .dot { background: var(--lf-risk-amber); }
 .data-source-badge.live .dot { background: var(--lf-risk-green); }
+
+/* Error fallback padding — UX-REM-POLISH-FINAL: replaced inline style={{ padding: 24 }} */
+.error-fallback {
+  padding: var(--space-lg);
+}
 
 /* === Hamburger Nav Toggle (visible <1024px, UX-REM-RESPONSIVE) === */
 .nav-hamburger {

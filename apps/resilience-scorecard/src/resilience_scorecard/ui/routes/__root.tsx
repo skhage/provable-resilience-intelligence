@@ -16,6 +16,15 @@ function RootLayout() {
   const routerState = useRouterState();
   const isActions = routerState.location.pathname === "/actions";
 
+  // Fetch data source from health endpoint
+  const [dataSource, setDataSource] = useState<string>("loading");
+  useEffect(() => {
+    fetch("/api/health")
+      .then((r) => r.json())
+      .then((d) => setDataSource(d.data_source ?? "mock"))
+      .catch(() => setDataSource("mock"));
+  }, []);
+
   useEffect(() => {
     document.documentElement.lang = "en";
   }, []);
@@ -63,9 +72,11 @@ function RootLayout() {
           </Link>
         </nav>
         <div className="ml-auto">
-          <span className={`data-source-badge ${isActions ? "live" : "mock"}`} role="status">
+          <span className={`data-source-badge ${dataSource === "live" ? "live" : "mock"}`} role="status">
             <span className="dot" aria-hidden="true" />
-            {isActions ? "Lakebase State" : "Mock Data"}
+            {dataSource === "live"
+              ? (isActions ? "Lakebase State" : "Live Data")
+              : "Mock Data"}
           </span>
         </div>
       </header>
