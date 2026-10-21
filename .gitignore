@@ -58,6 +58,7 @@ mlartifacts/
 optical_anomaly_detection
 resilience_agent_evaluation
 span_risk_classification
+ml_score_recalibration
 
 # Logs
 *.log
