@@ -516,7 +516,8 @@ select:focus-visible,
   }
 
   .app-header {
-    position: relative;
+    position: sticky; /* UX-STICKY-HEADER-TABLET: restored sticky — was relative, which broke scroll persistence */
+    top: 0;
   }
 
   .kpi-row {
@@ -658,7 +659,7 @@ select:focus-visible,
 .empty-state {
   text-align: center;
   padding: var(--space-xxl) var(--space-lg);
-  color: rgba(77, 77, 77, 0.6);
+  color: rgba(77, 77, 77, 0.8); /* BUG-DW-027: 3.03:1→4.88:1 WCAG AA (effective #717171 on #FFF) */
 }
 
 .empty-state .empty-icon {

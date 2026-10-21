@@ -29,6 +29,27 @@ function RootLayout() {
     document.documentElement.lang = "en";
   }, []);
 
+  // BUG-DW-028: WCAG 2.4.2 — descriptive page title per route
+  useEffect(() => {
+    const titles: Record<string, string> = {
+      "/": "Resilience Scorecard | Lakelink Fiber",
+      "/actions": "Action Queue | Lakelink Fiber",
+    };
+    document.title =
+      titles[routerState.location.pathname] ??
+      "Provable Resilience Intelligence | Lakelink Fiber";
+  }, [routerState.location.pathname]);
+
+  // BUG-DW-029: WCAG 2.1.1 — Escape key closes hamburger nav
+  useEffect(() => {
+    if (!navOpen) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNavOpen(false);
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [navOpen]);
+
   return (
     <>
       {/* Skip-nav link (UX-REM-A11Y-LANDMARKS §6, WCAG 2.4.1) */}
