@@ -30,6 +30,7 @@ bundle/.databricks/
 bundle/databricks.yml
 bundle/resources/resilience_dashboard.dashboard.yml
 bundle/dashboards/.gitkeep
+bundle/dashboards/resilience_scorecard.lvdash.json
 
 # OS
 .DS_Store
