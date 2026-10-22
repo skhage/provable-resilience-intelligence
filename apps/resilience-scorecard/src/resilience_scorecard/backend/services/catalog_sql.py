@@ -167,6 +167,36 @@ SELECT
    )) AS revenue_exposed_usd
 """
 
+_CROSSWALK_SQL = """
+SELECT
+  hazard_type,
+  proximity_band,
+  CAST(COUNT(*) AS INT) AS intersection_count,
+  CAST(COUNT(DISTINCT span_id) AS INT) AS distinct_spans,
+  ROUND(AVG(affected_service_cnt), 1) AS avg_services_per_span,
+  ROUND(AVG(distance_km), 2) AS avg_distance_km
+FROM hazard_span_intersection
+GROUP BY hazard_type, proximity_band
+ORDER BY hazard_type,
+  CASE proximity_band
+    WHEN 'direct_impact' THEN 1
+    WHEN 'near_field' THEN 2
+    WHEN 'buffer_zone' THEN 3
+  END
+"""
+
+_CROSSWALK_SUMMARY_SQL = """
+SELECT
+  CAST(COUNT(*) AS INT) AS total_intersections,
+  CAST(COUNT(DISTINCT span_id) AS INT) AS distinct_spans_exposed,
+  (SELECT CAST(COUNT(*) AS INT) FROM physical_resource_span) AS total_spans,
+  CAST(SUM(CASE WHEN proximity_band = 'direct_impact' THEN 1 ELSE 0 END) AS INT) AS direct_impact_count,
+  CAST(SUM(CASE WHEN proximity_band = 'near_field' THEN 1 ELSE 0 END) AS INT) AS near_field_count,
+  CAST(SUM(CASE WHEN proximity_band = 'buffer_zone' THEN 1 ELSE 0 END) AS INT) AS buffer_zone_count,
+  CAST(COUNT(DISTINCT hazard_type) AS INT) AS hazard_types
+FROM hazard_span_intersection
+"""
+
 _ACTIONS_SQL = """
 SELECT
   a.action_id,
@@ -425,6 +455,52 @@ class CatalogSqlService:
             "spans_at_risk": int(row.get("spans_at_risk", 0)),
             "services_impacted": int(row.get("services_impacted", 0)),
             "revenue_exposed_usd": float(row.get("revenue_exposed_usd", 0) or 0),
+        }
+
+    # ------------------------------------------------------------------
+    # Hazard × Span Crosswalk (P10-APP-HAZARD-XWALK-VIEW)
+    # ------------------------------------------------------------------
+
+    def get_crosswalk(self, hazard_type: str | None = None) -> list[dict] | None:
+        """Return hazard×span crosswalk aggregated by type × proximity band."""
+        if hazard_type:
+            sql = f"""
+                SELECT
+                  hazard_type,
+                  proximity_band,
+                  CAST(COUNT(*) AS INT) AS intersection_count,
+                  CAST(COUNT(DISTINCT span_id) AS INT) AS distinct_spans,
+                  ROUND(AVG(affected_service_cnt), 1) AS avg_services_per_span,
+                  ROUND(AVG(distance_km), 2) AS avg_distance_km
+                FROM hazard_span_intersection
+                WHERE hazard_type = '{hazard_type}'
+                GROUP BY hazard_type, proximity_band
+                ORDER BY CASE proximity_band
+                    WHEN 'direct_impact' THEN 1
+                    WHEN 'near_field' THEN 2
+                    WHEN 'buffer_zone' THEN 3
+                  END
+            """
+            return self._execute(sql)
+        return self._execute(_CROSSWALK_SQL)
+
+    def get_crosswalk_summary(self) -> dict | None:
+        """Return KPI summary for the hazard crosswalk view."""
+        rows = self._execute(_CROSSWALK_SUMMARY_SQL)
+        if rows is None or len(rows) == 0:
+            return None
+        row = rows[0]
+        total_spans = max(int(row.get("total_spans", 1)), 1)
+        distinct_exposed = int(row.get("distinct_spans_exposed", 0))
+        return {
+            "total_intersections": int(row.get("total_intersections", 0)),
+            "distinct_spans_exposed": distinct_exposed,
+            "total_spans": total_spans,
+            "exposure_pct": round(distinct_exposed / total_spans * 100, 1),
+            "hazard_types": int(row.get("hazard_types", 0)),
+            "direct_impact_count": int(row.get("direct_impact_count", 0)),
+            "near_field_count": int(row.get("near_field_count", 0)),
+            "buffer_zone_count": int(row.get("buffer_zone_count", 0)),
         }
 
     def list_actions(

@@ -158,6 +158,32 @@ class HazardSummaryOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Hazard × Span Crosswalk Models (P10-APP-HAZARD-XWALK-VIEW)
+# ---------------------------------------------------------------------------
+
+class HazardCrosswalkRowOut(BaseModel):
+    """Single row in the hazard×span crosswalk aggregation (by type × proximity band)."""
+    hazard_type: str = Field(description="Normalized type: severe_weather|earthquake|flood|wildfire|dig_ticket")
+    proximity_band: str = Field(description="Distance band: direct_impact|near_field|buffer_zone")
+    intersection_count: int = Field(ge=0, description="Number of hazard×span intersection records")
+    distinct_spans: int = Field(ge=0, description="Distinct spans exposed in this bucket")
+    avg_services_per_span: float = Field(ge=0, description="Average services per affected span")
+    avg_distance_km: float = Field(ge=0, description="Average haversine distance in km")
+
+
+class HazardCrosswalkSummaryOut(BaseModel):
+    """KPI summary for the hazard×span crosswalk view."""
+    total_intersections: int = Field(ge=0, description="Total hazard×span intersection records")
+    distinct_spans_exposed: int = Field(ge=0, description="Distinct spans within any hazard zone")
+    total_spans: int = Field(ge=0, description="Total spans in the network")
+    exposure_pct: float = Field(ge=0, le=100, description="Percent of network spans exposed")
+    hazard_types: int = Field(ge=0, description="Distinct hazard types with intersections")
+    direct_impact_count: int = Field(ge=0, description="Intersections in direct_impact band (<1km)")
+    near_field_count: int = Field(ge=0, description="Intersections in near_field band (1-5km)")
+    buffer_zone_count: int = Field(ge=0, description="Intersections in buffer_zone band (5-radius_km)")
+
+
+# ---------------------------------------------------------------------------
 # Health / readiness
 # ---------------------------------------------------------------------------
 

@@ -237,6 +237,40 @@ def generate_mock_hazard_summary() -> dict:
     }
 
 
+def generate_mock_crosswalk() -> list[dict]:
+    """Mock hazard×span crosswalk data (aggregated by type × proximity band)."""
+    return [
+        {"hazard_type": "dig_ticket", "proximity_band": "direct_impact", "intersection_count": 74, "distinct_spans": 73, "avg_services_per_span": 69.8, "avg_distance_km": 0.62},
+        {"hazard_type": "dig_ticket", "proximity_band": "near_field", "intersection_count": 84, "distinct_spans": 83, "avg_services_per_span": 14.8, "avg_distance_km": 1.37},
+        {"hazard_type": "earthquake", "proximity_band": "direct_impact", "intersection_count": 10, "distinct_spans": 10, "avg_services_per_span": 4.3, "avg_distance_km": 0.65},
+        {"hazard_type": "earthquake", "proximity_band": "near_field", "intersection_count": 189, "distinct_spans": 188, "avg_services_per_span": 9.2, "avg_distance_km": 3.45},
+        {"hazard_type": "earthquake", "proximity_band": "buffer_zone", "intersection_count": 33722, "distinct_spans": 9656, "avg_services_per_span": 6.3, "avg_distance_km": 50.73},
+        {"hazard_type": "flood", "proximity_band": "direct_impact", "intersection_count": 12, "distinct_spans": 12, "avg_services_per_span": 4.2, "avg_distance_km": 0.64},
+        {"hazard_type": "flood", "proximity_band": "near_field", "intersection_count": 296, "distinct_spans": 290, "avg_services_per_span": 19.9, "avg_distance_km": 3.3},
+        {"hazard_type": "flood", "proximity_band": "buffer_zone", "intersection_count": 5235, "distinct_spans": 4005, "avg_services_per_span": 7.0, "avg_distance_km": 17.35},
+        {"hazard_type": "severe_weather", "proximity_band": "direct_impact", "intersection_count": 27, "distinct_spans": 27, "avg_services_per_span": 3.4, "avg_distance_km": 0.62},
+        {"hazard_type": "severe_weather", "proximity_band": "near_field", "intersection_count": 555, "distinct_spans": 520, "avg_services_per_span": 5.7, "avg_distance_km": 3.53},
+        {"hazard_type": "severe_weather", "proximity_band": "buffer_zone", "intersection_count": 24429, "distinct_spans": 9172, "avg_services_per_span": 7.4, "avg_distance_km": 25.63},
+        {"hazard_type": "wildfire", "proximity_band": "direct_impact", "intersection_count": 9, "distinct_spans": 9, "avg_services_per_span": 1.8, "avg_distance_km": 0.59},
+        {"hazard_type": "wildfire", "proximity_band": "near_field", "intersection_count": 386, "distinct_spans": 379, "avg_services_per_span": 6.5, "avg_distance_km": 3.48},
+        {"hazard_type": "wildfire", "proximity_band": "buffer_zone", "intersection_count": 14088, "distinct_spans": 7517, "avg_services_per_span": 7.4, "avg_distance_km": 25.57},
+    ]
+
+
+def generate_mock_crosswalk_summary() -> dict:
+    """Mock KPI summary for the hazard crosswalk view."""
+    return {
+        "total_intersections": 79116,
+        "distinct_spans_exposed": 10074,
+        "total_spans": 10092,
+        "exposure_pct": 99.8,
+        "hazard_types": 5,
+        "direct_impact_count": 132,
+        "near_field_count": 1510,
+        "buffer_zone_count": 77474,
+    }
+
+
 def generate_mock_action_summary(actions: list[dict]) -> dict:
     """Derive action queue summary from mock actions."""
     counts = {"pending": 0, "in_progress": 0, "completed": 0, "cancelled": 0}

@@ -15,6 +15,8 @@ from .core import Dependencies
 from .models import (
     ActionQueueSummaryOut,
     ActionStatusUpdate,
+    HazardCrosswalkRowOut,
+    HazardCrosswalkSummaryOut,
     HazardListItemOut,
     HazardSummaryOut,
     HealthOut,
@@ -26,6 +28,8 @@ from .models import (
 from .services.mock_data import (
     generate_mock_actions,
     generate_mock_action_summary,
+    generate_mock_crosswalk,
+    generate_mock_crosswalk_summary,
     generate_mock_hazard_list,
     generate_mock_hazard_summary,
     generate_mock_scores,
@@ -221,6 +225,60 @@ def get_hazard_summary(csql: Dependencies.CatalogSql):
             logger.warning("Live hazard summary failed, falling back to mock", exc_info=True)
 
     return generate_mock_hazard_summary()
+
+
+# ---------------------------------------------------------------------------
+# Hazard × Span Crosswalk (P10-APP-HAZARD-XWALK-VIEW)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/hazards/crosswalk",
+    response_model=list[HazardCrosswalkRowOut],
+    operation_id="listHazardCrosswalk",
+)
+def list_hazard_crosswalk(
+    csql: Dependencies.CatalogSql,
+    hazard_type: str | None = Query(None, description="Filter by hazard type"),
+):
+    """Return hazard×span crosswalk aggregated by type × proximity band.
+
+    Uses live hazard_span_intersection table (79K rows).
+    Falls back to mock data when unavailable.
+    """
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            rows = csql.get_crosswalk(hazard_type=hazard_type)
+            if rows is not None:
+                return rows
+        except Exception:
+            logger.warning("Live crosswalk failed, falling back to mock", exc_info=True)
+
+    data = generate_mock_crosswalk()
+    if hazard_type:
+        data = [d for d in data if d["hazard_type"] == hazard_type]
+    return data
+
+
+@router.get(
+    "/hazards/crosswalk/summary",
+    response_model=HazardCrosswalkSummaryOut,
+    operation_id="getHazardCrosswalkSummary",
+)
+def get_hazard_crosswalk_summary(csql: Dependencies.CatalogSql):
+    """KPI summary for the hazard×span crosswalk view.
+
+    Returns total intersections, exposure %, band breakdowns.
+    """
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            summary = csql.get_crosswalk_summary()
+            if summary is not None:
+                return summary
+        except Exception:
+            logger.warning("Live crosswalk summary failed, falling back to mock", exc_info=True)
+
+    return generate_mock_crosswalk_summary()
 
 
 # ---------------------------------------------------------------------------

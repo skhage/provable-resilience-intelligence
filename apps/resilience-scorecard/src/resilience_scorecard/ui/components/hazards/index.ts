@@ -1,6 +1,6 @@
 /**
  * Lakelink Fiber — Hazard visualization components
- * HAZARD-VIS-SPEC Phase 9 — barrel export
+ * HAZARD-VIS-SPEC Phase 9 + P10-APP-HAZARD-XWALK-VIEW — barrel export
  */
 export {
   HazardTypeCell,
@@ -12,3 +12,5 @@ export {
 export type { HazardTypeCellProps } from "./hazard-type-cell";
 export { HazardKpiRow } from "./hazard-kpi-row";
 export { HazardSummaryTable } from "./hazard-summary-table";
+export { HazardCrosswalkKpis } from "./hazard-crosswalk-kpis";
+export { HazardCrosswalkTable } from "./hazard-crosswalk-table";

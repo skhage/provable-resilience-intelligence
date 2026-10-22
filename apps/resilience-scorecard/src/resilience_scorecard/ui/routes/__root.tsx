@@ -15,6 +15,7 @@ function RootLayout() {
   const [navOpen, setNavOpen] = useState(false);
   const routerState = useRouterState();
   const isActions = routerState.location.pathname === "/actions";
+  const isHazards = routerState.location.pathname === "/hazards";
 
   // Fetch data source from health endpoint
   const [dataSource, setDataSource] = useState<string>("loading");
@@ -34,6 +35,7 @@ function RootLayout() {
     const titles: Record<string, string> = {
       "/": "Resilience Scorecard | Lakelink Fiber",
       "/actions": "Action Queue | Lakelink Fiber",
+      "/hazards": "Hazard Exposure | Lakelink Fiber",
     };
     document.title =
       titles[routerState.location.pathname] ??
@@ -91,12 +93,19 @@ function RootLayout() {
           >
             Action Queue
           </Link>
+          <Link
+            to="/hazards"
+            activeProps={{ className: "active", "aria-current": "page" as const }}
+            onClick={() => setNavOpen(false)}
+          >
+            Hazard Exposure
+          </Link>
         </nav>
         <div className="ml-auto">
           <span className={`data-source-badge ${dataSource === "live" ? "live" : "mock"}`} role="status">
             <span className="dot" aria-hidden="true" />
             {dataSource === "live"
-              ? (isActions ? "Lakebase State" : "Live Data")
+              ? (isActions ? "Lakebase State" : isHazards ? "Live Crosswalk" : "Live Data")
               : "Mock Data"}
           </span>
         </div>
