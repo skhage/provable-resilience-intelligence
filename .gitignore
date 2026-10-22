@@ -1,14 +1,41 @@
 # Provable Resilience Intelligence — .gitignore
+# Merged: project-specific rules + GitHub Python template (2026-10-22)
 
-# Python
+# Python byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
+*.py[codz]
 *$py.class
-*.egg-info/
-dist/
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
 build/
-*.egg
+develop-eggs/
+dist/
+downloads/
+eggs/
 .eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
 
 # Virtual environments
 .venv/
@@ -65,11 +92,21 @@ ml_score_recalibration
 *.log
 logs/
 
-# Test artifacts
+# Test / coverage artifacts
 .pytest_cache/
 htmlcov/
+.tox/
+.nox/
 .coverage
+.coverage.*
+.cache
+nosetests.xml
 coverage.xml
+*.cover
+*.py.cover
+*.lcov
+.hypothesis/
+cover/
 
 # Node.js (React app local builds)
 node_modules/
@@ -82,3 +119,29 @@ bundle/.bundle/
 
 # Spark checksum files
 *.crc
+
+# Type checkers
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# Linters
+.ruff_cache/
+
+# PyPI configuration
+.pypirc
+
+# Translations
+*.mo
+*.pot
+
+# Sphinx documentation
+docs/_build/
+
+# Streamlit
+.streamlit/secrets.toml
