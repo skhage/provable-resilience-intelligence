@@ -125,7 +125,7 @@
 
 | # | Issue | Severity | Task Code | Owner |
 | --- | --- | --- | --- | --- |
-| 1 | `--lf-lumen-orange` CSS variable violates branding mandate — visible in DevTools | HIGH | UX-REM-BRAND-ORANGE | @app-developer |
+| 1 | ~~`--lf-lumen-orange` CSS variable violates branding mandate~~ **RESOLVED** — renamed to `--lf-accent-orange` (BUG-QA-013 / UX-REM-BRAND-ORANGE) | ~~HIGH~~ | UX-REM-BRAND-ORANGE | @app-developer |
 | 2 | Sortable table header not keyboard-accessible (Enter/Space) | MEDIUM | UX-REM-A11Y-KEYBOARD-SORT | @app-developer |
 | 3 | Filter buttons missing `aria-pressed` toggle state | MEDIUM | UX-REM-A11Y-FILTER-PRESSED | @app-developer |
 | 4 | No skip-navigation link for keyboard users | LOW | UX-REM-A11Y-SKIP-NAV | @app-developer |
@@ -153,6 +153,7 @@
 | Touch targets | 44×44px minimum on mobile (btn, rating-pill) |
 | Reduced motion | `@media (prefers-reduced-motion: reduce)` suppresses all animations |
 | Brand tokens | --lf-dark-teal #006272, --lf-platinum #E8E8E8, --lf-iron #4D4D4D |
+| Accent orange | `--lf-lumen-orange` renamed to `--lf-accent-orange` per branding mandate (BUG-QA-013) |
 | Typography | Inter + JetBrains Mono font stacks, correct weight/size/line-height |
 | Spacing scale | xs=4px through xxl=48px, consistent usage |
 | Elevation | card/dropdown/modal shadow system |
