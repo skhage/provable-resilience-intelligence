@@ -33,7 +33,7 @@ variables:
   warehouse_id:
     description: SQL warehouse for queries and dashboards
     lookup:
-      warehouse: Serverless Starter Warehouse
+      warehouse: Serverless RT
 
 targets:
   dev:
