@@ -21,6 +21,7 @@ from .models import (
     HazardSummaryOut,
     HealthOut,
     ProactiveActionOut,
+    ProductOfferingOut,
     ResilienceScoreOut,
     ResilienceSummaryOut,
     RiskDistributionOut,
@@ -32,6 +33,7 @@ from .services.mock_data import (
     generate_mock_crosswalk_summary,
     generate_mock_hazard_list,
     generate_mock_hazard_summary,
+    generate_mock_product_offerings,
     generate_mock_scores,
     generate_mock_summary,
 )
@@ -225,6 +227,33 @@ def get_hazard_summary(csql: Dependencies.CatalogSql):
             logger.warning("Live hazard summary failed, falling back to mock", exc_info=True)
 
     return generate_mock_hazard_summary()
+
+
+# ---------------------------------------------------------------------------
+# Product Offerings (P10-APP-PRODUCT-VIEW-PREP)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/products",
+    response_model=list[ProductOfferingOut],
+    operation_id="listProductOfferings",
+)
+def list_product_offerings(csql: Dependencies.CatalogSql):
+    """Return Lakelink Fiber product catalog.
+
+    Maps service_type to commercial product names, SLA tiers, and bandwidth options.
+    Uses live product_offering table when available, falls back to mock.
+    """
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            rows = csql.list_product_offerings()
+            if rows is not None:
+                return rows
+        except Exception:
+            logger.warning("Live product offerings failed, falling back to mock", exc_info=True)
+
+    return generate_mock_product_offerings()
 
 
 # ---------------------------------------------------------------------------

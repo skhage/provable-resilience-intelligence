@@ -167,6 +167,38 @@ SELECT
    )) AS revenue_exposed_usd
 """
 
+_PRODUCT_OFFERINGS_SQL = """
+SELECT
+  product_offering_id,
+  service_type,
+  product_name,
+  product_category,
+  network_technology,
+  technology_domain,
+  sla_tier_default,
+  bandwidth_options,
+  is_diverse_eligible,
+  mrc_range_usd
+FROM product_offering
+ORDER BY product_category, service_type
+"""
+
+_PRODUCT_OFFERINGS_SQL = """
+SELECT
+  product_offering_id,
+  service_type,
+  product_name,
+  product_category,
+  network_technology,
+  technology_domain,
+  sla_tier_default,
+  bandwidth_options,
+  is_diverse_eligible,
+  mrc_range_usd
+FROM product_offering
+ORDER BY product_category, service_type
+"""
+
 _CROSSWALK_SQL = """
 SELECT
   hazard_type,
@@ -456,6 +488,32 @@ class CatalogSqlService:
             "services_impacted": int(row.get("services_impacted", 0)),
             "revenue_exposed_usd": float(row.get("revenue_exposed_usd", 0) or 0),
         }
+
+    # ------------------------------------------------------------------
+    # Product Offerings (P10-APP-PRODUCT-VIEW-PREP)
+    # ------------------------------------------------------------------
+
+    def list_product_offerings(self) -> list[dict] | None:
+        """Return Lakelink Fiber product offerings from UC."""
+        rows = self._execute(_PRODUCT_OFFERINGS_SQL)
+        if rows is None:
+            return None
+        for r in rows:
+            r["is_diverse_eligible"] = bool(r.get("is_diverse_eligible", False))
+        return rows
+
+    # ------------------------------------------------------------------
+    # Product Offerings (P10-APP-PRODUCT-VIEW-PREP)
+    # ------------------------------------------------------------------
+
+    def list_product_offerings(self) -> list[dict] | None:
+        """Return Lakelink Fiber product offerings from UC."""
+        rows = self._execute(_PRODUCT_OFFERINGS_SQL)
+        if rows is None:
+            return None
+        for r in rows:
+            r["is_diverse_eligible"] = bool(r.get("is_diverse_eligible", False))
+        return rows
 
     # ------------------------------------------------------------------
     # Hazard × Span Crosswalk (P10-APP-HAZARD-XWALK-VIEW)

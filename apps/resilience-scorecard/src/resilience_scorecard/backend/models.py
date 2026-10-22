@@ -158,6 +158,24 @@ class HazardSummaryOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Product Offering Models (P10-APP-PRODUCT-VIEW-PREP)
+# ---------------------------------------------------------------------------
+
+class ProductOfferingOut(BaseModel):
+    """Lakelink Fiber product offering aligned to TMF product catalog."""
+    product_offering_id: str = Field(description="Unique product offering ID")
+    service_type: str = Field(description="Network service type: wavelength|ethernet|dark_fiber|ip_vpn|managed_security")
+    product_name: str = Field(description="Commercial product name as marketed by Lakelink Fiber")
+    product_category: str = Field(description="Product family grouping")
+    network_technology: str = Field(description="Underlying network technology")
+    technology_domain: str = Field(description="TMF SID technology domain")
+    sla_tier_default: str = Field(description="Default SLA tier: standard|premium|premium_plus")
+    bandwidth_options: str = Field(description="Comma-separated bandwidth tiers")
+    is_diverse_eligible: bool = Field(description="Supports path diversity")
+    mrc_range_usd: str = Field(description="Monthly recurring charge range (min-max)")
+
+
+# ---------------------------------------------------------------------------
 # Hazard × Span Crosswalk Models (P10-APP-HAZARD-XWALK-VIEW)
 # ---------------------------------------------------------------------------
 

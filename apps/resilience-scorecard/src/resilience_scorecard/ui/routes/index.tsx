@@ -10,6 +10,7 @@
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { ScorecardHeader } from "@/components/dashboard/scorecard-header";
+import { ProductCatalog } from "@/components/dashboard/product-catalog";
 import { HazardKpiRow, HazardSummaryTable } from "@/components/hazards";
 import { ServiceTable } from "@/components/dashboard/service-table";
 
@@ -40,6 +41,16 @@ function DashboardPage() {
           <h2>Service Detail</h2>
         </div>
         <ServiceTable />
+      </section>
+
+      <section aria-label="Product catalog" className="mt-lg">
+        <div className="section-header">
+          <h2>Product Catalog</h2>
+          <p style={{ color: "var(--lf-iron)", fontSize: "0.875rem", margin: "4px 0 0" }}>
+            Lakelink Fiber product offerings mapped to service types, SLA tiers, and bandwidth options.
+          </p>
+        </div>
+        <ProductCatalog />
       </section>
     </>
   );

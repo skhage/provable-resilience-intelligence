@@ -237,6 +237,17 @@ def generate_mock_hazard_summary() -> dict:
     }
 
 
+def generate_mock_product_offerings() -> list[dict]:
+    """Mock Lakelink Fiber product offerings (5 products matching UC table)."""
+    return [
+        {"product_offering_id": "PROD-WL-001", "service_type": "wavelength", "product_name": "Lakelink Fiber WaveConnect", "product_category": "optical_transport", "network_technology": "DWDM", "technology_domain": "optical", "sla_tier_default": "premium_plus", "bandwidth_options": "10G,40G,100G,400G", "is_diverse_eligible": True, "mrc_range_usd": "2000-15000"},
+        {"product_offering_id": "PROD-ETH-001", "service_type": "ethernet", "product_name": "Lakelink Fiber EtherLink", "product_category": "packet_services", "network_technology": "Carrier_Ethernet", "technology_domain": "packet", "sla_tier_default": "premium", "bandwidth_options": "100M,1G,10G,100G", "is_diverse_eligible": True, "mrc_range_usd": "500-8000"},
+        {"product_offering_id": "PROD-DF-001", "service_type": "dark_fiber", "product_name": "Lakelink Fiber DarkPath", "product_category": "physical_infrastructure", "network_technology": "Dark_Fiber", "technology_domain": "physical", "sla_tier_default": "standard", "bandwidth_options": "unlimited", "is_diverse_eligible": True, "mrc_range_usd": "1500-12000"},
+        {"product_offering_id": "PROD-VPN-001", "service_type": "ip_vpn", "product_name": "Lakelink Fiber CloudVPN", "product_category": "ip_services", "network_technology": "MPLS_IP", "technology_domain": "ip", "sla_tier_default": "premium", "bandwidth_options": "50M,100M,1G,10G", "is_diverse_eligible": True, "mrc_range_usd": "800-6000"},
+        {"product_offering_id": "PROD-SEC-001", "service_type": "managed_security", "product_name": "Lakelink Fiber SecureEdge", "product_category": "security_services", "network_technology": "SD_WAN_SASE", "technology_domain": "security", "sla_tier_default": "premium_plus", "bandwidth_options": "100M,1G,10G", "is_diverse_eligible": False, "mrc_range_usd": "1200-10000"},
+    ]
+
+
 def generate_mock_crosswalk() -> list[dict]:
     """Mock hazard×span crosswalk data (aggregated by type × proximity band)."""
     return [
