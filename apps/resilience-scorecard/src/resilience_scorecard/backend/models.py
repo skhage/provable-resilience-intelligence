@@ -205,6 +205,55 @@ class HazardCrosswalkSummaryOut(BaseModel):
 # Health / readiness
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Topology Models (TOPOLOGY-VIS-SPEC §10, §13)
+# ---------------------------------------------------------------------------
+
+
+class TopologyRegionSummaryOut(BaseModel):
+    """Region-level topology summary for the overview graph."""
+    region: str = Field(description="Lakelink Fiber operational region")
+    site_count: int = Field(ge=0, description="Total active sites in region")
+    tier_1_count: int = Field(ge=0, description="Backbone COs and DCs")
+    tier_2_count: int = Field(ge=0, description="Regional COs and DCs")
+    tier_3_count: int = Field(ge=0, description="Access sites (huts, customer premises)")
+    co_count: int = Field(ge=0, description="Central offices")
+    dc_count: int = Field(ge=0, description="Data centers")
+    conduit_count: int = Field(ge=0, description="Active conduits touching this region")
+    span_count: int = Field(ge=0, description="Active spans in this region")
+
+
+class TopologySiteOut(BaseModel):
+    """Site node for the topology graph."""
+    site_id: str = Field(description="Unique site identifier")
+    site_name: str = Field(description="Human-readable site name")
+    site_type: str = Field(description="central_office | data_center | customer_premise | hut")
+    clli_code: str | None = Field(default=None, description="CLLI code")
+    latitude: float = Field(description="WGS84 latitude")
+    longitude: float = Field(description="WGS84 longitude")
+    city: str = Field(description="City name")
+    state: str = Field(description="US state abbreviation")
+    region: str = Field(description="Operational region")
+    tier: str | None = Field(default=None, description="tier_1 | tier_2 | tier_3")
+    conduit_count: int = Field(ge=0, description="Connected conduit count")
+
+
+class TopologyConduitOut(BaseModel):
+    """Conduit edge for the topology graph."""
+    conduit_id: str = Field(description="Unique conduit identifier")
+    conduit_name: str | None = Field(default=None, description="Route label")
+    corridor: str | None = Field(default=None, description="Named corridor (e.g. I-70, US-36)")
+    conduit_type: str = Field(description="underground | aerial | submarine | direct_buried")
+    length_km: float = Field(ge=0, description="Route length in km")
+    site_a_id: str = Field(description="A-end site")
+    site_z_id: str = Field(description="Z-end site")
+    span_count: int = Field(ge=0, description="Number of active spans in conduit")
+
+
+# ---------------------------------------------------------------------------
+# Health / readiness
+# ---------------------------------------------------------------------------
+
 class HealthOut(BaseModel):
     status: str = "ok"
     lakebase_connected: bool

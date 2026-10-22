@@ -25,6 +25,9 @@ from .models import (
     ResilienceScoreOut,
     ResilienceSummaryOut,
     RiskDistributionOut,
+    TopologyConduitOut,
+    TopologyRegionSummaryOut,
+    TopologySiteOut,
 )
 from .services.mock_data import (
     generate_mock_actions,
@@ -308,6 +311,81 @@ def get_hazard_crosswalk_summary(csql: Dependencies.CatalogSql):
             logger.warning("Live crosswalk summary failed, falling back to mock", exc_info=True)
 
     return generate_mock_crosswalk_summary()
+
+
+# ---------------------------------------------------------------------------
+# Network Topology (TOPOLOGY-VIS-SPEC §10, §13)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/topology/regions",
+    response_model=list[TopologyRegionSummaryOut],
+    operation_id="listTopologyRegions",
+)
+def list_topology_regions(csql: Dependencies.CatalogSql):
+    """Region-level topology summary for the overview graph.
+
+    Returns 4 rows (West, Central, East, Southeast) with site/conduit/span counts.
+    TOPOLOGY-VIS-SPEC §10.2 — initial load payload (<5KB).
+    """
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            regions = csql.get_topology_regions()
+            if regions is not None:
+                return regions
+        except Exception:
+            logger.warning("Live topology regions failed, falling back to empty", exc_info=True)
+
+    return []
+
+
+@router.get(
+    "/topology/sites",
+    response_model=list[TopologySiteOut],
+    operation_id="listTopologySites",
+)
+def list_topology_sites(
+    csql: Dependencies.CatalogSql,
+    region: str = Query(..., description="Region name (West, Central, East, Southeast)"),
+):
+    """Tier-1 and tier-2 sites in a region for the drill-in view.
+
+    TOPOLOGY-VIS-SPEC §10.2 — lazy-loaded on region drill-in.
+    """
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            sites = csql.get_topology_sites(region)
+            if sites is not None:
+                return sites
+        except Exception:
+            logger.warning("Live topology sites failed for %s", region, exc_info=True)
+
+    return []
+
+
+@router.get(
+    "/topology/conduits",
+    response_model=list[TopologyConduitOut],
+    operation_id="listTopologyConduits",
+)
+def list_topology_conduits(
+    csql: Dependencies.CatalogSql,
+    region: str = Query(..., description="Region name"),
+):
+    """Conduits between tier-1/tier-2 sites in a region.
+
+    TOPOLOGY-VIS-SPEC §10.2 — lazy-loaded on region drill-in.
+    """
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            conduits = csql.get_topology_conduits(region)
+            if conduits is not None:
+                return conduits
+        except Exception:
+            logger.warning("Live topology conduits failed for %s", region, exc_info=True)
+
+    return []
 
 
 # ---------------------------------------------------------------------------

@@ -229,6 +229,95 @@ SELECT
 FROM hazard_span_intersection
 """
 
+# ---------------------------------------------------------------------------
+# Topology SQL (TOPOLOGY-VIS-SPEC §10, §13)
+# ---------------------------------------------------------------------------
+
+_TOPOLOGY_REGIONS_SQL = """
+SELECT
+  s.region,
+  CAST(COUNT(*) AS INT) AS site_count,
+  CAST(SUM(CASE WHEN s.tier = 'tier_1' THEN 1 ELSE 0 END) AS INT) AS tier_1_count,
+  CAST(SUM(CASE WHEN s.tier = 'tier_2' THEN 1 ELSE 0 END) AS INT) AS tier_2_count,
+  CAST(SUM(CASE WHEN s.tier = 'tier_3' THEN 1 ELSE 0 END) AS INT) AS tier_3_count,
+  CAST(SUM(CASE WHEN s.site_type = 'central_office' THEN 1 ELSE 0 END) AS INT) AS co_count,
+  CAST(SUM(CASE WHEN s.site_type = 'data_center' THEN 1 ELSE 0 END) AS INT) AS dc_count,
+  COALESCE(rc.conduit_count, 0) AS conduit_count,
+  COALESCE(rs.span_count, 0) AS span_count
+FROM geographic_site s
+LEFT JOIN (
+  SELECT sa.region, CAST(COUNT(DISTINCT c.conduit_id) AS INT) AS conduit_count
+  FROM physical_resource_conduit c
+  JOIN geographic_site sa ON c.site_a_id = sa.site_id
+  WHERE c.is_active = TRUE
+  GROUP BY sa.region
+) rc ON rc.region = s.region
+LEFT JOIN (
+  SELECT sa.region, CAST(COUNT(DISTINCT sp.span_id) AS INT) AS span_count
+  FROM physical_resource_span sp
+  JOIN geographic_site sa ON sp.site_a_id = sa.site_id
+  WHERE sp.is_active = TRUE
+  GROUP BY sa.region
+) rs ON rs.region = s.region
+WHERE s.is_active = TRUE
+GROUP BY s.region, rc.conduit_count, rs.span_count
+ORDER BY s.region
+"""
+
+_TOPOLOGY_SITES_SQL = """
+SELECT
+  s.site_id,
+  s.site_name,
+  s.site_type,
+  s.clli_code,
+  s.latitude,
+  s.longitude,
+  s.city,
+  s.state,
+  s.region,
+  s.tier,
+  CAST(COALESCE(ca.cnt, 0) + COALESCE(cz.cnt, 0) AS INT) AS conduit_count
+FROM geographic_site s
+LEFT JOIN (
+  SELECT site_a_id AS sid, COUNT(*) AS cnt
+  FROM physical_resource_conduit WHERE is_active = TRUE
+  GROUP BY site_a_id
+) ca ON ca.sid = s.site_id
+LEFT JOIN (
+  SELECT site_z_id AS sid, COUNT(*) AS cnt
+  FROM physical_resource_conduit WHERE is_active = TRUE
+  GROUP BY site_z_id
+) cz ON cz.sid = s.site_id
+WHERE s.is_active = TRUE AND s.region = '{region}'
+  AND s.tier IN ('tier_1', 'tier_2')
+ORDER BY s.tier, s.site_name
+"""
+
+_TOPOLOGY_CONDUITS_SQL = """
+SELECT
+  c.conduit_id,
+  c.conduit_name,
+  c.corridor,
+  c.conduit_type,
+  ROUND(c.length_km, 1) AS length_km,
+  c.site_a_id,
+  c.site_z_id,
+  CAST(COALESCE(sp_cnt.cnt, 0) AS INT) AS span_count
+FROM physical_resource_conduit c
+JOIN geographic_site sa ON c.site_a_id = sa.site_id
+JOIN geographic_site sz ON c.site_z_id = sz.site_id
+LEFT JOIN (
+  SELECT conduit_id, COUNT(*) AS cnt
+  FROM physical_resource_span WHERE is_active = TRUE
+  GROUP BY conduit_id
+) sp_cnt ON sp_cnt.conduit_id = c.conduit_id
+WHERE c.is_active = TRUE
+  AND (sa.region = '{region}' OR sz.region = '{region}')
+  AND sa.tier IN ('tier_1', 'tier_2')
+  AND sz.tier IN ('tier_1', 'tier_2')
+ORDER BY c.length_km DESC
+"""
+
 _ACTIONS_SQL = """
 SELECT
   a.action_id,
@@ -579,6 +668,49 @@ class CatalogSqlService:
         if priority_filter:
             rows = [r for r in rows if r.get("priority") == priority_filter]
 
+        return rows
+
+    # ------------------------------------------------------------------
+    # Topology endpoints (TOPOLOGY-VIS-SPEC §10, §13)
+    # ------------------------------------------------------------------
+
+    def get_topology_regions(self) -> list[dict] | None:
+        """Return region-level topology summary (4 rows)."""
+        rows = self._execute(_TOPOLOGY_REGIONS_SQL)
+        if rows is None:
+            return None
+        for r in rows:
+            r["site_count"] = int(r.get("site_count", 0))
+            r["tier_1_count"] = int(r.get("tier_1_count", 0))
+            r["tier_2_count"] = int(r.get("tier_2_count", 0))
+            r["tier_3_count"] = int(r.get("tier_3_count", 0))
+            r["co_count"] = int(r.get("co_count", 0))
+            r["dc_count"] = int(r.get("dc_count", 0))
+            r["conduit_count"] = int(r.get("conduit_count", 0))
+            r["span_count"] = int(r.get("span_count", 0))
+        return rows
+
+    def get_topology_sites(self, region: str) -> list[dict] | None:
+        """Return tier_1+tier_2 sites in a region for drill-in view."""
+        sql = _TOPOLOGY_SITES_SQL.replace("{region}", region.replace("'", "''"))
+        rows = self._execute(sql)
+        if rows is None:
+            return None
+        for r in rows:
+            r["conduit_count"] = int(r.get("conduit_count", 0))
+            r["latitude"] = float(r.get("latitude", 0))
+            r["longitude"] = float(r.get("longitude", 0))
+        return rows
+
+    def get_topology_conduits(self, region: str) -> list[dict] | None:
+        """Return conduits between tier_1+tier_2 sites in a region."""
+        sql = _TOPOLOGY_CONDUITS_SQL.replace("{region}", region.replace("'", "''"))
+        rows = self._execute(sql)
+        if rows is None:
+            return None
+        for r in rows:
+            r["span_count"] = int(r.get("span_count", 0))
+            r["length_km"] = float(r.get("length_km", 0))
         return rows
 
     def get_action_summary(self) -> dict | None:
