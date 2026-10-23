@@ -41,11 +41,11 @@
   --rating-d: #EA580C;
   --rating-f: var(--lf-risk-red);
 
-  /* Diversity status (TOPOLOGY-VIS-SPEC §2.1) */
-  --lf-diversity-full: #16A34A;
-  --lf-diversity-partial: #D97706;
+  /* Diversity status (TOPOLOGY-VIS-SPEC §2.1) — BUG-QA-054: synced with DIVERSITY_COLORS (BUG-DW-057 fix) */
+  --lf-diversity-full: #15803D;
+  --lf-diversity-partial: #B45309;
   --lf-diversity-single: #DC2626;
-  --lf-diversity-unknown: #9CA3AF;
+  --lf-diversity-unknown: #6B7280;
 
   /* === Spacing Scale (UX-DESIGN-SPEC §1.4) === */
   --space-xs: 4px;
@@ -1464,7 +1464,328 @@ select:focus-visible,
   color: #6B7280;
 }
 
-/* Hazard overlay marker animation */
+/* Hazard overlay markers (BUG-DW-056: a11y — keyboard + screen reader accessible) */
 .hazard-overlay-marker {
-  pointer-events: none;
+  pointer-events: auto; /* was none — now focusable for keyboard/SR access */
+  cursor: default;
+  outline: none;
+}
+
+.hazard-overlay-marker:focus-visible {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+
+/* ===================================================================
+   MOBILE TREE VIEW (TOPOLOGY-VIS-SPEC §6.2 — <768px fallback)
+   Accessible searchable tree replacing SVG graph on mobile.
+   =================================================================== */
+
+.topo-canvas-wrap--mobile {
+  min-height: auto;
+  padding: 0;
+}
+
+.mobile-tree-container {
+  padding: var(--space-sm);
+}
+
+/* Search input */
+.mobile-tree-search {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--lf-white);
+  padding: var(--space-sm) 0;
+}
+
+.mobile-tree-search-input {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: 2px solid var(--lf-platinum);
+  border-radius: var(--radius-md);
+  font-size: 16px; /* Prevents iOS zoom on focus */
+  font-family: inherit;
+  color: var(--lf-iron);
+  background: var(--lf-white);
+  min-height: 44px; /* Touch target §6.2 */
+  transition: border-color 0.15s ease;
+}
+
+.mobile-tree-search-input:focus {
+  outline: none;
+  border-color: var(--lf-dark-teal);
+  box-shadow: 0 0 0 3px rgba(0, 98, 114, 0.15);
+}
+
+.mobile-tree-search-input::placeholder {
+  color: var(--lf-iron);
+  opacity: 0.6;
+}
+
+/* Tree list */
+.mobile-tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mobile-tree-group {
+  list-style: none;
+  margin: 0;
+  padding-left: var(--space-md);
+}
+
+/* Tree rows — shared */
+.mobile-tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-xs);
+  min-height: 44px; /* Touch target ≥44×44px */
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.1s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-tree-row:hover,
+.mobile-tree-row:focus-within {
+  background: rgba(0, 98, 114, 0.04);
+}
+
+[role="treeitem"]:focus-visible > .mobile-tree-row {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Region row */
+.mobile-tree-row--region {
+  font-weight: 600;
+  color: var(--lf-dark-teal);
+  font-size: 15px;
+  border-bottom: 1px solid var(--lf-platinum);
+}
+
+/* Site row */
+.mobile-tree-row--site {
+  font-size: 14px;
+  color: var(--lf-iron);
+}
+
+/* Conduit row */
+.mobile-tree-row--conduit {
+  font-size: 13px;
+  color: var(--lf-iron);
+  opacity: 0.85;
+}
+
+/* Chevron / connector indicators */
+.mobile-tree-chevron {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--lf-dark-teal);
+}
+
+.mobile-tree-connector {
+  flex-shrink: 0;
+  width: 24px;
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--lf-platinum);
+}
+
+/* Labels and metadata */
+.mobile-tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-tree-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--lf-iron);
+  opacity: 0.7;
+}
+
+.mobile-tree-tier {
+  font-weight: 600;
+  color: var(--lf-dark-teal);
+}
+
+/* Info detail button */
+.mobile-tree-detail-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  border-radius: var(--radius-sm);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-tree-detail-btn:focus-visible {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: -2px;
+}
+
+/* Loading state within tree */
+.mobile-tree-loading {
+  padding: var(--space-sm) var(--space-md);
+  font-size: 13px;
+  color: var(--lf-iron);
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* Diversity badge (tinted-bg per §2.1) */
+.mobile-tree-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid;
+  white-space: nowrap;
+  margin-left: var(--space-xs);
+}
+
+/* Diversity summary bar */
+.mobile-tree-diversity-summary {
+  position: sticky;
+  bottom: 0;
+  background: var(--lf-white);
+  border-top: 1px solid var(--lf-platinum);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Full-screen detail modal (§6.2) */
+.mobile-detail-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--lf-white);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--lf-platinum);
+  background: var(--lf-white);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.mobile-detail-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--lf-dark-teal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-detail-close {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--lf-platinum);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--lf-iron);
+}
+
+.mobile-detail-close:focus-visible {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: 2px;
+}
+
+.mobile-detail-body {
+  padding: var(--space-md);
+  flex: 1;
+}
+
+/* Definition list in detail modal */
+.mobile-detail-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-xs) var(--space-md);
+  margin: 0;
+  font-size: 14px;
+}
+
+.mobile-detail-dl dt {
+  font-weight: 600;
+  color: var(--lf-dark-teal);
+  white-space: nowrap;
+}
+
+.mobile-detail-dl dd {
+  margin: 0;
+  color: var(--lf-iron);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* BUG-DW-055: Cross-view action link in EdgeDetailPanel (§9.2) */
+.panel-action-link {
+  display: inline-flex;
+  align-items: center;
+  margin-top: var(--space-xs);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lf-dark-teal);
+  text-decoration: none;
+  border: 1px solid var(--lf-dark-teal);
+  border-radius: var(--radius-sm);
+  transition: background-color 0.1s ease;
+  min-height: 32px;
+}
+
+.panel-action-link:hover {
+  background: rgba(0, 98, 114, 0.06);
+}
+
+.panel-action-link:focus-visible {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: 2px;
+}
+
+/* Reduced motion for mobile tree */
+@media (prefers-reduced-motion: reduce) {
+  .mobile-tree-row { transition: none; }
+  .mobile-tree-search-input { transition: none; }
+  .panel-action-link { transition: none; }
 }
