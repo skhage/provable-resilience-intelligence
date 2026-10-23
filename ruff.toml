@@ -1,0 +1,20 @@
+# Root ruff config — single source of truth for CI lint (P19-DEVOPS-CI-PIPELINE-REVIEW)
+# CI invokes: ruff check --config ruff.toml ...  (overrides apps/*/pyproject.toml for uniform gating)
+# Baseline = correctness rules only (pyflakes + syntax/statement errors). Style rules are advisory.
+
+target-version = "py311"
+line-length = 120
+
+# Databricks .ipynb notebooks contain SQL/%magic cells -> ~1,480 false invalid-syntax errors.
+# Notebooks are validated by DAB + pipeline runs, not by ruff.
+extend-exclude = ["*.ipynb", "notebooks"]
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Databricks source-format notebooks: spark/dlt/dbutils are runtime-injected globals
+"bundle/pipeline/*.py" = ["F821", "F401", "E402"]
+# Tests insert app src onto sys.path before importing app modules
+"tests/*.py" = ["E402"]

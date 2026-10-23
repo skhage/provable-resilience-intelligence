@@ -1,5 +1,7 @@
 # Provable Resilience Intelligence — Deploy Pipeline
 # Deploys DAB to dev on develop merge, prod on main merge
+# P19-DEVOPS-CI-PIPELINE-REVIEW: deploys are now GATED on the full CI suite
+# (bundle validate dev+prod, ruff, pytest, branding, artifact manifest).
 
 name: Deploy
 
@@ -7,9 +9,22 @@ on:
   push:
     branches: [main, develop]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false   # never cancel an in-flight deploy
+
 jobs:
+  ci:
+    name: CI Gate
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
   deploy-dev:
     name: Deploy to Dev
+    needs: ci
     if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     steps:
@@ -26,9 +41,12 @@ jobs:
 
   deploy-prod:
     name: Deploy to Production
+    needs: ci
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: write   # required for the release-tag push below
     steps:
       - uses: actions/checkout@v4
 

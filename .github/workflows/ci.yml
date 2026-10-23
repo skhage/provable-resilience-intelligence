@@ -1,15 +1,21 @@
 # Provable Resilience Intelligence — CI Pipeline
 # Validates DAB config + runs lint/tests on every PR to develop or main
 # Enhanced: pip caching, branding compliance, dual-target validate, concurrency
+# P19-DEVOPS-CI-PIPELINE-REVIEW (session 24): reusable via workflow_call so deploy.yml
+# gates on the same checks; root ruff.toml + pytest.ini; JUnit + SHA-256 artifact manifest.
 
 name: CI
 
 on:
   pull_request:
     branches: [main, develop]
+  workflow_call:
+
+permissions:
+  contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -58,10 +64,37 @@ jobs:
           pip install -r bundle/requirements.txt
 
       - name: Lint (ruff)
-        run: ruff check src/ apps/ bundle/pipeline/ pipelines/ tests/ --ignore E501
+        # Root ruff.toml: correctness rules, *.ipynb excluded (SQL/magic cells)
+        run: ruff check --config ruff.toml apps/ bundle/pipeline/ tests/
 
       - name: Unit tests
-        run: pytest tests/ -v --tb=short
+        # pytest.ini puts tests/ + app src on sys.path; Spark-dependent tests auto-skip
+        run: pytest -v --tb=short --junitxml=test-results/junit.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-results
+          path: test-results/junit.xml
+
+  artifact-manifest:
+    name: Artifact Checksums
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate SHA-256 manifest of tracked files
+        run: |
+          git ls-files -z | xargs -0 sha256sum > artifact-manifest.sha256
+          echo "Tracked files: $(wc -l < artifact-manifest.sha256)"
+          echo "Manifest digest: $(sha256sum artifact-manifest.sha256 | cut -d' ' -f1)"
+
+      - name: Upload manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-manifest-${{ github.sha }}
+          path: artifact-manifest.sha256
 
   branding-check:
     name: Branding Compliance
@@ -72,17 +105,20 @@ jobs:
       - name: Check for forbidden brand references
         run: |
           # CEO Directive: All assets must use "Lakelink Fiber", never "Lumen Technologies"
-          # Allowlist: .assistant_instructions.md, BRAND-GUIDE.md, UX-DESIGN-SPEC.md, CONTRIBUTING.md
+          # Allowlist (meta-docs/enforcers that explain the rule): .assistant_instructions.md,
+          # BRAND-GUIDE.md, UX-DESIGN-SPEC.md, CONTRIBUTING.md, BRANCH-STRATEGY.md, design-system.md,
+          # .github/ (this check itself) and tests/ (branding test fixtures).
           FORBIDDEN=$(grep -rn "Lumen Technologies\|Lumen Enterprise" \
             --include='*.py' --include='*.sql' --include='*.yml' --include='*.yaml' \
             --include='*.tsx' --include='*.ts' --include='*.json' --include='*.html' \
             --include='*.css' --include='*.md' \
-            --exclude-dir=.git \
-            . | grep -v '.assistant_instructions.md' \
-              | grep -v 'BRAND-GUIDE.md' \
-              | grep -v 'UX-DESIGN-SPEC.md' \
-              | grep -v 'CONTRIBUTING.md' \
-              | grep -v 'BRANCH-STRATEGY.md' || true)
+            --exclude-dir=.git --exclude-dir=.github --exclude-dir=tests \
+            . | grep -v -e '.assistant_instructions.md' \
+                     -e 'BRAND-GUIDE.md' \
+                     -e 'UX-DESIGN-SPEC.md' \
+                     -e 'CONTRIBUTING.md' \
+                     -e 'BRANCH-STRATEGY.md' \
+                     -e 'design-system.md' || true)
           if [ -n "$FORBIDDEN" ]; then
             echo "::error::Branding violation — found forbidden references:"
             echo "$FORBIDDEN"
