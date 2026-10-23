@@ -18,6 +18,7 @@ from .models import (
     HazardCrosswalkRowOut,
     HazardCrosswalkSummaryOut,
     HazardListItemOut,
+    HazardOverlayOut,
     HazardSummaryOut,
     HealthOut,
     ProactiveActionOut,
@@ -25,6 +26,9 @@ from .models import (
     ResilienceScoreOut,
     ResilienceSummaryOut,
     RiskDistributionOut,
+    ServiceDiversityOut,
+    ServicePathHopOut,
+    SrlgMemberOut,
     TopologyConduitOut,
     TopologyRegionSummaryOut,
     TopologySiteOut,
@@ -385,6 +389,100 @@ def list_topology_conduits(
         except Exception:
             logger.warning("Live topology conduits failed for %s", region, exc_info=True)
 
+    return []
+
+
+# ---------------------------------------------------------------------------
+# Path Trace + SRLG + Hazard Overlay (TOPOLOGY-VIS-SPEC §2, §3, §4)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/topology/path-trace/{service_id}",
+    response_model=list[ServicePathHopOut],
+    operation_id="getServicePathTrace",
+)
+def get_service_path_trace(
+    service_id: str,
+    csql: Dependencies.CatalogSql,
+):
+    """Return hop-by-hop path trace for a service (working + protect).
+
+    TOPOLOGY-VIS-SPEC §2.1 — on-demand query for service path visualization.
+    """
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            hops = csql.get_service_path_trace(service_id)
+            if hops is not None:
+                return hops
+        except Exception:
+            logger.warning("Live path trace failed for %s", service_id, exc_info=True)
+    return []
+
+
+@router.get(
+    "/topology/diversity/{service_id}",
+    response_model=ServiceDiversityOut,
+    operation_id="getServiceDiversity",
+)
+def get_service_diversity(
+    service_id: str,
+    csql: Dependencies.CatalogSql,
+):
+    """Return diversity status for a service.
+
+    TOPOLOGY-VIS-SPEC §2.1 — diversity classification for path coloring.
+    """
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            div = csql.get_service_diversity(service_id)
+            if div is not None:
+                return div
+        except Exception:
+            logger.warning("Live diversity failed for %s", service_id, exc_info=True)
+    raise HTTPException(status_code=404, detail=f"Service {service_id} not found")
+
+
+@router.get(
+    "/topology/srlgs",
+    response_model=list[SrlgMemberOut],
+    operation_id="listTopologySrlgs",
+)
+def list_topology_srlgs(
+    csql: Dependencies.CatalogSql,
+    region: str = Query(..., description="Region name"),
+):
+    """Return SRLG memberships for spans in a region.
+
+    TOPOLOGY-VIS-SPEC §3 — lazy-loaded when SRLG overlay is toggled on.
+    """
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            srlgs = csql.get_srlgs_by_region(region)
+            if srlgs is not None:
+                return srlgs
+        except Exception:
+            logger.warning("Live SRLGs failed for %s", region, exc_info=True)
+    return []
+
+
+@router.get(
+    "/topology/hazards",
+    response_model=list[HazardOverlayOut],
+    operation_id="listTopologyHazards",
+)
+def list_topology_hazards(csql: Dependencies.CatalogSql):
+    """Return active hazards for the topology overlay.
+
+    TOPOLOGY-VIS-SPEC §4 — lazy-loaded when hazard overlay is toggled on.
+    """
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            hazards = csql.get_hazard_overlay()
+            if hazards is not None:
+                return hazards
+        except Exception:
+            logger.warning("Live hazard overlay failed", exc_info=True)
     return []
 
 

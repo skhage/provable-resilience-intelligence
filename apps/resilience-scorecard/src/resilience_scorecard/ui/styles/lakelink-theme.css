@@ -1272,3 +1272,151 @@ select:focus-visible,
   color: var(--lf-iron);
   font-size: 14px;
 }
+
+/* =====================================================================
+   TOPOLOGY-VIS-SPEC §2, §3, §4 — Path Trace, SRLG, Hazard Overlay
+   Phase 13c+13d+13e
+   ===================================================================== */
+
+/* Diversity status colors (TOPOLOGY-VIS-SPEC §2.1) */
+:root {
+  --lf-diversity-full: #16A34A;
+  --lf-diversity-partial: #D97706;
+  --lf-diversity-single: #DC2626;
+  --lf-diversity-unknown: #9CA3AF;
+}
+
+/* Edge clickability */
+.topo-edge-clickable {
+  cursor: pointer;
+  transition: stroke-width 0.15s ease, opacity 0.2s ease;
+}
+.topo-edge-clickable:hover {
+  stroke-width: 4px !important;
+  opacity: 1 !important;
+}
+.topo-edge-clickable:focus {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: 2px;
+}
+
+/* SRLG highlight mode (§3.2) */
+.srlg-highlight {
+  filter: drop-shadow(0 0 4px var(--srlg-color, var(--lf-iron)));
+  animation: srlg-pulse 2s ease-in-out infinite;
+}
+.srlg-critical {
+  animation: srlg-pulse-critical 1.5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .srlg-highlight,
+  .srlg-critical { animation: none; }
+}
+@keyframes srlg-pulse {
+  0%, 100% { filter: drop-shadow(0 0 4px var(--srlg-color, var(--lf-iron))); }
+  50% { filter: drop-shadow(0 0 8px var(--srlg-color, var(--lf-iron))); }
+}
+@keyframes srlg-pulse-critical {
+  0%, 100% { filter: drop-shadow(0 0 4px var(--lf-risk-red)); }
+  50% { filter: drop-shadow(0 0 12px var(--lf-risk-red)); }
+}
+
+/* Dimmed nodes/edges when path trace is active */
+.topo-dimmed {
+  opacity: 0.2;
+  transition: opacity 0.3s ease;
+}
+
+/* Path trace banner (§2 — above graph, sticky) */
+.path-trace-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  background: linear-gradient(90deg, rgba(0,98,114,0.06), rgba(0,98,114,0.02));
+  border: 1px solid rgba(0,98,114,0.15);
+  border-radius: var(--radius-md, 8px);
+  margin: 0 0 8px 0;
+  font-size: 13px;
+}
+.path-trace-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.path-trace-stats {
+  color: var(--lf-iron);
+}
+.path-trace-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.path-trace-link {
+  color: var(--lf-dark-teal);
+  font-weight: 600;
+  text-decoration: none;
+  font-size: 12px;
+}
+.path-trace-link:hover {
+  text-decoration: underline;
+}
+.path-trace-clear {
+  background: none;
+  border: 1px solid var(--lf-platinum);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--lf-iron);
+}
+.path-trace-clear:hover {
+  background: var(--lf-platinum);
+}
+
+/* Diversity badge */
+.diversity-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+/* SRLG severity badge in edge detail panel */
+.srlg-severity-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 6px;
+  letter-spacing: 0.5px;
+}
+.srlg-severity-badge[data-severity="critical"] {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+.srlg-severity-badge[data-severity="high"] {
+  background: #FEF3C7;
+  color: #92400E;
+}
+.srlg-severity-badge[data-severity="medium"] {
+  background: #E8E8E8;
+  color: #4D4D4D;
+}
+.srlg-severity-badge[data-severity="low"] {
+  background: #F3F4F6;
+  color: #6B7280;
+}
+
+/* Hazard overlay marker animation */
+.hazard-overlay-marker {
+  pointer-events: none;
+}

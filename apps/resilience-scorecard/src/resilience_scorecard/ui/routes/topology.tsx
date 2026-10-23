@@ -1,12 +1,14 @@
 /**
  * Lakelink Fiber — Network Topology Graph View
- * TOPOLOGY-VIS-SPEC §9.1, §13 (phases 13a + 13b)
+ * TOPOLOGY-VIS-SPEC §9.1, §13 (phases 13a–13e)
  *
  * Region-level aggregation (4 regions) with drill-in to site-level nodes
- * and conduit edges. Hierarchical SVG layout per §1.
+ * and conduit edges. Service path trace with diversity coloring (§2),
+ * SRLG overlay with pulsing glow (§3), hazard overlay (§4),
+ * edge detail panel (§5.2), cross-view navigation (§9.2).
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
 
 // ---------------------------------------------------------------------------
 // Route definition
@@ -66,6 +68,94 @@ interface Overlays {
   srlg: boolean;
   hazard: boolean;
 }
+
+interface PathHop {
+  service_id: string;
+  hop_index: number;
+  span_id: string;
+  path_type: string;
+  conduit_id: string | null;
+  span_site_a_id: string;
+  span_site_z_id: string;
+  span_length_km: number;
+  fiber_type: string | null;
+  strand_count: number;
+  conduit_type: string | null;
+  conduit_length_km: number;
+  corridor: string | null;
+  site_a_name: string | null;
+  site_z_name: string | null;
+}
+
+interface ServiceDiversity {
+  service_id: string;
+  diversity_status: string;
+  working_hops: number;
+  protect_hops: number;
+  shared_srlg_count: number;
+}
+
+interface SrlgMember {
+  srlg_id: string;
+  srlg_type: string;
+  severity: string | null;
+  span_id: string;
+  description: string | null;
+  site_a_id: string;
+  site_z_id: string;
+  conduit_id: string | null;
+  span_length_km: number;
+  site_a_name: string | null;
+  site_z_name: string | null;
+}
+
+interface HazardOverlay {
+  hazard_id: string;
+  hazard_type: string;
+  name: string;
+  severity: string;
+  latitude: number;
+  longitude: number;
+  direct_impact_spans: number;
+  near_impact_spans: number;
+  advisory_spans: number;
+}
+
+// SRLG type icons per §3.1
+const SRLG_ICONS: Record<string, string> = {
+  shared_conduit: "⛓️",
+  bridge: "🌉",
+  rail_crossing: "🚂",
+  power_feed: "⚡",
+  tunnel: "🛤️",
+  central_office: "🏢",
+};
+
+const SRLG_COLORS: Record<string, string> = {
+  shared_conduit: "#4D4D4D",
+  bridge: "#D97706",
+  rail_crossing: "#D97706",
+  power_feed: "#F26522",
+  tunnel: "#4D4D4D",
+  central_office: "#D32F2F",
+};
+
+// Hazard type icons per HAZARD-VIS-SPEC §1
+const HAZARD_ICONS: Record<string, string> = {
+  wildfire: "🔥",
+  flood: "🌊",
+  severe_weather: "⛈️",
+  earthquake: "🌍",
+  dig_ticket: "🚧",
+};
+
+// Diversity colors per §2.1
+const DIVERSITY_COLORS: Record<string, string> = {
+  fully_diverse: "#16A34A",
+  partially_diverse: "#D97706",
+  single_path: "#DC2626",
+  unknown: "#9CA3AF",
+};
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -337,6 +427,192 @@ function SiteDetailPanel({
 }
 
 // ---------------------------------------------------------------------------
+// Edge Detail Panel (§5.2)
+// ---------------------------------------------------------------------------
+
+function EdgeDetailPanel({
+  conduit,
+  srlgs,
+  hazards,
+  onClose,
+}: {
+  conduit: ConduitEdge;
+  srlgs: SrlgMember[];
+  hazards: HazardOverlay[];
+  onClose: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = panelRef.current;
+    if (el) {
+      const close = el.querySelector<HTMLElement>(".panel-close");
+      close?.focus();
+    }
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [onClose]);
+
+  // SRLGs touching this conduit
+  const conduitSrlgs = srlgs.filter((s) => s.conduit_id === conduit.conduit_id);
+  // Unique SRLG groups
+  const srlgGroups = Array.from(
+    new Map(conduitSrlgs.map((s) => [s.srlg_id, s])).values()
+  );
+
+  return (
+    <div
+      ref={panelRef}
+      className="topo-detail-panel"
+      role="dialog"
+      aria-label={`Conduit detail: ${conduit.conduit_id}`}
+    >
+      <div className="panel-header">
+        <h3>
+          <span className="mono">{conduit.conduit_id}</span>
+          {conduit.conduit_name ? ` \u00b7 ${conduit.conduit_name}` : ""}
+        </h3>
+        <button className="panel-close" onClick={onClose} aria-label="Close panel">
+          \u2715
+        </button>
+      </div>
+      <div className="panel-body">
+        <div className="detail-row">
+          <span className="detail-label">Type</span>
+          <span>{conduit.conduit_type.replace(/_/g, " ")}</span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">Length</span>
+          <span>{conduit.length_km} km</span>
+        </div>
+        {conduit.corridor && (
+          <div className="detail-row">
+            <span className="detail-label">Corridor</span>
+            <span>{conduit.corridor}</span>
+          </div>
+        )}
+        <div className="detail-row">
+          <span className="detail-label">Spans</span>
+          <span>{conduit.span_count}</span>
+        </div>
+
+        {srlgGroups.length > 0 && (
+          <>
+            <h4 className="panel-section-title">
+              Shared Risk Groups ({srlgGroups.length})
+            </h4>
+            {srlgGroups.map((s) => (
+              <div key={s.srlg_id} className="panel-conduit-item">
+                <div className="conduit-name">
+                  <span style={{ marginRight: 6 }}>
+                    {SRLG_ICONS[s.srlg_type] ?? "\u26a0\ufe0f"}
+                  </span>
+                  <span className="mono">{s.srlg_id}</span>
+                  {s.severity && (
+                    <span
+                      className="srlg-severity-badge"
+                      data-severity={s.severity}
+                    >
+                      {s.severity.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <div className="conduit-meta">
+                  {s.srlg_type.replace(/_/g, " ")}
+                  {s.description ? ` \u2014 ${s.description}` : ""}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {hazards.length > 0 && (
+          <>
+            <h4 className="panel-section-title">Hazard Exposure</h4>
+            {hazards.map((h) => (
+              <div key={h.hazard_id} className="panel-conduit-item">
+                <div className="conduit-name">
+                  <span style={{ marginRight: 6 }}>
+                    {HAZARD_ICONS[h.hazard_type] ?? "\u26a0\ufe0f"}
+                  </span>
+                  {h.name}
+                </div>
+                <div className="conduit-meta">
+                  {h.severity} \u00b7 {h.direct_impact_spans} direct impact spans
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Service Path Info Banner (§2 — shows when a service is traced)
+// ---------------------------------------------------------------------------
+
+function PathTraceBanner({
+  serviceId,
+  diversity,
+  hops,
+  onClear,
+}: {
+  serviceId: string;
+  diversity: ServiceDiversity | null;
+  hops: PathHop[];
+  onClear: () => void;
+}) {
+  const workingHops = hops.filter((h) => h.path_type === "working");
+  const protectHops = hops.filter((h) => h.path_type === "protect");
+  const divColor = diversity
+    ? DIVERSITY_COLORS[diversity.diversity_status] ?? DIVERSITY_COLORS.unknown
+    : DIVERSITY_COLORS.unknown;
+  const divLabel = diversity
+    ? diversity.diversity_status.replace(/_/g, " ")
+    : "unknown";
+
+  return (
+    <div className="path-trace-banner" role="status" aria-live="polite">
+      <div className="path-trace-info">
+        <span
+          className="diversity-badge"
+          style={{ background: divColor + "22", color: divColor, borderColor: divColor }}
+        >
+          {divLabel}
+        </span>
+        <span className="mono" style={{ fontWeight: 600 }}>
+          {serviceId}
+        </span>
+        <span className="path-trace-stats">
+          {workingHops.length} working hops
+          {protectHops.length > 0 ? ` \u00b7 ${protectHops.length} protect hops` : " \u00b7 no protect path"}
+          {diversity && diversity.shared_srlg_count > 0
+            ? ` \u00b7 ${diversity.shared_srlg_count} shared SRLGs`
+            : ""}
+        </span>
+      </div>
+      <div className="path-trace-actions">
+        <Link
+          to="/"
+          search={{ service: serviceId }}
+          className="path-trace-link"
+        >
+          View in Service Table \u2192
+        </Link>
+        <button className="path-trace-clear" onClick={onClear}>
+          \u2715 Clear trace
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Region-Level Graph (default view — §1.2, §10.1)
 // ---------------------------------------------------------------------------
 
@@ -510,12 +786,60 @@ function SiteGraph({
   conduits,
   onSelectSite,
   selectedSiteId,
+  onSelectConduit,
+  selectedConduitId,
+  pathHops,
+  srlgs,
+  hazards,
+  overlays,
+  diversity,
 }: {
   sites: SiteNode[];
   conduits: ConduitEdge[];
   onSelectSite: (site: SiteNode | null) => void;
   selectedSiteId: string | null;
+  onSelectConduit: (conduit: ConduitEdge | null) => void;
+  selectedConduitId: string | null;
+  pathHops: PathHop[];
+  srlgs: SrlgMember[];
+  hazards: HazardOverlay[];
+  overlays: Overlays;
+  diversity: ServiceDiversity | null;
 }) {
+  // Build lookup sets for path trace
+  const pathSiteIds = useMemo(() => {
+    const ids = new Set<string>();
+    pathHops.forEach((h) => {
+      ids.add(h.span_site_a_id);
+      ids.add(h.span_site_z_id);
+    });
+    return ids;
+  }, [pathHops]);
+
+  const pathConduitIds = useMemo(() => {
+    const ids = new Set<string>();
+    pathHops.forEach((h) => {
+      if (h.conduit_id) ids.add(h.conduit_id);
+    });
+    return ids;
+  }, [pathHops]);
+
+  // Build SRLG lookup: conduit_id -> set of srlg_ids
+  const srlgByConduit = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    srlgs.forEach((s) => {
+      if (s.conduit_id) {
+        if (!map.has(s.conduit_id)) map.set(s.conduit_id, new Set());
+        map.get(s.conduit_id)!.add(s.srlg_id);
+      }
+    });
+    return map;
+  }, [srlgs]);
+
+  const hasPathTrace = pathHops.length > 0;
+  const divColor = diversity
+    ? DIVERSITY_COLORS[diversity.diversity_status] ?? BRAND.darkTeal
+    : BRAND.darkTeal;
   const positions = useMemo(() => layoutSites(sites), [sites]);
 
   const totalSites = sites.length;
@@ -538,11 +862,42 @@ function SiteGraph({
         REGIONAL (TIER 2)
       </text>
 
-      {/* Conduit edges */}
+      {/* Conduit edges — enhanced with path trace, SRLG, hazard overlays */}
       {conduits.map((c) => {
         const pa = positions.get(c.site_a_id);
         const pz = positions.get(c.site_z_id);
         if (!pa || !pz) return null;
+
+        const isOnPath = hasPathTrace && pathConduitIds.has(c.conduit_id);
+        const hasSrlg = overlays.srlg && srlgByConduit.has(c.conduit_id);
+        const isSelected = selectedConduitId === c.conduit_id;
+
+        // Determine working vs protect for this conduit in the trace
+        const conduitHops = pathHops.filter((h) => h.conduit_id === c.conduit_id);
+        const hasWorking = conduitHops.some((h) => h.path_type === "working");
+        const hasProtect = conduitHops.some((h) => h.path_type === "protect");
+
+        // Color priority: Hazard > SRLG > Diversity > Default
+        let edgeColor = BRAND.darkTeal;
+        let edgeOpacity = hasPathTrace ? (isOnPath ? 1 : 0.15) : 0.5;
+        let dashArray: string | undefined = undefined;
+        let glowClass = "";
+
+        if (isOnPath && overlays.diversity) {
+          edgeColor = divColor;
+        }
+        if (hasSrlg) {
+          const firstSrlg = srlgs.find((s) => s.conduit_id === c.conduit_id);
+          if (firstSrlg) {
+            edgeColor = SRLG_COLORS[firstSrlg.srlg_type] ?? BRAND.iron;
+            glowClass = firstSrlg.severity === "critical" ? "srlg-highlight srlg-critical" : "srlg-highlight";
+          }
+          edgeOpacity = 1;
+        }
+        if (isOnPath && hasProtect && !hasWorking) {
+          dashArray = "8,4";
+        }
+
         return (
           <line
             key={c.conduit_id}
@@ -550,32 +905,58 @@ function SiteGraph({
             y1={pa.y}
             x2={pz.x}
             y2={pz.y}
-            className="topo-edge"
-            strokeWidth={Math.min(1 + c.span_count / 3, 5)}
-            opacity={0.5}
+            className={`topo-edge topo-edge-clickable ${glowClass}`}
+            stroke={isSelected ? BRAND.orange : edgeColor}
+            strokeWidth={isOnPath ? 3 : Math.min(1 + c.span_count / 3, 5)}
+            strokeDasharray={dashArray}
+            opacity={edgeOpacity}
+            style={hasSrlg ? { ["--srlg-color" as string]: edgeColor } : undefined}
+            tabIndex={0}
+            role="button"
+            aria-label={`Conduit ${c.conduit_id}: ${c.conduit_type}, ${c.length_km} km, ${c.span_count} spans${hasSrlg ? " (SRLG member)" : ""}. Press Enter for details.`}
+            onClick={() => onSelectConduit(isSelected ? null : c)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelectConduit(isSelected ? null : c);
+              }
+            }}
           >
             <title>
-              {c.conduit_id}: {c.conduit_type} · {c.length_km} km · {c.span_count} spans
+              {c.conduit_id}: {c.conduit_type} \u00b7 {c.length_km} km \u00b7 {c.span_count} spans
             </title>
           </line>
         );
       })}
 
-      {/* Site nodes */}
+      {/* Site nodes — with path trace highlighting */}
       {sites.map((s) => {
         const p = positions.get(s.site_id);
         if (!p) return null;
         const isT1 = s.tier === "tier_1";
         const r = isT1 ? NODE_RADIUS_T1 : NODE_RADIUS_T2;
         const isSelected = selectedSiteId === s.site_id;
+        const isOnPath = hasPathTrace && pathSiteIds.has(s.site_id);
+        const dimmed = hasPathTrace && !isOnPath;
+
+        // Node stroke: selected orange > on-path diversity color > default teal
+        let nodeStroke = BRAND.darkTeal;
+        let nodeStrokeWidth = 2;
+        if (isSelected) {
+          nodeStroke = BRAND.orange;
+          nodeStrokeWidth = 3;
+        } else if (isOnPath && overlays.diversity) {
+          nodeStroke = divColor;
+          nodeStrokeWidth = 3;
+        }
 
         return (
           <g
             key={s.site_id}
-            className="topo-site-node"
+            className={`topo-site-node${dimmed ? " topo-dimmed" : ""}`}
             tabIndex={0}
             role="button"
-            aria-label={`${s.site_name} (${s.site_type.replace(/_/g, " ")}, ${s.tier ?? "unknown"}). ${s.conduit_count} conduits. Press Enter for details.`}
+            aria-label={`${s.site_name} (${s.site_type.replace(/_/g, " ")}, ${s.tier ?? "unknown"}). ${s.conduit_count} conduits${isOnPath ? ". On traced service path" : ""}. Press Enter for details.`}
             onClick={() => onSelectSite(isSelected ? null : s)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -583,16 +964,16 @@ function SiteGraph({
                 onSelectSite(isSelected ? null : s);
               }
             }}
+            opacity={dimmed ? 0.25 : 1}
           >
             <circle
               cx={p.x}
               cy={p.y}
               r={r}
               fill={BRAND.white}
-              stroke={isSelected ? BRAND.orange : BRAND.darkTeal}
-              strokeWidth={isSelected ? 3 : 2}
+              stroke={nodeStroke}
+              strokeWidth={nodeStrokeWidth}
             />
-            {/* Site type icon (Building2 for T1, Building for T2) */}
             <text
               x={p.x}
               y={p.y + 4}
@@ -604,7 +985,6 @@ function SiteGraph({
             >
               {s.site_type === "data_center" ? "DC" : "CO"}
             </text>
-            {/* Label below */}
             {isT1 && (
               <text
                 x={p.x}
@@ -620,6 +1000,62 @@ function SiteGraph({
           </g>
         );
       })}
+
+      {/* Hazard overlay markers (§4.2) */}
+      {overlays.hazard && hazards.map((h) => {
+        // Simple position: use lat/lon scaled relative to visible sites
+        // For demo, place hazards based on hash of hazard_id in visible area
+        const hash = h.hazard_id.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+        const hx = 80 + (hash % (CANVAS_W - 160));
+        const hy = 60 + ((hash * 7) % (CANVAS_H - 120));
+        const hazColor = h.severity === "critical" ? BRAND.riskRed
+          : h.severity === "high" ? BRAND.orange
+          : "#D97706";
+
+        return (
+          <g key={h.hazard_id} className="hazard-overlay-marker">
+            {/* Proximity ring */}
+            <circle
+              cx={hx}
+              cy={hy}
+              r={h.direct_impact_spans > 0 ? 30 : 20}
+              fill={hazColor}
+              fillOpacity={0.08}
+              stroke={hazColor}
+              strokeWidth={1.5}
+              strokeDasharray="4,3"
+            />
+            {/* Hazard icon hexagon */}
+            <circle
+              cx={hx}
+              cy={hy}
+              r={16}
+              fill={hazColor}
+              fillOpacity={0.2}
+              stroke={hazColor}
+              strokeWidth={1.5}
+            />
+            <text
+              x={hx}
+              y={hy + 5}
+              textAnchor="middle"
+              fontSize={14}
+            >
+              {HAZARD_ICONS[h.hazard_type] ?? "\u26a0\ufe0f"}
+            </text>
+            <text
+              x={hx}
+              y={hy + 30}
+              textAnchor="middle"
+              fontSize={9}
+              fill={BRAND.iron}
+              fontFamily="'Inter', sans-serif"
+            >
+              {h.name.slice(0, 20)}
+            </text>
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -629,11 +1065,15 @@ function SiteGraph({
 // ---------------------------------------------------------------------------
 
 function TopologyPage() {
+  const navigate = useNavigate();
+  const search = useSearch({ from: "/topology" });
+
   const [regions, setRegions] = useState<RegionSummary[]>([]);
   const [sites, setSites] = useState<SiteNode[]>([]);
   const [conduits, setConduits] = useState<ConduitEdge[]>([]);
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
   const [selectedSite, setSelectedSite] = useState<SiteNode | null>(null);
+  const [selectedConduit, setSelectedConduit] = useState<ConduitEdge | null>(null);
   const [overlays, setOverlays] = useState<Overlays>({
     diversity: false,
     srlg: false,
@@ -641,6 +1081,32 @@ function TopologyPage() {
   });
   const [legendCollapsed, setLegendCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Path trace state (§2)
+  const [tracedServiceId, setTracedServiceId] = useState<string | null>(null);
+  const [pathHops, setPathHops] = useState<PathHop[]>([]);
+  const [diversity, setDiversity] = useState<ServiceDiversity | null>(null);
+
+  // SRLG overlay state (§3)
+  const [srlgs, setSrlgs] = useState<SrlgMember[]>([]);
+
+  // Hazard overlay state (§4)
+  const [hazards, setHazards] = useState<HazardOverlay[]>([]);
+
+  // Cross-view nav: auto-trace if ?service= is in URL (§9.2)
+  useEffect(() => {
+    if (search.service && search.service !== tracedServiceId) {
+      setTracedServiceId(search.service);
+      setOverlays((o) => ({ ...o, diversity: true }));
+    }
+  }, [search.service]);
+
+  // Cross-view nav: auto-enable hazard overlay if ?hazard= (§9.2)
+  useEffect(() => {
+    if (search.hazard) {
+      setOverlays((o) => ({ ...o, hazard: true }));
+    }
+  }, [search.hazard]);
 
   // Fetch region summaries on mount
   useEffect(() => {
@@ -663,6 +1129,7 @@ function TopologyPage() {
     }
     setLoading(true);
     setSelectedSite(null);
+    setSelectedConduit(null);
     Promise.all([
       fetch(`/api/topology/sites?region=${encodeURIComponent(selectedRegion)}`).then((r) =>
         r.json()
@@ -679,10 +1146,61 @@ function TopologyPage() {
       .catch(() => setLoading(false));
   }, [selectedRegion]);
 
+  // Fetch path trace when a service is selected (§2, §10.2)
+  useEffect(() => {
+    if (!tracedServiceId) {
+      setPathHops([]);
+      setDiversity(null);
+      return;
+    }
+    Promise.all([
+      fetch(`/api/topology/path-trace/${encodeURIComponent(tracedServiceId)}`).then((r) => r.json()),
+      fetch(`/api/topology/diversity/${encodeURIComponent(tracedServiceId)}`).then((r) =>
+        r.ok ? r.json() : null
+      ),
+    ])
+      .then(([hops, div]) => {
+        setPathHops(hops);
+        setDiversity(div);
+        // Auto-navigate to first region on path if not already in one
+        if (hops.length > 0 && !selectedRegion) {
+          const firstRegion = hops[0].site_a_region;
+          if (firstRegion) setSelectedRegion(firstRegion);
+        }
+      })
+      .catch(() => {
+        setPathHops([]);
+        setDiversity(null);
+      });
+  }, [tracedServiceId]);
+
+  // Fetch SRLGs when overlay toggled on and region selected (§3)
+  useEffect(() => {
+    if (!overlays.srlg || !selectedRegion) {
+      setSrlgs([]);
+      return;
+    }
+    fetch(`/api/topology/srlgs?region=${encodeURIComponent(selectedRegion)}`)
+      .then((r) => r.json())
+      .then(setSrlgs)
+      .catch(() => setSrlgs([]));
+  }, [overlays.srlg, selectedRegion]);
+
+  // Fetch hazards when overlay toggled on (§4)
+  useEffect(() => {
+    if (!overlays.hazard) {
+      setHazards([]);
+      return;
+    }
+    fetch("/api/topology/hazards")
+      .then((r) => r.json())
+      .then(setHazards)
+      .catch(() => setHazards([]));
+  }, [overlays.hazard]);
+
   // Keyboard shortcuts (§7.1)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Don't intercept when focus is in an input
       if ((e.target as HTMLElement).tagName === "INPUT") return;
       switch (e.key.toLowerCase()) {
         case "d":
@@ -695,21 +1213,29 @@ function TopologyPage() {
           setOverlays((o) => ({ ...o, hazard: !o.hazard }));
           break;
         case "f":
-          // Fit — reset viewBox (no-op for now, SVG auto-fits)
           break;
         case "escape":
-          if (selectedSite) setSelectedSite(null);
+          if (selectedConduit) setSelectedConduit(null);
+          else if (selectedSite) setSelectedSite(null);
           else if (selectedRegion) setSelectedRegion(null);
           break;
       }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [selectedSite, selectedRegion]);
+  }, [selectedSite, selectedRegion, selectedConduit]);
 
   const handleToggle = useCallback((key: keyof Overlays) => {
     setOverlays((o) => ({ ...o, [key]: !o[key] }));
   }, []);
+
+  const handleClearTrace = useCallback(() => {
+    setTracedServiceId(null);
+    setPathHops([]);
+    setDiversity(null);
+    // Clear URL param
+    navigate({ to: "/topology", search: {} });
+  }, [navigate]);
 
   return (
     <>
@@ -723,10 +1249,20 @@ function TopologyPage() {
         onBack={() => setSelectedRegion(null)}
       />
 
+      {/* Path trace banner (§2) */}
+      {tracedServiceId && pathHops.length > 0 && (
+        <PathTraceBanner
+          serviceId={tracedServiceId}
+          diversity={diversity}
+          hops={pathHops}
+          onClear={handleClearTrace}
+        />
+      )}
+
       <div className="topo-canvas-wrap" aria-busy={loading}>
         {loading && (
           <div className="topo-loading">
-            Loading topology data…
+            Loading topology data\u2026
           </div>
         )}
 
@@ -740,13 +1276,20 @@ function TopologyPage() {
             conduits={conduits}
             onSelectSite={setSelectedSite}
             selectedSiteId={selectedSite?.site_id ?? null}
+            onSelectConduit={setSelectedConduit}
+            selectedConduitId={selectedConduit?.conduit_id ?? null}
+            pathHops={pathHops}
+            srlgs={srlgs}
+            hazards={hazards}
+            overlays={overlays}
+            diversity={diversity}
           />
         )}
 
         {!loading && !selectedRegion && regions.length === 0 && (
           <div className="empty-state">
             <div className="empty-icon" aria-hidden="true">
-              🌐
+              \ud83c\udf10
             </div>
             <p>No topology data available</p>
             <p className="empty-hint">Gold tables may still be loading</p>
@@ -756,7 +1299,7 @@ function TopologyPage() {
         {!loading && selectedRegion && sites.length === 0 && (
           <div className="empty-state">
             <div className="empty-icon" aria-hidden="true">
-              📡
+              \ud83d\udce1
             </div>
             <p>No sites found in {selectedRegion}</p>
           </div>
@@ -768,12 +1311,22 @@ function TopologyPage() {
           onToggle={() => setLegendCollapsed((c) => !c)}
         />
 
-        {/* Detail panel (§5.1) */}
-        {selectedSite && (
+        {/* Site detail panel (§5.1) */}
+        {selectedSite && !selectedConduit && (
           <SiteDetailPanel
             site={selectedSite}
             conduits={conduits}
             onClose={() => setSelectedSite(null)}
+          />
+        )}
+
+        {/* Edge detail panel (§5.2) */}
+        {selectedConduit && (
+          <EdgeDetailPanel
+            conduit={selectedConduit}
+            srlgs={srlgs}
+            hazards={hazards}
+            onClose={() => setSelectedConduit(null)}
           />
         )}
       </div>

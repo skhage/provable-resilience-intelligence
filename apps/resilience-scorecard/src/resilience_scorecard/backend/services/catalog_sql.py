@@ -318,6 +318,118 @@ WHERE c.is_active = TRUE
 ORDER BY c.length_km DESC
 """
 
+# ---------------------------------------------------------------------------
+# Path Trace + SRLG + Hazard Overlay SQL (TOPOLOGY-VIS-SPEC §2, §3, §4)
+# ---------------------------------------------------------------------------
+
+_SERVICE_PATH_TRACE_SQL = """
+SELECT
+  sp.service_id,
+  sp.hop_index,
+  sp.span_id,
+  sp.path_type,
+  prs.conduit_id,
+  prs.site_a_id AS span_site_a_id,
+  prs.site_z_id AS span_site_z_id,
+  ROUND(prs.length_km, 1) AS span_length_km,
+  prs.fiber_type,
+  prs.strand_count,
+  prc.conduit_type,
+  ROUND(prc.length_km, 1) AS conduit_length_km,
+  prc.corridor,
+  sa.site_name AS site_a_name,
+  sz.site_name AS site_z_name,
+  sa.region AS site_a_region,
+  sz.region AS site_z_region
+FROM service_path sp
+JOIN physical_resource_span prs ON sp.span_id = prs.span_id
+LEFT JOIN physical_resource_conduit prc ON prs.conduit_id = prc.conduit_id
+LEFT JOIN geographic_site sa ON prs.site_a_id = sa.site_id
+LEFT JOIN geographic_site sz ON prs.site_z_id = sz.site_id
+WHERE sp.service_id = '{service_id}'
+ORDER BY sp.path_type, sp.hop_index
+"""
+
+_SERVICE_DIVERSITY_SQL = """
+SELECT
+  si.service_id,
+  si.path_diversity_status,
+  COUNT(DISTINCT CASE WHEN sp.path_type = 'working' THEN sp.span_id END) AS working_hops,
+  COUNT(DISTINCT CASE WHEN sp.path_type = 'protect' THEN sp.span_id END) AS protect_hops,
+  COUNT(DISTINCT CASE WHEN sp.path_type = 'working' THEN prs.conduit_id END) AS working_conduits,
+  COUNT(DISTINCT CASE WHEN sp.path_type = 'protect' THEN prs.conduit_id END) AS protect_conduits,
+  (
+    SELECT COUNT(DISTINCT srg.srlg_id)
+    FROM shared_risk_group srg
+    JOIN service_path sp2 ON srg.span_id = sp2.span_id
+    WHERE sp2.service_id = si.service_id AND sp2.path_type = 'working'
+    AND srg.srlg_id IN (
+      SELECT srg2.srlg_id FROM shared_risk_group srg2
+      JOIN service_path sp3 ON srg2.span_id = sp3.span_id
+      WHERE sp3.service_id = si.service_id AND sp3.path_type = 'protect'
+    )
+  ) AS shared_srlg_count
+FROM service_inventory si
+LEFT JOIN service_path sp ON si.service_id = sp.service_id
+LEFT JOIN physical_resource_span prs ON sp.span_id = prs.span_id
+WHERE si.service_id = '{service_id}'
+GROUP BY si.service_id, si.path_diversity_status
+"""
+
+_SRLG_BY_REGION_SQL = """
+SELECT
+  srg.srlg_id,
+  srg.srlg_type,
+  srg.severity,
+  srg.span_id,
+  srg.description,
+  prs.site_a_id,
+  prs.site_z_id,
+  prs.conduit_id,
+  ROUND(prs.length_km, 1) AS span_length_km,
+  sa.site_name AS site_a_name,
+  sz.site_name AS site_z_name
+FROM shared_risk_group srg
+JOIN physical_resource_span prs ON srg.span_id = prs.span_id AND prs.is_active = TRUE
+JOIN geographic_site sa ON prs.site_a_id = sa.site_id
+JOIN geographic_site sz ON prs.site_z_id = sz.site_id
+WHERE (sa.region = '{region}' OR sz.region = '{region}')
+  AND sa.tier IN ('tier_1', 'tier_2')
+  AND sz.tier IN ('tier_1', 'tier_2')
+ORDER BY
+  CASE srg.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
+  srg.srlg_type
+LIMIT 500
+"""
+
+_HAZARD_OVERLAY_SQL = """
+SELECT
+  h.hazard_id,
+  h.hazard_type,
+  COALESCE(h.description, CONCAT(UPPER(REPLACE(h.hazard_type, '_', ' ')), ' near ', ROUND(h.latitude, 2), ', ', ROUND(h.longitude, 2))) AS name,
+  COALESCE(h.severity, 'medium') AS severity,
+  h.latitude,
+  h.longitude,
+  h.event_start,
+  COALESCE(hsp.direct_count, 0) AS direct_impact_spans,
+  COALESCE(hsp.near_count, 0) AS near_impact_spans,
+  COALESCE(hsp.advisory_count, 0) AS advisory_spans
+FROM geographic_hazard_event h
+LEFT JOIN (
+  SELECT
+    p.hazard_id,
+    CAST(SUM(CASE WHEN p.distance_km < 5 THEN 1 ELSE 0 END) AS INT) AS direct_count,
+    CAST(SUM(CASE WHEN p.distance_km >= 5 AND p.distance_km < 25 THEN 1 ELSE 0 END) AS INT) AS near_count,
+    CAST(SUM(CASE WHEN p.distance_km >= 25 AND p.distance_km < 100 THEN 1 ELSE 0 END) AS INT) AS advisory_count
+  FROM hazard_span_proximity p
+  GROUP BY p.hazard_id
+) hsp ON hsp.hazard_id = h.hazard_id
+WHERE h.event_end IS NULL
+ORDER BY
+  CASE COALESCE(h.severity, 'medium') WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END
+LIMIT 100
+"""
+
 _ACTIONS_SQL = """
 SELECT
   a.action_id,
@@ -711,6 +823,63 @@ class CatalogSqlService:
         for r in rows:
             r["span_count"] = int(r.get("span_count", 0))
             r["length_km"] = float(r.get("length_km", 0))
+        return rows
+
+    # ------------------------------------------------------------------
+    # Path trace + SRLG + Hazard overlay (TOPOLOGY-VIS-SPEC §2, §3, §4)
+    # ------------------------------------------------------------------
+
+    def get_service_path_trace(self, service_id: str) -> list[dict] | None:
+        """Return hop-by-hop path for a service (working + protect)."""
+        sql = _SERVICE_PATH_TRACE_SQL.replace("{service_id}", service_id.replace("'", "''"))
+        rows = self._execute(sql, row_limit=500)
+        if rows is None:
+            return None
+        for r in rows:
+            r["hop_index"] = int(r.get("hop_index", 0))
+            r["span_length_km"] = float(r.get("span_length_km", 0) or 0)
+            r["conduit_length_km"] = float(r.get("conduit_length_km", 0) or 0)
+            r["strand_count"] = int(r.get("strand_count", 0) or 0)
+        return rows
+
+    def get_service_diversity(self, service_id: str) -> dict | None:
+        """Return diversity status for a service."""
+        sql = _SERVICE_DIVERSITY_SQL.replace("{service_id}", service_id.replace("'", "''"))
+        rows = self._execute(sql)
+        if rows is None or len(rows) == 0:
+            return None
+        row = rows[0]
+        return {
+            "service_id": row.get("service_id"),
+            "diversity_status": row.get("path_diversity_status", "unknown"),
+            "working_hops": int(row.get("working_hops", 0) or 0),
+            "protect_hops": int(row.get("protect_hops", 0) or 0),
+            "working_conduits": int(row.get("working_conduits", 0) or 0),
+            "protect_conduits": int(row.get("protect_conduits", 0) or 0),
+            "shared_srlg_count": int(row.get("shared_srlg_count", 0) or 0),
+        }
+
+    def get_srlgs_by_region(self, region: str) -> list[dict] | None:
+        """Return SRLG memberships for spans in a region."""
+        sql = _SRLG_BY_REGION_SQL.replace("{region}", region.replace("'", "''"))
+        rows = self._execute(sql, row_limit=500)
+        if rows is None:
+            return None
+        for r in rows:
+            r["span_length_km"] = float(r.get("span_length_km", 0) or 0)
+        return rows
+
+    def get_hazard_overlay(self) -> list[dict] | None:
+        """Return active hazards for the topology overlay."""
+        rows = self._execute(_HAZARD_OVERLAY_SQL)
+        if rows is None:
+            return None
+        for r in rows:
+            r["latitude"] = float(r.get("latitude", 0) or 0)
+            r["longitude"] = float(r.get("longitude", 0) or 0)
+            r["direct_impact_spans"] = int(r.get("direct_impact_spans", 0) or 0)
+            r["near_impact_spans"] = int(r.get("near_impact_spans", 0) or 0)
+            r["advisory_spans"] = int(r.get("advisory_spans", 0) or 0)
         return rows
 
     def get_action_summary(self) -> dict | None:

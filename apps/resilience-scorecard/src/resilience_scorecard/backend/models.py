@@ -202,10 +202,6 @@ class HazardCrosswalkSummaryOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Health / readiness
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # Topology Models (TOPOLOGY-VIS-SPEC §10, §13)
 # ---------------------------------------------------------------------------
 
@@ -248,6 +244,72 @@ class TopologyConduitOut(BaseModel):
     site_a_id: str = Field(description="A-end site")
     site_z_id: str = Field(description="Z-end site")
     span_count: int = Field(ge=0, description="Number of active spans in conduit")
+
+
+# ---------------------------------------------------------------------------
+# Path Trace + SRLG + Hazard Overlay (TOPOLOGY-VIS-SPEC §2, §3, §4)
+# ---------------------------------------------------------------------------
+
+
+class ServicePathHopOut(BaseModel):
+    """Single hop in a service path trace."""
+    service_id: str
+    hop_index: int = Field(ge=0)
+    span_id: str
+    path_type: str = Field(description="working | protect")
+    conduit_id: str | None = None
+    span_site_a_id: str
+    span_site_z_id: str
+    span_length_km: float = Field(ge=0)
+    fiber_type: str | None = None
+    strand_count: int = Field(ge=0, default=0)
+    conduit_type: str | None = None
+    conduit_length_km: float = Field(ge=0, default=0)
+    corridor: str | None = None
+    site_a_name: str | None = None
+    site_z_name: str | None = None
+    site_a_region: str | None = None
+    site_z_region: str | None = None
+
+
+class ServiceDiversityOut(BaseModel):
+    """Diversity status summary for a service."""
+    service_id: str
+    diversity_status: str = Field(description="fully_diverse | partially_diverse | single_path | unknown")
+    working_hops: int = Field(ge=0)
+    protect_hops: int = Field(ge=0)
+    working_conduits: int = Field(ge=0)
+    protect_conduits: int = Field(ge=0)
+    shared_srlg_count: int = Field(ge=0)
+
+
+class SrlgMemberOut(BaseModel):
+    """Single SRLG membership record for a span."""
+    srlg_id: str
+    srlg_type: str = Field(description="shared_conduit | bridge | rail_crossing | power_feed | tunnel | central_office")
+    severity: str | None = None
+    span_id: str
+    description: str | None = None
+    site_a_id: str
+    site_z_id: str
+    conduit_id: str | None = None
+    span_length_km: float = Field(ge=0, default=0)
+    site_a_name: str | None = None
+    site_z_name: str | None = None
+
+
+class HazardOverlayOut(BaseModel):
+    """Active hazard for the topology overlay."""
+    hazard_id: str
+    hazard_type: str
+    name: str
+    severity: str
+    latitude: float
+    longitude: float
+    event_start: datetime | None = None
+    direct_impact_spans: int = Field(ge=0, default=0)
+    near_impact_spans: int = Field(ge=0, default=0)
+    advisory_spans: int = Field(ge=0, default=0)
 
 
 # ---------------------------------------------------------------------------
