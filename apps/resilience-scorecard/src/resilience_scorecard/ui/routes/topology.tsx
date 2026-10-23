@@ -11,6 +11,68 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
 
 // ---------------------------------------------------------------------------
+// Focus trap hook for dialog panels (WCAG 2.4.3 — Focus Order)
+// Traps Tab / Shift+Tab within the panel, handles Escape to close,
+// and auto-focuses the close button on mount.
+// ---------------------------------------------------------------------------
+
+const FOCUSABLE_SELECTOR =
+  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+function useFocusTrap(
+  ref: React.RefObject<HTMLDivElement | null>,
+  onClose: () => void
+) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    // Auto-focus the close button on mount
+    const closeBtn = el.querySelector<HTMLElement>(".panel-close");
+    closeBtn?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const focusable = Array.from(
+        el.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+      ).filter((node) => !node.hasAttribute("disabled"));
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        // Shift+Tab: wrap from first → last
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        // Tab: wrap from last → first
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    // Attach to the panel element so the trap only fires when focus is inside
+    el.addEventListener("keydown", handleKeyDown);
+    // Also attach on document to catch the very first Tab before focus enters
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      el.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [ref, onClose]);
+}
+
+// ---------------------------------------------------------------------------
 // Route definition
 // ---------------------------------------------------------------------------
 
@@ -155,6 +217,14 @@ const DIVERSITY_COLORS: Record<string, string> = {
   partially_diverse: "#D97706",
   single_path: "#DC2626",
   unknown: "#9CA3AF",
+};
+
+// High-contrast badge pairings per §2.1 (WCAG 1.4.3 AA ≥ 4.5:1)
+const DIVERSITY_BADGE_STYLES: Record<string, { bg: string; text: string; border: string }> = {
+  fully_diverse: { bg: "#DCFCE7", text: "#166534", border: "#16A34A" },
+  partially_diverse: { bg: "#FEF3C7", text: "#92400E", border: "#D97706" },
+  single_path: { bg: "#FEE2E2", text: "#991B1B", border: "#DC2626" },
+  unknown: { bg: "#F3F4F6", text: "#4B5563", border: "#9CA3AF" },
 };
 
 // ---------------------------------------------------------------------------
@@ -345,18 +415,8 @@ function SiteDetailPanel({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const el = panelRef.current;
-    if (el) {
-      const close = el.querySelector<HTMLElement>(".panel-close");
-      close?.focus();
-    }
-    const esc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", esc);
-    return () => document.removeEventListener("keydown", esc);
-  }, [onClose]);
+  // Focus trap: traps Tab/Shift+Tab within panel, Escape to close (WCAG 2.4.3)
+  useFocusTrap(panelRef, onClose);
 
   const connected = conduits.filter(
     (c) => c.site_a_id === site.site_id || c.site_z_id === site.site_id
@@ -443,18 +503,8 @@ function EdgeDetailPanel({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const el = panelRef.current;
-    if (el) {
-      const close = el.querySelector<HTMLElement>(".panel-close");
-      close?.focus();
-    }
-    const esc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", esc);
-    return () => document.removeEventListener("keydown", esc);
-  }, [onClose]);
+  // Focus trap: traps Tab/Shift+Tab within panel, Escape to close (WCAG 2.4.3)
+  useFocusTrap(panelRef, onClose);
 
   // SRLGs touching this conduit
   const conduitSrlgs = srlgs.filter((s) => s.conduit_id === conduit.conduit_id);
@@ -581,7 +631,10 @@ function PathTraceBanner({
       <div className="path-trace-info">
         <span
           className="diversity-badge"
-          style={{ background: divColor + "22", color: divColor, borderColor: divColor }}
+          style={(() => {
+            const badge = DIVERSITY_BADGE_STYLES[diversity?.diversity_status ?? "unknown"] ?? DIVERSITY_BADGE_STYLES.unknown;
+            return { background: badge.bg, color: badge.text, borderColor: badge.border };
+          })()}
         >
           {divLabel}
         </span>
@@ -914,6 +967,7 @@ function SiteGraph({
             tabIndex={0}
             role="button"
             aria-label={`Conduit ${c.conduit_id}: ${c.conduit_type}, ${c.length_km} km, ${c.span_count} spans${hasSrlg ? " (SRLG member)" : ""}. Press Enter for details.`}
+            aria-describedby={`conduit-desc-${c.conduit_id}`}
             onClick={() => onSelectConduit(isSelected ? null : c)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -922,7 +976,7 @@ function SiteGraph({
               }
             }}
           >
-            <title>
+            <title id={`conduit-desc-${c.conduit_id}`}>
               {c.conduit_id}: {c.conduit_type} \u00b7 {c.length_km} km \u00b7 {c.span_count} spans
             </title>
           </line>
@@ -1081,6 +1135,7 @@ function TopologyPage() {
   });
   const [legendCollapsed, setLegendCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Path trace state (§2)
   const [tracedServiceId, setTracedServiceId] = useState<string | null>(null);
@@ -1111,13 +1166,20 @@ function TopologyPage() {
   // Fetch region summaries on mount
   useEffect(() => {
     setLoading(true);
+    setError(null);
     fetch("/api/topology/regions")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to load regions (${r.status})`);
+        return r.json();
+      })
       .then((data) => {
         setRegions(data);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => {
+        setError(err.message || "Failed to load topology data");
+        setLoading(false);
+      });
   }, []);
 
   // Fetch sites + conduits when drilling into a region
@@ -1143,7 +1205,10 @@ function TopologyPage() {
         setConduits(c);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => {
+        setError(err.message || "Failed to load region data");
+        setLoading(false);
+      });
   }, [selectedRegion]);
 
   // Fetch path trace when a service is selected (§2, §10.2)
@@ -1259,10 +1324,31 @@ function TopologyPage() {
         />
       )}
 
+      {error && (
+        <div className="error-banner" role="alert">
+          <strong>Error:</strong> {error}
+          <button
+            style={{ marginLeft: 12, background: 'none', border: '1px solid currentColor', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}
+            onClick={() => { setError(null); setLoading(true); fetch("/api/topology/regions").then((r) => r.json()).then(setRegions).catch(() => {}).finally(() => setLoading(false)); }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       <div className="topo-canvas-wrap" aria-busy={loading}>
         {loading && (
-          <div className="topo-loading">
-            Loading topology data\u2026
+          <div className="topo-loading" role="status" aria-label="Loading topology data">
+            <div className="topo-skeleton-grid">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="topo-skeleton-card">
+                  <div className="skeleton-loading" style={{ width: '60%', height: 16, marginBottom: 8 }} />
+                  <div className="skeleton-loading" style={{ width: '80%', height: 12, marginBottom: 6 }} />
+                  <div className="skeleton-loading" style={{ width: '45%', height: 12 }} />
+                </div>
+              ))}
+            </div>
+            <span className="sr-only">Loading topology data\u2026</span>
           </div>
         )}
 
