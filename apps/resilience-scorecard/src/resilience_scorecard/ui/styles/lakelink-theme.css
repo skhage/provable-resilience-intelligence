@@ -222,6 +222,13 @@ body {
   color: var(--lf-dark-teal);
 }
 
+/* BUG-DW-040: secondary text inside KPI value */
+.kpi-sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(77, 77, 77, 0.8);
+}
+
 /* Data tables (UX-DESIGN-SPEC §3.3) */
 .data-table {
   width: 100%;
@@ -633,7 +640,30 @@ select:focus-visible,
 .text-caption { font-size: 13px; color: #4D4D4D; } /* BUG-DW-033: solid iron — 6.90:1 on platinum, 8.45:1 on white — AAA ✅ */
 .text-medium { font-weight: 500; }
 .max-w-280 { max-width: 280px; }
-.filter-bar { display: flex; gap: 8px; margin-bottom: 16px; }
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.filter-label {
+  font-weight: 500;
+}
+
+.filter-select {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--lf-platinum);
+  font-size: 0.875rem;
+}
+
+/* BUG-DW-038: subtitle below section heading */
+.section-subtitle {
+  font-size: 0.875rem;
+  color: var(--lf-iron);
+  margin-top: 4px;
+}
 .score-value { font-weight: 600; min-width: 32px; display: inline-block; }
 
 /* Action type cell — icon + label inline (UX-REM-ICONS, BRAND-GUIDE §6) */
@@ -1005,7 +1035,7 @@ select:focus-visible,
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: rgba(77, 77, 77, 0.7);
+  color: #5c5c5c;
   margin-bottom: 4px;
 }
 
@@ -1036,7 +1066,8 @@ select:focus-visible,
   font-size: 11px;
   color: var(--lf-dark-teal);
   cursor: pointer;
-  padding: 4px;
+  padding: 6px 4px;
+  min-height: 24px;
   margin-top: var(--space-xs);
   width: 100%;
   text-align: center;
@@ -1150,7 +1181,7 @@ select:focus-visible,
 }
 
 .topo-detail-panel .detail-row .detail-label {
-  color: rgba(77, 77, 77, 0.7);
+  color: #5c5c5c;
   font-weight: 500;
 }
 
@@ -1210,16 +1241,34 @@ select:focus-visible,
   margin-bottom: var(--space-md);
 }
 
-/* Toast notification (UX-DESIGN-SPEC §5.3) */
-.toast {
-  position: fixed;
-  bottom: var(--space-lg);
-  right: var(--space-lg);
-  background: var(--lf-iron);
-  color: var(--lf-white);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-dropdown);
-  z-index: 1000;
+/* BUG-DW-045: Extracted inline styles from SiteDetailPanel conduits section */
+.panel-section-title {
+  margin-top: 16px;
+  color: var(--lf-dark-teal);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.panel-conduit-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--lf-platinum);
+  font-size: 13px;
+}
+
+.panel-conduit-item .conduit-name {
+  font-weight: 600;
+}
+
+.panel-conduit-item .conduit-meta {
+  color: var(--lf-iron);
+}
+
+/* BUG-DW-046: Extracted inline styles from topology loading state */
+.topo-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 500px;
+  color: var(--lf-iron);
   font-size: 14px;
 }

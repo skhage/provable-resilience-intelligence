@@ -45,10 +45,12 @@ function DashboardPage() {
 
       <section aria-label="Product catalog" className="mt-lg">
         <div className="section-header">
-          <h2>Product Catalog</h2>
-          <p style={{ color: "var(--lf-iron)", fontSize: "0.875rem", margin: "4px 0 0" }}>
-            Lakelink Fiber product offerings mapped to service types, SLA tiers, and bandwidth options.
-          </p>
+          <div>
+            <h2>Product Catalog</h2>
+            <p className="section-subtitle">
+              Lakelink Fiber product offerings mapped to service types, SLA tiers, and bandwidth options.
+            </p>
+          </div>
         </div>
         <ProductCatalog />
       </section>

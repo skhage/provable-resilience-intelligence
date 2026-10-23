@@ -147,8 +147,8 @@ function CrosswalkTableContent() {
   return (
     <div className="data-table">
       {/* Filter bar */}
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-md)", marginBottom: "var(--space-md)" }}>
-        <label htmlFor="xwalk-hazard-filter" style={{ fontWeight: 500 }}>
+      <div className="filter-bar">
+        <label htmlFor="xwalk-hazard-filter" className="filter-label">
           Filter by hazard type:
         </label>
         <select
@@ -156,12 +156,7 @@ function CrosswalkTableContent() {
           value={hazardFilter}
           onChange={(e) => setHazardFilter(e.target.value)}
           aria-label="Filter crosswalk by hazard type"
-          style={{
-            padding: "6px 12px",
-            borderRadius: "6px",
-            border: "1px solid var(--lf-platinum)",
-            fontSize: "0.875rem",
-          }}
+          className="filter-select"
         >
           {HAZARD_TYPES.map((ht) => (
             <option key={ht.value} value={ht.value}>

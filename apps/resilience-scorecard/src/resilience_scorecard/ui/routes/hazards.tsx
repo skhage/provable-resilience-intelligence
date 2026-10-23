@@ -22,11 +22,13 @@ function HazardExposurePage() {
     <>
       <section aria-label="Hazard exposure KPIs">
         <div className="section-header">
-          <h2>Hazard &times; Span Exposure</h2>
-          <p style={{ color: "var(--lf-iron)", fontSize: "0.875rem", margin: "4px 0 0" }}>
-            Spatial crosswalk of geographic hazard events intersecting Lakelink Fiber network spans.
-            Computed via Haversine great-circle distance with bounding-box pre-filter.
-          </p>
+          <div>
+            <h2>Hazard &times; Span Exposure</h2>
+            <p className="section-subtitle">
+              Spatial crosswalk of geographic hazard events intersecting Lakelink Fiber network spans.
+              Computed via Haversine great-circle distance with bounding-box pre-filter.
+            </p>
+          </div>
         </div>
         <HazardCrosswalkKpis />
       </section>

@@ -317,22 +317,15 @@ function SiteDetailPanel({
           </span>
         </div>
 
-        <h4 style={{ marginTop: 16, color: BRAND.darkTeal, fontSize: 14 }}>
+        <h4 className="panel-section-title">
           Connected Conduits ({connected.length})
         </h4>
         {connected.map((c) => (
-          <div
-            key={c.conduit_id}
-            style={{
-              padding: "8px 0",
-              borderBottom: `1px solid ${BRAND.platinum}`,
-              fontSize: 13,
-            }}
-          >
-            <div style={{ fontWeight: 600 }}>
+          <div key={c.conduit_id} className="panel-conduit-item">
+            <div className="conduit-name">
               <span className="mono">{c.conduit_id}</span>
             </div>
-            <div style={{ color: BRAND.iron }}>
+            <div className="conduit-meta">
               {c.conduit_type.replace(/_/g, " ")} · {c.length_km} km · {c.span_count} spans
               {c.corridor ? ` · ${c.corridor}` : ""}
             </div>
@@ -732,16 +725,7 @@ function TopologyPage() {
 
       <div className="topo-canvas-wrap" aria-busy={loading}>
         {loading && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              height: 500,
-              color: BRAND.iron,
-              fontSize: 14,
-            }}
-          >
+          <div className="topo-loading">
             Loading topology data…
           </div>
         )}

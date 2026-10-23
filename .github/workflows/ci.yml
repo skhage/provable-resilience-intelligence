@@ -1,5 +1,6 @@
 # Provable Resilience Intelligence — CI Pipeline
 # Validates DAB config + runs lint/tests on every PR to develop or main
+# Enhanced: pip caching, branding compliance, dual-target validate, concurrency
 
 name: CI
 
@@ -7,9 +8,13 @@ on:
   pull_request:
     branches: [main, develop]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
-    name: Bundle Validate + Lint
+    name: Bundle Validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,10 +28,29 @@ jobs:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
 
+      - name: Validate DAB (prod)
+        run: databricks bundle validate --target prod
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+  lint-and-test:
+    name: Lint + Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('bundle/requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
 
       - name: Install dependencies
         run: |
@@ -38,3 +62,30 @@ jobs:
 
       - name: Unit tests
         run: pytest tests/ -v --tb=short
+
+  branding-check:
+    name: Branding Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for forbidden brand references
+        run: |
+          # CEO Directive: All assets must use "Lakelink Fiber", never "Lumen Technologies"
+          # Allowlist: .assistant_instructions.md, BRAND-GUIDE.md, UX-DESIGN-SPEC.md, CONTRIBUTING.md
+          FORBIDDEN=$(grep -rn "Lumen Technologies\|Lumen Enterprise" \
+            --include='*.py' --include='*.sql' --include='*.yml' --include='*.yaml' \
+            --include='*.tsx' --include='*.ts' --include='*.json' --include='*.html' \
+            --include='*.css' --include='*.md' \
+            --exclude-dir=.git \
+            . | grep -v '.assistant_instructions.md' \
+              | grep -v 'BRAND-GUIDE.md' \
+              | grep -v 'UX-DESIGN-SPEC.md' \
+              | grep -v 'CONTRIBUTING.md' \
+              | grep -v 'BRANCH-STRATEGY.md' || true)
+          if [ -n "$FORBIDDEN" ]; then
+            echo "::error::Branding violation — found forbidden references:"
+            echo "$FORBIDDEN"
+            exit 1
+          fi
+          echo "✅ Branding compliance check passed"
