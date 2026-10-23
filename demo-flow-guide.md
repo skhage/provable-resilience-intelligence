@@ -207,4 +207,17 @@
 
 ---
 
+## 8. Known Data Patterns — Demo Awareness
+
+| Table | Pattern | Explanation | Impact on Demo |
+| --- | --- | --- | --- |
+| `resource_alarm` | 7.99% NULL `span_id` (159,753 rows) | All POWER_FAIL alarms have NULL `span_id` — these are site-level (CO power failure) events, not span-level. Expected and correct. | If someone asks "why are some alarms missing span IDs?" — explain POWER_FAIL is a facility alarm. Join via `site_id IN (site_a_id, site_z_id)` for span impact. |
+| `resource_alarm` | 100% `site_id` FK validity | All 2M alarms have valid `site_id` → `geographic_site`. 300 distinct sites with POWER_FAIL. | No orphan risk on site dimension. |
+| `resource_alarm` | Transport alarms: 100% `span_id` | OSNR_DEGRADE, BER_HIGH, LOS, AMP_FAIL, FIBER_CUT always have `span_id`. | Direct span join always works for transport alarms. |
+
+> **Resilience scoring note:** The gold-layer scoring pipeline joins POWER_FAIL alarms transitively via `site_id IN (physical_resource_span.site_a_id, physical_resource_span.site_z_id)` to propagate CO-level risk to all spans terminating at that site.
+
+---
+
 *This demo flow guide is a @designer deliverable for P4-DESIGN-DEMO-TEMPLATE. Reviewed 2026-10-20.*
+*Section 8 added by @data-engineer (P19-DE-ALARM-NULL-DOC), 2026-10-23.*
