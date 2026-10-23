@@ -11,6 +11,24 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
 
 // ---------------------------------------------------------------------------
+// Viewport width hook (§6.2 — Mobile tree fallback below 768px)
+// ---------------------------------------------------------------------------
+
+function useWindowWidth(): number {
+  const [width, setWidth] = useState(
+    typeof window !== "undefined" ? window.innerWidth : 1024
+  );
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return width;
+}
+
+const MOBILE_BREAKPOINT = 768;
+
+// ---------------------------------------------------------------------------
 // Focus trap hook for dialog panels (WCAG 2.4.3 — Focus Order)
 // Traps Tab / Shift+Tab within the panel, handles Escape to close,
 // and auto-focuses the close button on mount.
@@ -211,20 +229,22 @@ const HAZARD_ICONS: Record<string, string> = {
   dig_ticket: "🚧",
 };
 
-// Diversity colors per §2.1
+// Diversity colors per §2.1 — edge stroke colors
+// BUG-DW-057: darkened to ≥3:1 non-text contrast against #E8E8E8 canvas (WCAG 1.4.11)
 const DIVERSITY_COLORS: Record<string, string> = {
-  fully_diverse: "#16A34A",
-  partially_diverse: "#D97706",
-  single_path: "#DC2626",
-  unknown: "#9CA3AF",
+  fully_diverse: "#15803D",      // was #16A34A (2.69:1) → 3.8:1 ✅
+  partially_diverse: "#B45309",  // was #D97706 (2.60:1) → 4.2:1 ✅
+  single_path: "#DC2626",        // 4.9:1 ✅ (already passes)
+  unknown: "#6B7280",            // was #9CA3AF (2.07:1) → 3.7:1 ✅
 };
 
 // High-contrast badge pairings per §2.1 (WCAG 1.4.3 AA ≥ 4.5:1)
+// BUG-QA-054: border now references DIVERSITY_COLORS (single source of truth)
 const DIVERSITY_BADGE_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  fully_diverse: { bg: "#DCFCE7", text: "#166534", border: "#16A34A" },
-  partially_diverse: { bg: "#FEF3C7", text: "#92400E", border: "#D97706" },
-  single_path: { bg: "#FEE2E2", text: "#991B1B", border: "#DC2626" },
-  unknown: { bg: "#F3F4F6", text: "#4B5563", border: "#9CA3AF" },
+  fully_diverse: { bg: "#DCFCE7", text: "#166534", border: DIVERSITY_COLORS.fully_diverse },
+  partially_diverse: { bg: "#FEF3C7", text: "#92400E", border: DIVERSITY_COLORS.partially_diverse },
+  single_path: { bg: "#FEE2E2", text: "#991B1B", border: DIVERSITY_COLORS.single_path },
+  unknown: { bg: "#F3F4F6", text: "#4B5563", border: DIVERSITY_COLORS.unknown },
 };
 
 // ---------------------------------------------------------------------------
@@ -381,10 +401,10 @@ function Legend({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => v
       <div className="legend-section">
         <div className="legend-section-title">Diversity</div>
         {[
-          { color: "#16A34A", label: "Fully Diverse" },
-          { color: "#D97706", label: "Partially Diverse" },
-          { color: "#DC2626", label: "Single Path" },
-          { color: "#9CA3AF", label: "Unknown" },
+          { color: DIVERSITY_COLORS.fully_diverse, label: "Fully Diverse" },
+          { color: DIVERSITY_COLORS.partially_diverse, label: "Partially Diverse" },
+          { color: DIVERSITY_COLORS.single_path, label: "Single Path" },
+          { color: DIVERSITY_COLORS.unknown, label: "Unknown" },
         ].map((d) => (
           <div key={d.label} className="legend-item">
             <span className="legend-swatch" style={{ background: d.color }} />
@@ -574,6 +594,15 @@ function EdgeDetailPanel({
                   {s.srlg_type.replace(/_/g, " ")}
                   {s.description ? ` \u2014 ${s.description}` : ""}
                 </div>
+                {/* BUG-DW-055: Cross-view link to Action Queue per §9.2 */}
+                <Link
+                  to="/actions"
+                  search={{ srlg: s.srlg_id }}
+                  className="panel-action-link"
+                  aria-label={`Open actions for SRLG ${s.srlg_id}`}
+                >
+                  Open action \u2192
+                </Link>
               </div>
             ))}
           </>
@@ -1055,7 +1084,7 @@ function SiteGraph({
         );
       })}
 
-      {/* Hazard overlay markers (§4.2) */}
+      {/* Hazard overlay markers (§4.2) — BUG-DW-056: a11y fix */}
       {overlays.hazard && hazards.map((h) => {
         // Simple position: use lat/lon scaled relative to visible sites
         // For demo, place hazards based on hash of hazard_id in visible area
@@ -1067,7 +1096,16 @@ function SiteGraph({
           : "#D97706";
 
         return (
-          <g key={h.hazard_id} className="hazard-overlay-marker">
+          <g
+            key={h.hazard_id}
+            className="hazard-overlay-marker"
+            role="img"
+            aria-label={`${h.hazard_type.replace(/_/g, " ")} hazard: ${h.name}, severity ${h.severity}, ${h.direct_impact_spans} direct impact spans, ${h.near_impact_spans} near impact spans`}
+            tabIndex={0}
+          >
+            <title>
+              {h.hazard_type.replace(/_/g, " ")} hazard: {h.name} ({h.severity}) \u2014 {h.direct_impact_spans} direct, {h.near_impact_spans} near impact spans
+            </title>
             {/* Proximity ring */}
             <circle
               cx={hx}
@@ -1094,6 +1132,7 @@ function SiteGraph({
               y={hy + 5}
               textAnchor="middle"
               fontSize={14}
+              aria-hidden="true"
             >
               {HAZARD_ICONS[h.hazard_type] ?? "\u26a0\ufe0f"}
             </text>
@@ -1104,12 +1143,23 @@ function SiteGraph({
               fontSize={9}
               fill={BRAND.iron}
               fontFamily="'Inter', sans-serif"
+              aria-hidden="true"
             >
               {h.name.slice(0, 20)}
             </text>
           </g>
         );
       })}
+
+      {/* BUG-DW-056: sr-only hazard summary for screen readers (WCAG 4.1.2) */}
+      {overlays.hazard && hazards.length > 0 && (
+        <foreignObject x="0" y="0" width="1" height="1" overflow="visible">
+          <div className="sr-only" role="status" aria-live="polite">
+            {hazards.length} active hazard{hazards.length !== 1 ? "s" : ""} on map:{" "}
+            {hazards.map((h) => `${h.name} (${h.severity})`).join(", ")}
+          </div>
+        </foreignObject>
+      )}
     </svg>
   );
 }
@@ -1118,9 +1168,478 @@ function SiteGraph({
 // Main page component
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Mobile Tree View (TOPOLOGY-VIS-SPEC §6.2 — <768px fallback)
+// Replaces the SVG graph with an accessible, searchable tree view.
+// Hierarchy: Region → Site → Conduit (with span count)
+// ---------------------------------------------------------------------------
+
+interface MobileTreeProps {
+  regions: RegionSummary[];
+  onSelectSite: (site: SiteNode) => void;
+  onSelectConduit: (conduit: ConduitEdge) => void;
+  overlays: Overlays;
+  diversity: ServiceDiversity | null;
+  tracedServiceId: string | null;
+}
+
+function MobileTreeView({
+  regions,
+  onSelectSite,
+  onSelectConduit,
+  overlays,
+  diversity,
+  tracedServiceId,
+}: MobileTreeProps) {
+  const [expandedRegions, setExpandedRegions] = useState<Set<string>>(
+    new Set()
+  );
+  const [expandedSites, setExpandedSites] = useState<Set<string>>(new Set());
+  const [regionData, setRegionData] = useState<
+    Record<string, { sites: SiteNode[]; conduits: ConduitEdge[] }>
+  >({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [loadingRegion, setLoadingRegion] = useState<string | null>(null);
+  const [detailSite, setDetailSite] = useState<SiteNode | null>(null);
+  const [detailConduit, setDetailConduit] = useState<ConduitEdge | null>(null);
+  const treeRef = useRef<HTMLUListElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+
+  // Focus trap for the full-screen detail modal
+  useFocusTrap(detailRef, () => {
+    setDetailSite(null);
+    setDetailConduit(null);
+  });
+
+  // Lazy-load sites + conduits per region on expand
+  const toggleRegion = useCallback(
+    (region: string) => {
+      setExpandedRegions((prev) => {
+        const next = new Set(prev);
+        if (next.has(region)) {
+          next.delete(region);
+        } else {
+          next.add(region);
+          // Fetch data if not cached
+          if (!regionData[region]) {
+            setLoadingRegion(region);
+            Promise.all([
+              fetch(
+                `/api/topology/sites?region=${encodeURIComponent(region)}`
+              ).then((r) => r.json()),
+              fetch(
+                `/api/topology/conduits?region=${encodeURIComponent(region)}`
+              ).then((r) => r.json()),
+            ])
+              .then(([sites, conduits]) => {
+                setRegionData((d) => ({ ...d, [region]: { sites, conduits } }));
+                setLoadingRegion(null);
+              })
+              .catch(() => setLoadingRegion(null));
+          }
+        }
+        return next;
+      });
+    },
+    [regionData]
+  );
+
+  const toggleSite = useCallback((siteId: string) => {
+    setExpandedSites((prev) => {
+      const next = new Set(prev);
+      if (next.has(siteId)) next.delete(siteId);
+      else next.add(siteId);
+      return next;
+    });
+  }, []);
+
+  // Arrow key navigation for role="tree" (WCAG 2.1.1)
+  const handleTreeKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.matches('[role="treeitem"]')) return;
+
+      const items = Array.from(
+        treeRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? []
+      );
+      const idx = items.indexOf(target);
+      if (idx === -1) return;
+
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault();
+          items[Math.min(idx + 1, items.length - 1)]?.focus();
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          items[Math.max(idx - 1, 0)]?.focus();
+          break;
+        case "ArrowRight": {
+          const regionKey = target.dataset.region;
+          const siteKey = target.dataset.site;
+          if (regionKey && !expandedRegions.has(regionKey))
+            toggleRegion(regionKey);
+          else if (siteKey && !expandedSites.has(siteKey))
+            toggleSite(siteKey);
+          break;
+        }
+        case "ArrowLeft": {
+          const regionKey = target.dataset.region;
+          const siteKey = target.dataset.site;
+          if (regionKey && expandedRegions.has(regionKey))
+            toggleRegion(regionKey);
+          else if (siteKey && expandedSites.has(siteKey))
+            toggleSite(siteKey);
+          break;
+        }
+        case "Enter":
+        case " ":
+          e.preventDefault();
+          target.click();
+          break;
+      }
+    },
+    [expandedRegions, expandedSites, toggleRegion, toggleSite]
+  );
+
+  // Filter helper
+  const matchesSearch = useCallback(
+    (text: string) =>
+      !searchTerm || text.toLowerCase().includes(searchTerm.toLowerCase()),
+    [searchTerm]
+  );
+
+  // Tier label for display
+  const tierLabel = (tier: string | null): string => {
+    if (!tier) return "";
+    return tier === "tier_1" ? "T1" : tier === "tier_2" ? "T2" : "T3";
+  };
+
+  // Diversity badge for a status
+  const diversityBadge = (status: string | undefined) => {
+    if (!status || !overlays.diversity) return null;
+    const style = DIVERSITY_BADGE_STYLES[status];
+    if (!style) return null;
+    const label =
+      status === "fully_diverse"
+        ? "Diverse"
+        : status === "partially_diverse"
+        ? "Partial"
+        : status === "single_path"
+        ? "Single"
+        : "Unknown";
+    return (
+      <span
+        className="mobile-tree-badge"
+        style={{
+          backgroundColor: style.bg,
+          color: style.text,
+          borderColor: style.border,
+        }}
+        aria-label={`Diversity: ${label}`}
+      >
+        {label}
+      </span>
+    );
+  };
+
+  // Group conduits by site_a_id for tree nesting
+  const conduitsForSite = useCallback(
+    (region: string, siteId: string): ConduitEdge[] => {
+      const data = regionData[region];
+      if (!data) return [];
+      return data.conduits.filter((c) => c.site_a_id === siteId);
+    },
+    [regionData]
+  );
+
+  return (
+    <div className="mobile-tree-container">
+      {/* Search input (§6.2) */}
+      <div className="mobile-tree-search">
+        <label htmlFor="mobile-tree-search" className="sr-only">
+          Search sites, conduits, spans
+        </label>
+        <input
+          id="mobile-tree-search"
+          type="search"
+          placeholder="\uD83D\uDD0D Search sites, conduits, spans\u2026"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="mobile-tree-search-input"
+          autoComplete="off"
+        />
+      </div>
+
+      {/* Accessible tree (WCAG 1.3.1) */}
+      <ul
+        ref={treeRef}
+        role="tree"
+        aria-label="Network topology tree"
+        className="mobile-tree-list"
+        onKeyDown={handleTreeKeyDown}
+      >
+        {regions
+          .filter((r) => matchesSearch(r.region))
+          .map((region) => {
+            const isExpanded = expandedRegions.has(region.region);
+            const data = regionData[region.region];
+            const isLoading = loadingRegion === region.region;
+
+            return (
+              <li
+                key={region.region}
+                role="treeitem"
+                aria-expanded={isExpanded}
+                aria-label={`${region.region} region, ${region.site_count} sites, ${region.conduit_count} conduits`}
+                tabIndex={0}
+                data-region={region.region}
+                className="mobile-tree-region"
+              >
+                <div
+                  className="mobile-tree-row mobile-tree-row--region"
+                  onClick={() => toggleRegion(region.region)}
+                >
+                  <span className="mobile-tree-chevron" aria-hidden="true">
+                    {isExpanded ? "\u25BE" : "\u25B8"}
+                  </span>
+                  <span className="mobile-tree-label">
+                    {region.region} Region
+                  </span>
+                  <span className="mobile-tree-meta">
+                    {region.site_count} sites
+                  </span>
+                </div>
+
+                {/* Expanded region: show sites */}
+                {isExpanded && (
+                  <ul role="group" className="mobile-tree-group">
+                    {isLoading && (
+                      <li className="mobile-tree-loading" aria-live="polite">
+                        Loading sites\u2026
+                      </li>
+                    )}
+                    {data &&
+                      data.sites
+                        .filter(
+                          (s) =>
+                            matchesSearch(s.site_name) ||
+                            matchesSearch(s.city) ||
+                            matchesSearch(s.site_id)
+                        )
+                        .sort((a, b) => {
+                          // Sort: tier_1 first, then tier_2, then tier_3
+                          const tierOrder = (t: string | null) =>
+                            t === "tier_1" ? 0 : t === "tier_2" ? 1 : 2;
+                          return tierOrder(a.tier) - tierOrder(b.tier);
+                        })
+                        .map((site) => {
+                          const siteExpanded = expandedSites.has(site.site_id);
+                          const siteConduits = conduitsForSite(
+                            region.region,
+                            site.site_id
+                          );
+
+                          return (
+                            <li
+                              key={site.site_id}
+                              role="treeitem"
+                              aria-expanded={
+                                siteConduits.length > 0
+                                  ? siteExpanded
+                                  : undefined
+                              }
+                              aria-label={`${site.site_name}, ${site.site_type}, ${site.city} ${site.state}, ${tierLabel(site.tier)}`}
+                              tabIndex={-1}
+                              data-site={site.site_id}
+                              className="mobile-tree-site"
+                            >
+                              <div
+                                className="mobile-tree-row mobile-tree-row--site"
+                                onClick={() => {
+                                  if (siteConduits.length > 0)
+                                    toggleSite(site.site_id);
+                                  else setDetailSite(site);
+                                }}
+                              >
+                                <span
+                                  className="mobile-tree-chevron"
+                                  aria-hidden="true"
+                                >
+                                  {siteConduits.length > 0
+                                    ? siteExpanded
+                                      ? "\u25BE"
+                                      : "\u25B8"
+                                    : "\u2022"}
+                                </span>
+                                <span className="mobile-tree-label">
+                                  {site.site_name}
+                                </span>
+                                <span className="mobile-tree-meta">
+                                  {site.city}{" "}
+                                  <span className="mobile-tree-tier">
+                                    [{tierLabel(site.tier)}]
+                                  </span>
+                                </span>
+                                <button
+                                  className="mobile-tree-detail-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDetailSite(site);
+                                  }}
+                                  aria-label={`View details for ${site.site_name}`}
+                                >
+                                  \u2139\uFE0F
+                                </button>
+                              </div>
+
+                              {/* Expanded site: show conduits */}
+                              {siteExpanded && siteConduits.length > 0 && (
+                                <ul role="group" className="mobile-tree-group">
+                                  {siteConduits
+                                    .filter(
+                                      (c) =>
+                                        matchesSearch(
+                                          c.conduit_name || c.conduit_id
+                                        ) || matchesSearch(c.corridor || "")
+                                    )
+                                    .map((conduit) => (
+                                      <li
+                                        key={conduit.conduit_id}
+                                        role="treeitem"
+                                        tabIndex={-1}
+                                        aria-label={`Conduit ${conduit.conduit_name || conduit.conduit_id}, ${conduit.conduit_type}, ${conduit.length_km.toFixed(1)} km, ${conduit.span_count} spans`}
+                                        className="mobile-tree-conduit"
+                                      >
+                                        <div
+                                          className="mobile-tree-row mobile-tree-row--conduit"
+                                          onClick={() =>
+                                            setDetailConduit(conduit)
+                                          }
+                                        >
+                                          <span
+                                            className="mobile-tree-connector"
+                                            aria-hidden="true"
+                                          >
+                                            \u251C\u2500
+                                          </span>
+                                          <span className="mobile-tree-label">
+                                            {conduit.conduit_name ||
+                                              conduit.conduit_id}
+                                          </span>
+                                          <span className="mobile-tree-meta">
+                                            {conduit.length_km.toFixed(1)}km
+                                            \u00B7 {conduit.span_count} spans
+                                          </span>
+                                        </div>
+                                      </li>
+                                    ))}
+                                </ul>
+                              )}
+                            </li>
+                          );
+                        })}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
+      </ul>
+
+      {/* Diversity summary when tracing */}
+      {tracedServiceId && diversity && overlays.diversity && (
+        <div className="mobile-tree-diversity-summary" role="status">
+          <strong>Tracing:</strong> {tracedServiceId}
+          {diversityBadge(diversity.diversity_status)}
+        </div>
+      )}
+
+      {/* Full-screen detail modal (§6.2) */}
+      {(detailSite || detailConduit) && (
+        <div
+          className="mobile-detail-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label={
+            detailSite
+              ? `Details for ${detailSite.site_name}`
+              : `Details for ${detailConduit?.conduit_name || detailConduit?.conduit_id}`
+          }
+          ref={detailRef}
+        >
+          <div className="mobile-detail-header">
+            <h2 className="mobile-detail-title">
+              {detailSite
+                ? detailSite.site_name
+                : detailConduit?.conduit_name || detailConduit?.conduit_id}
+            </h2>
+            <button
+              className="panel-close mobile-detail-close"
+              onClick={() => {
+                setDetailSite(null);
+                setDetailConduit(null);
+              }}
+              aria-label="Close detail panel"
+            >
+              \u2715
+            </button>
+          </div>
+          <div className="mobile-detail-body">
+            {detailSite && (
+              <dl className="mobile-detail-dl">
+                <dt>Type</dt>
+                <dd>{detailSite.site_type}</dd>
+                <dt>CLLI</dt>
+                <dd>{detailSite.clli_code || "\u2014"}</dd>
+                <dt>Location</dt>
+                <dd>
+                  {detailSite.city}, {detailSite.state}
+                </dd>
+                <dt>Region</dt>
+                <dd>{detailSite.region}</dd>
+                <dt>Tier</dt>
+                <dd>{tierLabel(detailSite.tier) || "\u2014"}</dd>
+                <dt>Coordinates</dt>
+                <dd>
+                  {detailSite.latitude.toFixed(4)},{" "}
+                  {detailSite.longitude.toFixed(4)}
+                </dd>
+                <dt>Conduits</dt>
+                <dd>{detailSite.conduit_count}</dd>
+              </dl>
+            )}
+            {detailConduit && (
+              <dl className="mobile-detail-dl">
+                <dt>Type</dt>
+                <dd>{detailConduit.conduit_type}</dd>
+                <dt>Corridor</dt>
+                <dd>{detailConduit.corridor || "\u2014"}</dd>
+                <dt>Length</dt>
+                <dd>{detailConduit.length_km.toFixed(1)} km</dd>
+                <dt>Spans</dt>
+                <dd>{detailConduit.span_count}</dd>
+                <dt>Endpoints</dt>
+                <dd>
+                  {detailConduit.site_a_id} \u2192 {detailConduit.site_z_id}
+                </dd>
+              </dl>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main TopologyPage
+// ---------------------------------------------------------------------------
+
 function TopologyPage() {
   const navigate = useNavigate();
   const search = useSearch({ from: "/topology" });
+  const viewportWidth = useWindowWidth();
+  const isMobile = viewportWidth < MOBILE_BREAKPOINT;
 
   const [regions, setRegions] = useState<RegionSummary[]>([]);
   const [sites, setSites] = useState<SiteNode[]>([]);
@@ -1336,86 +1855,124 @@ function TopologyPage() {
         </div>
       )}
 
-      <div className="topo-canvas-wrap" aria-busy={loading}>
-        {loading && (
-          <div className="topo-loading" role="status" aria-label="Loading topology data">
-            <div className="topo-skeleton-grid">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="topo-skeleton-card">
-                  <div className="skeleton-loading" style={{ width: '60%', height: 16, marginBottom: 8 }} />
-                  <div className="skeleton-loading" style={{ width: '80%', height: 12, marginBottom: 6 }} />
-                  <div className="skeleton-loading" style={{ width: '45%', height: 12 }} />
-                </div>
-              ))}
+      {/* Mobile tree view fallback (§6.2) — replaces graph below 768px */}
+      {isMobile ? (
+        <div className="topo-canvas-wrap topo-canvas-wrap--mobile" aria-busy={loading}>
+          {loading && (
+            <div className="topo-loading" role="status" aria-label="Loading topology data">
+              <div className="topo-skeleton-grid">
+                {[1, 2].map((i) => (
+                  <div key={i} className="topo-skeleton-card">
+                    <div className="skeleton-loading" style={{ width: '60%', height: 16, marginBottom: 8 }} />
+                    <div className="skeleton-loading" style={{ width: '80%', height: 12, marginBottom: 6 }} />
+                    <div className="skeleton-loading" style={{ width: '45%', height: 12 }} />
+                  </div>
+                ))}
+              </div>
+              <span className="sr-only">Loading topology data\u2026</span>
             </div>
-            <span className="sr-only">Loading topology data\u2026</span>
-          </div>
-        )}
-
-        {!loading && !selectedRegion && regions.length > 0 && (
-          <RegionGraph regions={regions} onDrillIn={setSelectedRegion} />
-        )}
-
-        {!loading && selectedRegion && sites.length > 0 && (
-          <SiteGraph
-            sites={sites}
-            conduits={conduits}
-            onSelectSite={setSelectedSite}
-            selectedSiteId={selectedSite?.site_id ?? null}
-            onSelectConduit={setSelectedConduit}
-            selectedConduitId={selectedConduit?.conduit_id ?? null}
-            pathHops={pathHops}
-            srlgs={srlgs}
-            hazards={hazards}
-            overlays={overlays}
-            diversity={diversity}
-          />
-        )}
-
-        {!loading && !selectedRegion && regions.length === 0 && (
-          <div className="empty-state">
-            <div className="empty-icon" aria-hidden="true">
-              \ud83c\udf10
+          )}
+          {!loading && regions.length > 0 && (
+            <MobileTreeView
+              regions={regions}
+              onSelectSite={setSelectedSite}
+              onSelectConduit={setSelectedConduit}
+              overlays={overlays}
+              diversity={diversity}
+              tracedServiceId={tracedServiceId}
+            />
+          )}
+          {!loading && regions.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-icon" aria-hidden="true">\ud83c\udf10</div>
+              <p>No topology data available</p>
+              <p className="empty-hint">Gold tables may still be loading</p>
             </div>
-            <p>No topology data available</p>
-            <p className="empty-hint">Gold tables may still be loading</p>
-          </div>
-        )}
-
-        {!loading && selectedRegion && sites.length === 0 && (
-          <div className="empty-state">
-            <div className="empty-icon" aria-hidden="true">
-              \ud83d\udce1
+          )}
+        </div>
+      ) : (
+        /* Desktop/tablet: full SVG graph */
+        <div className="topo-canvas-wrap" aria-busy={loading}>
+          {loading && (
+            <div className="topo-loading" role="status" aria-label="Loading topology data">
+              <div className="topo-skeleton-grid">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="topo-skeleton-card">
+                    <div className="skeleton-loading" style={{ width: '60%', height: 16, marginBottom: 8 }} />
+                    <div className="skeleton-loading" style={{ width: '80%', height: 12, marginBottom: 6 }} />
+                    <div className="skeleton-loading" style={{ width: '45%', height: 12 }} />
+                  </div>
+                ))}
+              </div>
+              <span className="sr-only">Loading topology data\u2026</span>
             </div>
-            <p>No sites found in {selectedRegion}</p>
-          </div>
-        )}
+          )}
 
-        {/* Legend (§8) */}
-        <Legend
-          collapsed={legendCollapsed}
-          onToggle={() => setLegendCollapsed((c) => !c)}
-        />
+          {!loading && !selectedRegion && regions.length > 0 && (
+            <RegionGraph regions={regions} onDrillIn={setSelectedRegion} />
+          )}
 
-        {/* Site detail panel (§5.1) */}
-        {selectedSite && !selectedConduit && (
-          <SiteDetailPanel
-            site={selectedSite}
-            conduits={conduits}
-            onClose={() => setSelectedSite(null)}
+          {!loading && selectedRegion && sites.length > 0 && (
+            <SiteGraph
+              sites={sites}
+              conduits={conduits}
+              onSelectSite={setSelectedSite}
+              selectedSiteId={selectedSite?.site_id ?? null}
+              onSelectConduit={setSelectedConduit}
+              selectedConduitId={selectedConduit?.conduit_id ?? null}
+              pathHops={pathHops}
+              srlgs={srlgs}
+              hazards={hazards}
+              overlays={overlays}
+              diversity={diversity}
+            />
+          )}
+
+          {!loading && !selectedRegion && regions.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-icon" aria-hidden="true">
+                \ud83c\udf10
+              </div>
+              <p>No topology data available</p>
+              <p className="empty-hint">Gold tables may still be loading</p>
+            </div>
+          )}
+
+          {!loading && selectedRegion && sites.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-icon" aria-hidden="true">
+                \ud83d\udce1
+              </div>
+              <p>No sites found in {selectedRegion}</p>
+            </div>
+          )}
+
+          {/* Legend (§8) */}
+          <Legend
+            collapsed={legendCollapsed}
+            onToggle={() => setLegendCollapsed((c) => !c)}
           />
-        )}
 
-        {/* Edge detail panel (§5.2) */}
-        {selectedConduit && (
-          <EdgeDetailPanel
-            conduit={selectedConduit}
-            srlgs={srlgs}
-            hazards={hazards}
-            onClose={() => setSelectedConduit(null)}
-          />
-        )}
-      </div>
+          {/* Site detail panel (§5.1) */}
+          {selectedSite && !selectedConduit && (
+            <SiteDetailPanel
+              site={selectedSite}
+              conduits={conduits}
+              onClose={() => setSelectedSite(null)}
+            />
+          )}
+
+          {/* Edge detail panel (§5.2) */}
+          {selectedConduit && (
+            <EdgeDetailPanel
+              conduit={selectedConduit}
+              srlgs={srlgs}
+              hazards={hazards}
+              onClose={() => setSelectedConduit(null)}
+            />
+          )}
+        </div>
+      )}
     </>
   );
 }
