@@ -48,12 +48,16 @@ targets:
   prod:
     mode: production
     workspace:
-      root_path: /Shared/.bundle/${bundle.name}/${bundle.target}
+      # P28-DEVOPS-PROD-BUNDLE-ROOT: moved off /Shared (writable by all users).
+      # Deploy identity's home folder; only the deployer + admins can write.
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - user_name: stephen.hage@databricks.com
+        level: CAN_MANAGE
     variables:
       catalog: cdm_tmforum
       schema: provable_resilience_intelligence
-    # WARNING: /Shared root path is writable by all workspace users.
-    # After creating the service principal, uncomment run_as AND
-    # change root_path to /Workspace/Users/<sp-name>/.bundle/...
+    # Once a service principal exists, uncomment run_as and deploy as the SP
+    # so root_path resolves to the SP's home folder.
     # run_as:
     #   service_principal_name: provable-resilience-prod
