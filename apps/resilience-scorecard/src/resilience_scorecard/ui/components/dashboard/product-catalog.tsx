@@ -15,6 +15,7 @@ import { Suspense } from "react";
 import { QueryErrorResetBoundary, useSuspenseQuery } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion } from "@/components/ui/loading-region";
 
 interface ProductOffering {
   product_offering_id: string;
@@ -142,9 +143,9 @@ export function ProductCatalog() {
         >
           <Suspense
             fallback={
-              <div aria-busy="true" aria-label="Loading product catalog">
+              <LoadingRegion label="Loading product catalog">
                 <Skeleton className="h-64 w-full rounded-lg" />
-              </div>
+              </LoadingRegion>
             }
           >
             <ProductCatalogContent />

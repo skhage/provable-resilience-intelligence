@@ -7,6 +7,7 @@ import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Link } from "@tanstack/react-router";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion } from "@/components/ui/loading-region";
 import { useListResilienceScoresSuspense } from "@/lib/api";
 import selector from "@/lib/selector";
 
@@ -198,9 +199,9 @@ export function ServiceTable() {
         >
           <Suspense
             fallback={
-              <div aria-busy="true" aria-label="Loading service table">
+              <LoadingRegion label="Loading service table">
                 <Skeleton className="h-96 w-full rounded-lg" />
-              </div>
+              </LoadingRegion>
             }
           >
             <ServiceTableContent />

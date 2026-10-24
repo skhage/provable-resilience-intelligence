@@ -10,6 +10,7 @@ import { Suspense, useState, useMemo, useCallback } from "react";
 import { QueryErrorResetBoundary, useSuspenseQuery } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion } from "@/components/ui/loading-region";
 import { HazardTypeCell } from "./hazard-type-cell";
 
 interface CrosswalkRow {
@@ -35,8 +36,8 @@ const HAZARD_TYPES = [
 
 const BAND_LABELS: Record<string, string> = {
   direct_impact: "Direct Impact (<1km)",
-  near_field: "Near Field (1\u20135km)",
-  buffer_zone: "Buffer Zone (5\u2013radius km)",
+  near_field: "Near Field (1–5km)",
+  buffer_zone: "Buffer Zone (5–radius km)",
 };
 
 const BAND_ORDER: Record<string, number> = {
@@ -112,7 +113,7 @@ function CrosswalkTableContent() {
   }, [rows]);
 
   const sortIndicator = (field: SortField) =>
-    sortField === field ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : "";
+    sortField === field ? (sortDir === "asc" ? " ▲" : " ▼") : "";
 
   const sortProps = (field: SortField) => ({
     onClick: () => toggleSort(field),
@@ -138,7 +139,7 @@ function CrosswalkTableContent() {
       <div className="data-table">
         <div className="empty-state">
           <p>No crosswalk data available</p>
-          <p className="empty-hint">The hazard\u00d7span intersection pipeline has not run yet.</p>
+          <p className="empty-hint">The hazard×span intersection pipeline has not run yet.</p>
         </div>
       </div>
     );
@@ -249,9 +250,9 @@ export function HazardCrosswalkTable() {
         >
           <Suspense
             fallback={
-              <div aria-busy="true" aria-label="Loading crosswalk table">
+              <LoadingRegion label="Loading crosswalk table">
                 <Skeleton className="h-96 w-full rounded-lg" />
-              </div>
+              </LoadingRegion>
             }
           >
             <CrosswalkTableContent />

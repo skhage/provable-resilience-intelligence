@@ -7,6 +7,7 @@ import { Suspense, useState, useCallback, useEffect, useRef, Fragment } from "re
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion } from "@/components/ui/loading-region";
 import {
   useListActionsSuspense,
   useGetActionSummarySuspense,
@@ -415,14 +416,14 @@ export function ActionQueueTable() {
         >
           <Suspense
             fallback={
-              <div aria-busy="true" aria-label="Loading action queue">
+              <LoadingRegion label="Loading action queue">
                 <div className="kpi-row">
                   {Array.from({ length: 4 }).map((_, i) => (
                     <Skeleton key={i} className="h-24 w-full rounded-lg" />
                   ))}
                 </div>
                 <Skeleton className="h-96 w-full rounded-lg" />
-              </div>
+              </LoadingRegion>
             }
           >
             <ActionSummaryCards />

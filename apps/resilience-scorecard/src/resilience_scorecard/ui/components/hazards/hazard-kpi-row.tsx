@@ -10,6 +10,7 @@ import { Suspense } from "react";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion } from "@/components/ui/loading-region";
 import { useGetHazardSummarySuspense } from "@/lib/api";
 
 function HazardKpiContent() {
@@ -82,11 +83,11 @@ export function HazardKpiRow() {
         >
           <Suspense
             fallback={
-              <div className="kpi-row" aria-busy="true" aria-label="Loading hazard summary">
+              <LoadingRegion className="kpi-row" label="Loading hazard summary">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <Skeleton key={i} className="h-24 w-full rounded-lg" />
                 ))}
-              </div>
+              </LoadingRegion>
             }
           >
             <HazardKpiContent />

@@ -14,6 +14,7 @@
   --lf-accent-orange: #F26522;
   --lf-accent-warm-gold: #FFCC80; /* WCAG-safe warm accent on dark-teal (4.75:1) — BRAND-GUIDE §11.3 + UX-REM-WARM-GOLD-TOKEN */
   --lf-white: #FFFFFF;
+  --lf-platinum-shade: #858585; /* platinum darkened; 3.0:1 on --lf-platinum, for non-text outlines (BUG-DW-079) */
 
   /* === Risk Severity (UX-DESIGN-SPEC §1.1) === */
   --lf-risk-red: #D32F2F;
@@ -1286,20 +1287,28 @@ select:focus-visible,
   }
 }
 
-/* Loading skeleton pulse (UX-DESIGN-SPEC §5.1) */
+/* Loading skeleton pulse (UX-DESIGN-SPEC §5.1). Single skeleton system (BUG-DW-079):
+ * white resting fill + platinum-shade border keeps the shape visible on the platinum page
+ * background, including when the animation is stopped under reduced motion. */
 @keyframes skeleton-pulse {
-  0% { background-color: var(--lf-platinum); }
-  50% { background-color: var(--lf-white); }
-  100% { background-color: var(--lf-platinum); }
+  0% { background-color: var(--lf-white); }
+  50% { background-color: var(--lf-platinum); }
+  100% { background-color: var(--lf-white); }
 }
 
 .skeleton-loading {
+  background-color: var(--lf-white);
+  border: 1px solid var(--lf-platinum-shade);
   animation: skeleton-pulse 1.5s ease-in-out infinite;
   border-radius: var(--radius-md);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeleton-loading { animation: none; background-color: var(--lf-platinum); }
+  .skeleton-loading { animation: none; background-color: var(--lf-white); }
+}
+
+@media (forced-colors: active) {
+  .skeleton-loading { animation: none; background: Canvas; border: 1px solid GrayText; }
 }
 
 /* Error banner (UX-DESIGN-SPEC §5.2) */

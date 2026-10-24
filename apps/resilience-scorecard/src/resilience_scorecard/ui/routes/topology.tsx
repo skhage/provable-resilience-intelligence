@@ -631,10 +631,10 @@ function EdgeDetailPanel({
       <div className="panel-header">
         <h3>
           <span className="mono">{conduit.conduit_id}</span>
-          {conduit.conduit_name ? ` \u00b7 ${conduit.conduit_name}` : ""}
+          {conduit.conduit_name ? ` · ${conduit.conduit_name}` : ""}
         </h3>
         <button className="panel-close" onClick={onClose} aria-label="Close panel">
-          \u2715
+          ✕
         </button>
       </div>
       <div className="panel-body">
@@ -666,7 +666,7 @@ function EdgeDetailPanel({
               <div key={s.srlg_id} className="panel-conduit-item">
                 <div className="conduit-name">
                   <span style={{ marginRight: 6 }}>
-                    {SRLG_ICONS[s.srlg_type] ?? "\u26a0\ufe0f"}
+                    {SRLG_ICONS[s.srlg_type] ?? "⚠️"}
                   </span>
                   <span className="mono">{s.srlg_id}</span>
                   {s.severity && (
@@ -680,7 +680,7 @@ function EdgeDetailPanel({
                 </div>
                 <div className="conduit-meta">
                   {s.srlg_type.replace(/_/g, " ")}
-                  {s.description ? ` \u2014 ${s.description}` : ""}
+                  {s.description ? ` — ${s.description}` : ""}
                 </div>
                 {/* BUG-DW-055: Cross-view link to Action Queue per §9.2 */}
                 <Link
@@ -689,7 +689,7 @@ function EdgeDetailPanel({
                   className="panel-action-link"
                   aria-label={`Open actions for SRLG ${s.srlg_id}`}
                 >
-                  Open action \u2192
+                  Open action →
                 </Link>
               </div>
             ))}
@@ -703,12 +703,12 @@ function EdgeDetailPanel({
               <div key={h.hazard_id} className="panel-conduit-item">
                 <div className="conduit-name">
                   <span style={{ marginRight: 6 }}>
-                    {HAZARD_ICONS[h.hazard_type] ?? "\u26a0\ufe0f"}
+                    {HAZARD_ICONS[h.hazard_type] ?? "⚠️"}
                   </span>
                   {h.name}
                 </div>
                 <div className="conduit-meta">
-                  {h.severity} \u00b7 {h.direct_impact_spans} direct impact spans
+                  {h.severity} · {h.direct_impact_spans} direct impact spans
                 </div>
               </div>
             ))}
@@ -760,9 +760,9 @@ function PathTraceBanner({
         </span>
         <span className="path-trace-stats">
           {workingHops.length} working hops
-          {protectHops.length > 0 ? ` \u00b7 ${protectHops.length} protect hops` : " \u00b7 no protect path"}
+          {protectHops.length > 0 ? ` · ${protectHops.length} protect hops` : " · no protect path"}
           {diversity && diversity.shared_srlg_count > 0
-            ? ` \u00b7 ${diversity.shared_srlg_count} shared SRLGs`
+            ? ` · ${diversity.shared_srlg_count} shared SRLGs`
             : ""}
         </span>
       </div>
@@ -772,10 +772,10 @@ function PathTraceBanner({
           search={{ service: serviceId }}
           className="path-trace-link"
         >
-          View in Service Table \u2192
+          View in Service Table →
         </Link>
         <button className="path-trace-clear" onClick={onClear}>
-          \u2715 Clear trace
+          ✕ Clear trace
         </button>
       </div>
     </div>
@@ -1102,7 +1102,7 @@ function SiteGraph({
             }}
           >
             <title id={`conduit-desc-${c.conduit_id}`}>
-              {c.conduit_id}: {c.conduit_type} \u00b7 {c.length_km} km \u00b7 {c.span_count} spans
+              {c.conduit_id}: {c.conduit_type} · {c.length_km} km · {c.span_count} spans
             </title>
           </line>
         );
@@ -1200,7 +1200,7 @@ function SiteGraph({
             tabIndex={0}
           >
             <title>
-              {h.hazard_type.replace(/_/g, " ")} hazard: {h.name} ({h.severity}) \u2014 {h.direct_impact_spans} direct, {h.near_impact_spans} near impact spans
+              {h.hazard_type.replace(/_/g, " ")} hazard: {h.name} ({h.severity}) — {h.direct_impact_spans} direct, {h.near_impact_spans} near impact spans
             </title>
             {/* Proximity ring */}
             <circle
@@ -1230,7 +1230,7 @@ function SiteGraph({
               fontSize={14}
               aria-hidden="true"
             >
-              {HAZARD_ICONS[h.hazard_type] ?? "\u26a0\ufe0f"}
+              {HAZARD_ICONS[h.hazard_type] ?? "⚠️"}
             </text>
             <text
               x={hx}
@@ -1459,7 +1459,7 @@ function MobileTreeView({
         <input
           id="mobile-tree-search"
           type="search"
-          placeholder="\uD83D\uDD0D Search sites, conduits, spans\u2026"
+          placeholder="🔍 Search sites, conduits, spans…"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="mobile-tree-search-input"
@@ -1497,7 +1497,7 @@ function MobileTreeView({
                   onClick={() => toggleRegion(region.region)}
                 >
                   <span className="mobile-tree-chevron" aria-hidden="true">
-                    {isExpanded ? "\u25BE" : "\u25B8"}
+                    {isExpanded ? "▾" : "▸"}
                   </span>
                   <span className="mobile-tree-label">
                     {region.region} Region
@@ -1512,7 +1512,7 @@ function MobileTreeView({
                   <ul role="group" className="mobile-tree-group">
                     {isLoading && (
                       <li className="mobile-tree-loading" aria-live="polite">
-                        Loading sites\u2026
+                        Loading sites…
                       </li>
                     )}
                     {data &&
@@ -1564,9 +1564,9 @@ function MobileTreeView({
                                 >
                                   {siteConduits.length > 0
                                     ? siteExpanded
-                                      ? "\u25BE"
-                                      : "\u25B8"
-                                    : "\u2022"}
+                                      ? "▾"
+                                      : "▸"
+                                    : "•"}
                                 </span>
                                 <span className="mobile-tree-label">
                                   {site.site_name}
@@ -1585,7 +1585,7 @@ function MobileTreeView({
                                   }}
                                   aria-label={`View details for ${site.site_name}`}
                                 >
-                                  \u2139\uFE0F
+                                  ℹ️
                                 </button>
                               </div>
 
@@ -1617,7 +1617,7 @@ function MobileTreeView({
                                             className="mobile-tree-connector"
                                             aria-hidden="true"
                                           >
-                                            \u251C\u2500
+                                            ├─
                                           </span>
                                           <span className="mobile-tree-label">
                                             {conduit.conduit_name ||
@@ -1625,7 +1625,7 @@ function MobileTreeView({
                                           </span>
                                           <span className="mobile-tree-meta">
                                             {conduit.length_km.toFixed(1)}km
-                                            \u00B7 {conduit.span_count} spans
+                                            · {conduit.span_count} spans
                                           </span>
                                         </div>
                                       </li>
@@ -1677,7 +1677,7 @@ function MobileTreeView({
               }}
               aria-label="Close detail panel"
             >
-              \u2715
+              ✕
             </button>
           </div>
           <div className="mobile-detail-body">
@@ -1686,7 +1686,7 @@ function MobileTreeView({
                 <dt>Type</dt>
                 <dd>{detailSite.site_type}</dd>
                 <dt>CLLI</dt>
-                <dd>{detailSite.clli_code || "\u2014"}</dd>
+                <dd>{detailSite.clli_code || "—"}</dd>
                 <dt>Location</dt>
                 <dd>
                   {detailSite.city}, {detailSite.state}
@@ -1694,7 +1694,7 @@ function MobileTreeView({
                 <dt>Region</dt>
                 <dd>{detailSite.region}</dd>
                 <dt>Tier</dt>
-                <dd>{tierLabel(detailSite.tier) || "\u2014"}</dd>
+                <dd>{tierLabel(detailSite.tier) || "—"}</dd>
                 <dt>Coordinates</dt>
                 <dd>
                   {detailSite.latitude.toFixed(4)},{" "}
@@ -1709,14 +1709,14 @@ function MobileTreeView({
                 <dt>Type</dt>
                 <dd>{detailConduit.conduit_type}</dd>
                 <dt>Corridor</dt>
-                <dd>{detailConduit.corridor || "\u2014"}</dd>
+                <dd>{detailConduit.corridor || "—"}</dd>
                 <dt>Length</dt>
                 <dd>{detailConduit.length_km.toFixed(1)} km</dd>
                 <dt>Spans</dt>
                 <dd>{detailConduit.span_count}</dd>
                 <dt>Endpoints</dt>
                 <dd>
-                  {detailConduit.site_a_id} \u2192 {detailConduit.site_z_id}
+                  {detailConduit.site_a_id} → {detailConduit.site_z_id}
                 </dd>
               </dl>
             )}
@@ -1966,7 +1966,7 @@ function TopologyPage() {
                   </div>
                 ))}
               </div>
-              <span className="sr-only">Loading topology data\u2026</span>
+              <span className="sr-only">Loading topology data…</span>
             </div>
           )}
           {!loading && regions.length > 0 && (
@@ -1981,7 +1981,7 @@ function TopologyPage() {
           )}
           {!loading && regions.length === 0 && (
             <div className="empty-state">
-              <div className="empty-icon" aria-hidden="true">\ud83c\udf10</div>
+              <div className="empty-icon" aria-hidden="true">🌐</div>
               <p>No topology data available</p>
               <p className="empty-hint">Gold tables may still be loading</p>
             </div>
@@ -2001,7 +2001,7 @@ function TopologyPage() {
                   </div>
                 ))}
               </div>
-              <span className="sr-only">Loading topology data\u2026</span>
+              <span className="sr-only">Loading topology data…</span>
             </div>
           )}
 
@@ -2028,7 +2028,7 @@ function TopologyPage() {
           {!loading && !selectedRegion && regions.length === 0 && (
             <div className="empty-state">
               <div className="empty-icon" aria-hidden="true">
-                \ud83c\udf10
+                🌐
               </div>
               <p>No topology data available</p>
               <p className="empty-hint">Gold tables may still be loading</p>
@@ -2038,7 +2038,7 @@ function TopologyPage() {
           {!loading && selectedRegion && sites.length === 0 && (
             <div className="empty-state">
               <div className="empty-icon" aria-hidden="true">
-                \ud83d\udce1
+                📡
               </div>
               <p>No sites found in {selectedRegion}</p>
             </div>

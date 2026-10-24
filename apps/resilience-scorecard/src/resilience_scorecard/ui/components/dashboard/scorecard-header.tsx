@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion } from "@/components/ui/loading-region";
 import { useGetResilienceSummarySuspense } from "@/lib/api";
 import selector from "@/lib/selector";
 
@@ -94,11 +95,11 @@ export function ScorecardHeader() {
         >
           <Suspense
             fallback={
-              <div className="kpi-row" aria-busy="true" aria-label="Loading KPI summary">
+              <LoadingRegion className="kpi-row" label="Loading KPI summary">
                 {Array.from({ length: 9 }).map((_, i) => ( /* BUG-DW-034: match 9 KPI cards including Revenue at Risk */
                   <Skeleton key={i} className="h-24 w-full rounded-lg" />
                 ))}
-              </div>
+              </LoadingRegion>
             }
           >
             <ScorecardHeaderContent />

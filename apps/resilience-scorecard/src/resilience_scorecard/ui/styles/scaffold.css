@@ -8,21 +8,5 @@
 .h-96 { height: 24rem; }
 .rounded-lg { border-radius: 0.5rem; }
 
-.skeleton {
-  background: linear-gradient(90deg, #E8E8E8 0%, #F4F4F4 50%, #E8E8E8 100%);
-  background-size: 200% 100%;
-  animation: lf-skeleton-shimmer 1.4s ease-in-out infinite;
-}
-
-@keyframes lf-skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .skeleton { animation: none; }
-}
-
-@media (forced-colors: active) {
-  .skeleton { background: Canvas; border: 1px solid GrayText; }
-}
+/* BUG-DW-079: the old .skeleton shimmer was removed. Skeleton.tsx now uses the single
+ * .skeleton-loading class in lakelink-theme.css (tokens only, visible under reduced motion). */

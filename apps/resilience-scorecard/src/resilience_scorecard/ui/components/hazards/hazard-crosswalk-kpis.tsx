@@ -9,6 +9,7 @@ import { Suspense } from "react";
 import { QueryErrorResetBoundary, useSuspenseQuery } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion } from "@/components/ui/loading-region";
 
 interface CrosswalkSummary {
   total_intersections: number;
@@ -101,11 +102,11 @@ export function HazardCrosswalkKpis() {
         >
           <Suspense
             fallback={
-              <div className="kpi-row" aria-busy="true" aria-label="Loading crosswalk summary">
+              <LoadingRegion className="kpi-row" label="Loading crosswalk summary">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <Skeleton key={i} className="h-24 w-full rounded-lg" />
                 ))}
-              </div>
+              </LoadingRegion>
             }
           >
             <CrosswalkKpiContent />

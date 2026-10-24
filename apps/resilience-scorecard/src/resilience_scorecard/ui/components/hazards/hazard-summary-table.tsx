@@ -11,6 +11,7 @@ import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Link } from "@tanstack/react-router";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion } from "@/components/ui/loading-region";
 import { useListHazardsSuspense } from "@/lib/api";
 import { HazardTypeCell } from "./hazard-type-cell";
 
@@ -80,7 +81,7 @@ function HazardTableContent() {
   const paginated = sorted.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const sortIndicator = (field: SortField) =>
-    sortField === field ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : "";
+    sortField === field ? (sortDir === "asc" ? " ▲" : " ▼") : "";
 
   const sortProps = (field: SortField) => ({
     onClick: () => toggleSort(field),
@@ -183,7 +184,7 @@ function HazardTableContent() {
 
       <nav className="pagination-bar" aria-label="Hazard table pagination">
         <span>
-          Showing {(safePage - 1) * pageSize + 1}\u2013
+          Showing {(safePage - 1) * pageSize + 1}–
           {Math.min(safePage * pageSize, sorted.length)} of {sorted.length}
         </span>
         <div className="page-controls">
@@ -209,7 +210,7 @@ function HazardTableContent() {
             disabled={safePage <= 1}
             aria-label="Previous page"
           >
-            \u2039 Prev
+            ‹ Prev
           </button>
           <span>
             Page {safePage} of {totalPages}
@@ -219,7 +220,7 @@ function HazardTableContent() {
             disabled={safePage >= totalPages}
             aria-label="Next page"
           >
-            Next \u203A
+            Next ›
           </button>
         </div>
       </nav>
@@ -244,9 +245,9 @@ export function HazardSummaryTable() {
         >
           <Suspense
             fallback={
-              <div aria-busy="true" aria-label="Loading hazard table">
+              <LoadingRegion label="Loading hazard table">
                 <Skeleton className="h-96 w-full rounded-lg" />
-              </div>
+              </LoadingRegion>
             }
           >
             <HazardTableContent />
