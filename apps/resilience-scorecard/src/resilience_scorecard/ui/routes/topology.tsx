@@ -223,17 +223,22 @@ const SRLG_COLORS: Record<string, string> = {
   central_office: "#D32F2F",   // 4.06:1
 };
 
-// BUG-DW-070: SRLG types that share a color get a unique dash pattern so the
-// type is distinguishable without color (WCAG 1.4.1). Icon + text label in the
-// legend and conduit panel carry the type as well.
-const SRLG_DASHES: Record<string, string> = {
-  shared_conduit: "",          // solid
-  tunnel: "10,3,2,3",          // dash-dot
-  bridge: "",                  // solid
-  rail_crossing: "4,2",        // short dashes
-  power_feed: "8,2,2,2",       // long dash-dot
-  central_office: "12,3",      // long dashes
+// BUG-DW-077: SRLG type is NO LONGER encoded in the edge dash. Edge dash is
+// reserved for path role (working solid / protect 8,4 per TOPOLOGY-VIS-SPEC §2)
+// plus diversity on working hops. SRLG type is drawn on a separate layer as a
+// midpoint badge (1-letter code; the legend pairs each code with icon + label), so it never overwrites the path-role dash
+// and survives grayscale/forced-colors (WCAG 1.4.1). Letter codes are unique per type.
+const SRLG_CODES: Record<string, string> = {
+  shared_conduit: "C",
+  bridge: "B",
+  rail_crossing: "R",
+  power_feed: "P",
+  tunnel: "T",
+  central_office: "O",
 };
+
+// Protect-path dash per TOPOLOGY-VIS-SPEC §2 (Span protect path = Dashed 8,4).
+const PROTECT_DASH = "8,4";
 
 const SRLG_LABELS: Record<string, string> = {
   shared_conduit: "Shared Conduit",
@@ -273,10 +278,12 @@ const DIVERSITY_COLORS: Record<string, string> = {
 };
 
 // BUG-DW-066: Dash patterns per diversity status for forced-colors (WCAG 1.4.1)
-// Provides non-color encoding redundancy — protect paths use "8,4" separately.
+// Provides non-color encoding redundancy — protect paths use PROTECT_DASH (8,4).
+// BUG-DW-077: partially_diverse was "6,3", which looked like protect "8,4" in
+// grayscale. It is now dash-dot, so 8,4 is the only plain medium dash on an edge.
 const DIVERSITY_DASHES: Record<string, string> = {
   fully_diverse: "",          // solid
-  partially_diverse: "6,3",   // medium dashes
+  partially_diverse: "12,3,3,3", // dash-dot
   single_path: "2,3",         // dots
   unknown: "1,4",             // sparse dots
 };
@@ -449,6 +456,27 @@ function Legend({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => v
         </div>
       </div>
 
+      {/* BUG-DW-077: path role is the primary edge dash */}
+      <div className="legend-section">
+        <div className="legend-section-title">Path Role (traced service)</div>
+        <div className="legend-item">
+          <svg width="24" height="12" aria-hidden="true" className="legend-swatch">
+            <line x1="2" y1="6" x2="22" y2="6" stroke={BRAND.iron} strokeWidth="3" />
+          </svg>
+          Working (dash shows diversity, below)
+        </div>
+        <div className="legend-item">
+          <svg width="24" height="12" aria-hidden="true" className="legend-swatch">
+            <line x1="2" y1="6" x2="22" y2="6" stroke={BRAND.iron} strokeWidth="3" strokeDasharray={PROTECT_DASH} />
+          </svg>
+          Protect (dashed 8-4)
+        </div>
+        <p className="legend-note">
+          Line pattern precedence: protect &gt; diversity. SRLG membership never
+          changes the line pattern. It is shown as a lettered badge at the edge midpoint.
+        </p>
+      </div>
+
       {/* BUG-DW-066: SVG line swatches with dash patterns for forced-colors (WCAG 1.4.1) */}
       <div className="legend-section">
         <div className="legend-section-title">Diversity</div>
@@ -467,13 +495,14 @@ function Legend({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => v
         ))}
       </div>
 
-      {/* BUG-DW-070: SRLG types — icon + text + dash pattern (color is not the only cue) */}
+      {/* BUG-DW-070/077: SRLG types — midpoint badge with letter code + icon + text (color is not the only cue) */}
       <div className="legend-section">
-        <div className="legend-section-title">Shared Risk Groups</div>
+        <div className="legend-section-title">Shared Risk Groups (edge badge)</div>
         {Object.keys(SRLG_COLORS).map((k) => (
           <div key={k} className="legend-item">
-            <svg width="24" height="12" aria-hidden="true" className="legend-swatch">
-              <line x1="2" y1="6" x2="22" y2="6" stroke={SRLG_COLORS[k]} strokeWidth="3" strokeDasharray={SRLG_DASHES[k] || undefined} />
+            <svg width="20" height="20" aria-hidden="true" className="legend-swatch srlg-badge">
+              <circle cx="10" cy="10" r="8" className="srlg-badge-ring" stroke={SRLG_COLORS[k]} />
+              <text x="10" y="10" className="srlg-badge-code" fill={SRLG_COLORS[k]}>{SRLG_CODES[k]}</text>
             </svg>
             <span aria-hidden="true">{SRLG_ICONS[k]}</span>
             {SRLG_LABELS[k]}
@@ -1065,16 +1094,18 @@ function SiteGraph({
           const firstSrlg = srlgs.find((s) => s.conduit_id === c.conduit_id);
           if (firstSrlg) {
             edgeColor = SRLG_COLORS[firstSrlg.srlg_type] ?? BRAND.iron;
-            // BUG-DW-070: non-color SRLG type encoding
-            const srlgDash = SRLG_DASHES[firstSrlg.srlg_type];
-            if (srlgDash) dashArray = srlgDash;
+            // BUG-DW-077: SRLG type is shown by the midpoint badge layer, not by the dash
             glowClass = firstSrlg.severity === "critical" ? "srlg-highlight srlg-critical" : "srlg-highlight";
           }
           edgeOpacity = 1;
         }
         if (isOnPath && hasProtect && !hasWorking) {
-          dashArray = "8,4";
+          dashArray = PROTECT_DASH;
         }
+        const srlgTypesHere = hasSrlg
+          ? Array.from(new Set(srlgs.filter((s) => s.conduit_id === c.conduit_id).map((s) => SRLG_LABELS[s.srlg_type] ?? s.srlg_type)))
+          : [];
+        const roleLabel = isOnPath ? (hasWorking && hasProtect ? ", working and protect path" : hasProtect ? ", protect path" : ", working path") : "";
 
         return (
           <line
@@ -1091,7 +1122,7 @@ function SiteGraph({
             style={hasSrlg ? { ["--srlg-color" as string]: edgeColor } : undefined}
             tabIndex={0}
             role="button"
-            aria-label={`Conduit ${c.conduit_id}: ${c.conduit_type}, ${c.length_km} km, ${c.span_count} spans${hasSrlg ? " (SRLG member)" : ""}. Press Enter for details.`}
+            aria-label={`Conduit ${c.conduit_id}: ${c.conduit_type}, ${c.length_km} km, ${c.span_count} spans${roleLabel}${srlgTypesHere.length ? ` (SRLG: ${srlgTypesHere.join(", ")})` : ""}. Press Enter for details.`}
             aria-describedby={`conduit-desc-${c.conduit_id}`}
             onClick={() => onSelectConduit(isSelected ? null : c)}
             onKeyDown={(e) => {
@@ -1107,6 +1138,35 @@ function SiteGraph({
           </line>
         );
       })}
+
+      {/* BUG-DW-077: SRLG badge layer — separate from edge dash so path role stays readable */}
+      {overlays.srlg && (
+        <g className="srlg-badge-layer" aria-hidden="true">
+          {conduits.map((c) => {
+            if (!srlgByConduit.has(c.conduit_id)) return null;
+            const pa = positions.get(c.site_a_id);
+            const pz = positions.get(c.site_z_id);
+            if (!pa || !pz) return null;
+            const first = srlgs.find((s) => s.conduit_id === c.conduit_id);
+            if (!first) return null;
+            const color = SRLG_COLORS[first.srlg_type] ?? BRAND.iron;
+            const code = SRLG_CODES[first.srlg_type] ?? "?";
+            const extra = new Set(srlgs.filter((s) => s.conduit_id === c.conduit_id).map((s) => s.srlg_type)).size - 1;
+            const mx = (pa.x + pz.x) / 2;
+            const my = (pa.y + pz.y) / 2;
+            const dimmed = hasPathTrace && !pathConduitIds.has(c.conduit_id);
+            return (
+              <g key={`srlg-badge-${c.conduit_id}`} className="srlg-badge" transform={`translate(${mx},${my})`} opacity={dimmed ? 0.35 : 1}>
+                <circle r={8} className="srlg-badge-ring" stroke={color} strokeWidth={first.severity === "critical" ? 3 : 2} />
+                <text className="srlg-badge-code" fill={color}>{code}</text>
+                {extra > 0 && (
+                  <text x={9} y={-7} className="srlg-badge-extra">{`+${extra}`}</text>
+                )}
+              </g>
+            );
+          })}
+        </g>
+      )}
 
       {/* Site nodes — with path trace highlighting */}
       {sites.map((s) => {

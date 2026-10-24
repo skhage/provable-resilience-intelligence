@@ -1414,6 +1414,32 @@ select:focus-visible,
   outline-offset: 2px;
 }
 
+/* BUG-DW-077: SRLG midpoint badge layer (type is not encoded in the edge dash) */
+.srlg-badge-ring {
+  fill: #FFFFFF;
+}
+.srlg-badge-code {
+  font: 700 10px 'Inter', sans-serif;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+.srlg-badge-extra {
+  font: 600 9px 'Inter', sans-serif;
+  fill: var(--lf-iron);
+  pointer-events: none;
+}
+.srlg-badge-layer {
+  pointer-events: none;
+}
+.topo-legend .legend-note {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--lf-iron);
+  max-width: 220px;
+}
+
 /* SRLG highlight mode (§3.2) */
 .srlg-highlight {
   filter: drop-shadow(0 0 4px var(--srlg-color, var(--lf-iron)));
@@ -1933,8 +1959,9 @@ select:focus-visible,
   /* --- BUG-DW-066: Topology SVG — preserve brand colors for diversity ---
      BUG-DW-073: forced-color-adjust: none keeps the brand palette inside the
      SVG. Edges do NOT fall back to system colors. Every SVG stroke is >=3:1
-     vs #E8E8E8 and also carries a dash pattern (diversity, SRLG type, hazard
-     severity). SVG text fills use explicit colors: dark teal #006272 (7.02:1
+     vs #E8E8E8 and also carries a non-color cue: edge dash = path role
+     (protect 8,4) + diversity; SRLG type = midpoint letter badge (BUG-DW-077,
+     brand text on white badge >=4.5:1); hazard severity = ring dash/width. SVG text fills use explicit colors: dark teal #006272 (7.02:1
      on white nodes) and iron #4D4D4D (6.90:1 on platinum). */
   .topo-svg {
     forced-color-adjust: none;
