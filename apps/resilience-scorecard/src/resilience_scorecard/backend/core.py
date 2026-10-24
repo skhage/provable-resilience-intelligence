@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, APIRouter, Request
+from fastapi import Depends, FastAPI, APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
@@ -108,4 +111,44 @@ def create_app(routers: list[APIRouter], lifespan=None) -> FastAPI:
     for router in routers:
         app.include_router(router)
 
+    _mount_frontend(app)
+
     return app
+
+
+# ---------------------------------------------------------------------------
+# Frontend (P24-APP-BUILD-SCAFFOLD)
+# Vite builds ui/ into src/resilience_scorecard/__dist__ during `npm run build`
+# (run automatically by Databricks Apps because package.json is at the app root).
+# Must be registered AFTER the API routers so /api/* keeps precedence.
+# ---------------------------------------------------------------------------
+
+DIST_DIR = Path(__file__).resolve().parent.parent / "__dist__"
+
+
+def _mount_frontend(app: FastAPI) -> None:
+    index_html = DIST_DIR / "index.html"
+    if not index_html.is_file():
+        logger.warning("Frontend build not found at %s; serving API only", DIST_DIR)
+        return
+
+    assets_dir = DIST_DIR / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    dist_root = DIST_DIR.resolve()
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str):
+        # Unknown API routes must 404 as JSON, not fall through to the SPA.
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        if full_path:
+            candidate = (dist_root / full_path).resolve()
+            # Path-traversal guard: only serve files inside __dist__.
+            if candidate.is_file() and dist_root in candidate.parents:
+                return FileResponse(candidate)
+        # Client-side routes (/actions, /hazards, /topology?service=...) get index.html.
+        return FileResponse(index_html)
+
+    logger.info("Frontend mounted from %s", DIST_DIR)

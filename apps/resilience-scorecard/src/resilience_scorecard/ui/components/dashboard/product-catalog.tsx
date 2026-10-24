@@ -82,14 +82,16 @@ function ProductCatalogContent() {
       <table aria-label="Lakelink Fiber product catalog">
         <thead>
           <tr>
-            <th style={{ width: 200 }}>Product</th>
-            <th style={{ width: 130 }}>Service Type</th>
-            <th style={{ width: 150 }}>Category</th>
-            <th style={{ width: 120 }}>Technology</th>
-            <th style={{ width: 100 }}>SLA Tier</th>
-            <th style={{ width: 160 }}>Bandwidth</th>
-            <th style={{ width: 90 }}>Diverse</th>
-            <th style={{ width: 120 }}>MRC Range</th>
+            {/* BUG-DW-075: scope=col on every header; percentage widths (sum 100%) replace
+                fixed px widths (sum 1070px) so the table reflows at <=1023px */}
+            <th scope="col" style={{ width: "19%" }}>Product</th>
+            <th scope="col" style={{ width: "12%" }}>Service Type</th>
+            <th scope="col" style={{ width: "14%" }}>Category</th>
+            <th scope="col" style={{ width: "11%" }}>Technology</th>
+            <th scope="col" style={{ width: "9%" }}>SLA Tier</th>
+            <th scope="col" style={{ width: "15%" }}>Bandwidth</th>
+            <th scope="col" style={{ width: "9%" }}>Diverse</th>
+            <th scope="col" style={{ width: "11%" }}>MRC Range</th>
           </tr>
         </thead>
         <tbody>
@@ -106,11 +108,11 @@ function ProductCatalogContent() {
                 </td>
                 <td className="mono text-sm">{p.bandwidth_options}</td>
                 <td>
-                  <span
-                    className={`badge ${p.is_diverse_eligible ? "completed" : "severity-moderate"}`}
-                    aria-label={p.is_diverse_eligible ? "Diverse path eligible" : "Not diverse eligible"}
-                  >
-                    {p.is_diverse_eligible ? "\u2713 Yes" : "\u2717 No"}
+                  {/* BUG-DW-075: aria-label on a role-less span is prohibited (ARIA 1.2);
+                      hide the glyph and rely on the visible Yes/No text */}
+                  <span className={`badge ${p.is_diverse_eligible ? "completed" : "severity-moderate"}`}>
+                    <span aria-hidden="true">{p.is_diverse_eligible ? "\u2713" : "\u2717"}</span>{" "}
+                    {p.is_diverse_eligible ? "Yes" : "No"}
                   </span>
                 </td>
                 <td className="mono">${p.mrc_range_usd}</td>

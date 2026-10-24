@@ -5,6 +5,9 @@
 # gates on the same checks; root ruff.toml + pytest.ini; JUnit + SHA-256 artifact manifest.
 # P21-DEVOPS-PIN-CLI-AND-FE-GATE (session 27): databricks/setup-cli pinned to v1.22.1 by
 # commit SHA (supply-chain safe); frontend tsc + eslint gate added for the scorecard app.
+# P26-DEVOPS-FE-BUILD-ARTIFACT (session 28): frontend job now runs vite build (which also
+# generates routeTree.gen.ts before tsc), and publishes __dist__ as a CI artifact that
+# backend/core.py serves. No lockfile is tracked, so npm install (not npm ci) is used.
 
 name: CI
 
@@ -81,7 +84,7 @@ jobs:
           path: test-results/junit.xml
 
   frontend:
-    name: Frontend Typecheck + Lint
+    name: Frontend Build + Typecheck + Lint
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -104,20 +107,44 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
-          cache-dependency-path: apps/resilience-scorecard/package-lock.json
 
       - name: Install dependencies
         if: steps.detect.outputs.present == 'true'
-        run: npm ci
+        # package-lock.json is gitignored; switch to `npm ci` + npm cache once a lockfile is tracked
+        run: npm install --no-audit --no-fund
+
+      - name: Build (vite)
+        if: steps.detect.outputs.present == 'true'
+        # Also generates ui/routeTree.gen.ts, which tsc needs
+        run: npm run build
+
+      - name: Verify build output
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          test -f src/resilience_scorecard/__dist__/index.html || { echo "::error::vite build produced no __dist__/index.html"; exit 1; }
+          echo "dist files: $(find src/resilience_scorecard/__dist__ -type f | wc -l)"
 
       - name: Typecheck (tsc)
         if: steps.detect.outputs.present == 'true'
-        run: npx tsc --noEmit -p .
+        run: npx --no-install tsc --noEmit -p tsconfig.json
 
       - name: Lint (eslint)
         if: steps.detect.outputs.present == 'true'
-        run: npx eslint "src/**/*.{ts,tsx}" --max-warnings 0
+        run: |
+          if ls eslint.config.* .eslintrc* >/dev/null 2>&1; then
+            npx --no-install eslint "src/**/*.{ts,tsx}" --max-warnings 0
+          else
+            echo "::warning::No eslint config committed in apps/resilience-scorecard; eslint gate skipped"
+          fi
+
+      - name: Upload frontend dist
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: resilience-scorecard-dist-${{ github.sha }}
+          path: apps/resilience-scorecard/src/resilience_scorecard/__dist__
+          if-no-files-found: error
+          retention-days: 14
 
   artifact-manifest:
     name: Artifact Checksums

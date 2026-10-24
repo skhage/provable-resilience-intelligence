@@ -826,7 +826,10 @@ select:focus-visible,
 }
 
 /* === Toast Notification (UX-REM-TABLE-UX) === */
-.toast-container {
+/* BUG-DW-074: one fixed stack wraps the two always-mounted live regions
+   (role=alert + role=status) so they never overlap; empty regions take no space
+   and do not intercept pointer events. */
+.toast-stack {
   position: fixed;
   bottom: var(--space-lg);
   right: var(--space-lg);
@@ -834,6 +837,20 @@ select:focus-visible,
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
+  pointer-events: none;
+}
+
+.toast-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* NOTE: do not use display:contents/none on empty live regions; some browsers then
+   drop the role from the accessibility tree, which reintroduces BUG-DW-074. */
+
+.toast-container > .toast-item {
+  pointer-events: auto;
 }
 
 .toast-item {
@@ -845,6 +862,45 @@ select:focus-visible,
   font-size: 14px;
   font-weight: 500;
   animation: toast-slide-in 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.toast-item .toast-message {
+  flex: 1 1 auto;
+}
+
+/* BUG-DW-074: persistent error toasts need a visible dismiss target >= 24x24 (WCAG 2.5.8) */
+.toast-dismiss {
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.toast-dismiss:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.toast-dismiss:focus-visible {
+  outline: 2px solid var(--lf-white);
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .toast-dismiss { border-color: ButtonText; color: ButtonText; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-item { animation: none; }
 }
 
 .toast-item.success { background: var(--lf-risk-green); }
@@ -1046,7 +1102,7 @@ select:focus-visible,
 }
 
 .topo-legend .legend-section-title {
-  font-size: 10px;
+  font-size: 12px; /* BUG-DW-076: was 10px, below 11px design-system floor */
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1329,14 +1385,8 @@ select:focus-visible,
    ===================================================================== */
 
 /* Diversity status colors (TOPOLOGY-VIS-SPEC §2.1)
-   BUG-DW-060: Synced to WCAG-compliant DIVERSITY_COLORS in topology.tsx (lines 23-28).
-   Canonical source: first :root block (lines 45-48). */
-:root {
-  --lf-diversity-full: #15803D;
-  --lf-diversity-partial: #B45309;
-  --lf-diversity-single: #DC2626;
-  --lf-diversity-unknown: #6B7280;
-}
+   BUG-DW-073: duplicate :root block removed. The only source for
+   --lf-diversity-* is the top :root block. */
 
 /* Edge clickability */
 .topo-edge-clickable {
@@ -1478,7 +1528,7 @@ select:focus-visible,
   display: inline-block;
   padding: 1px 6px;
   border-radius: 3px;
-  font-size: 10px;
+  font-size: 12px; /* BUG-DW-076: was 10px, below 11px design-system floor */
   font-weight: 700;
   margin-left: 6px;
   letter-spacing: 0.5px;
@@ -1835,13 +1885,17 @@ select:focus-visible,
   align-items: center;
   gap: 4px;
   color: var(--lf-dark-teal);
-  text-decoration: none;
+  /* BUG-DW-072: underline at rest. Teal vs iron body text is only 1.20:1,
+     so links need a non-color cue (WCAG 1.4.1). */
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
   font-weight: 500;
   transition: color 0.1s ease;
 }
 .cross-view-table-link:hover {
-  text-decoration: underline;
-  color: #004d5a; /* darker teal for hover contrast */
+  text-decoration-thickness: 2px;
+  color: var(--lf-dark-teal-hover);
 }
 .cross-view-table-link:focus-visible {
   outline: 2px solid var(--lf-dark-teal);
@@ -1849,7 +1903,7 @@ select:focus-visible,
   border-radius: 2px;
 }
 .cross-view-icon {
-  opacity: 0.5;
+  opacity: 1; /* BUG-DW-072: icon is a persistent non-color cue */
   flex-shrink: 0;
   transition: opacity 0.1s ease;
 }
@@ -1868,8 +1922,11 @@ select:focus-visible,
 @media (forced-colors: active) {
 
   /* --- BUG-DW-066: Topology SVG — preserve brand colors for diversity ---
-     forced-color-adjust: none keeps our WCAG-compliant palette;
-     edges fall back to system colors with dash-pattern distinction. */
+     BUG-DW-073: forced-color-adjust: none keeps the brand palette inside the
+     SVG. Edges do NOT fall back to system colors. Every SVG stroke is >=3:1
+     vs #E8E8E8 and also carries a dash pattern (diversity, SRLG type, hazard
+     severity). SVG text fills use explicit colors: dark teal #006272 (7.02:1
+     on white nodes) and iron #4D4D4D (6.90:1 on platinum). */
   .topo-svg {
     forced-color-adjust: none;
   }
@@ -1929,8 +1986,10 @@ select:focus-visible,
     border-color: CanvasText;
   }
 
-  .severity-critical { border-color: LinkText; }
-  .severity-high { border-color: LinkText; }
+  /* BUG-DW-073: critical and high both use LinkText, so the border style
+     also differs. Every severity badge also renders its text label. */
+  .severity-critical { border-color: LinkText; border-style: solid; border-width: 2px; }
+  .severity-high { border-color: LinkText; border-style: dashed; }
 
   /* Data source badge */
   .data-source-badge {

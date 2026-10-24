@@ -18,6 +18,8 @@ downloads/
 eggs/
 .eggs/
 lib/
+# Frontend source module dir (@/lib/api, @/lib/selector) - not a Python build dir
+!apps/resilience-scorecard/src/resilience_scorecard/ui/lib/
 lib64/
 parts/
 sdist/
@@ -112,6 +114,9 @@ cover/
 node_modules/
 package-lock.json
 yarn.lock
+# Vite build output + TanStack generated route tree (rebuilt in CI / at app deploy)
+__dist__/
+routeTree.gen.ts
 
 # Bundle deployment state
 bundle/.bundle/

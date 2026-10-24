@@ -1,0 +1,28 @@
+/* Lakelink Fiber — scaffold utilities (P24-APP-BUILD-SCAFFOLD).
+ * The app does not use Tailwind; these are the only utility classes referenced
+ * by components that lakelink-theme.css does not already define.
+ */
+.w-full { width: 100%; }
+.h-24 { height: 6rem; }
+.h-64 { height: 16rem; }
+.h-96 { height: 24rem; }
+.rounded-lg { border-radius: 0.5rem; }
+
+.skeleton {
+  background: linear-gradient(90deg, #E8E8E8 0%, #F4F4F4 50%, #E8E8E8 100%);
+  background-size: 200% 100%;
+  animation: lf-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes lf-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
+
+@media (forced-colors: active) {
+  .skeleton { background: Canvas; border: 1px solid GrayText; }
+}

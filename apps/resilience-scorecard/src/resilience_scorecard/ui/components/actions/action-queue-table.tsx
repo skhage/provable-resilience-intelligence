@@ -3,7 +3,7 @@
  * Shows pending/in-progress actions with status update buttons.
  * State is persisted in Lakebase Postgres.
  */
-import { Suspense, useState, useCallback, useEffect, Fragment } from "react";
+import { Suspense, useState, useCallback, useEffect, useRef, Fragment } from "react";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,6 +24,7 @@ import {
   ChevronDown,
   ChevronUp,
   MapPin,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { HazardTypeCell } from "@/components/hazards";
@@ -93,10 +94,41 @@ function ActionTableContent() {
   });
   const queryClient = useQueryClient();
 
+  // BUG-DW-074: monotonic counter avoids Date.now() id collisions on rapid clicks
+  const toastIdRef = useRef(0);
+  const toastTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
+  const dismissToast = useCallback((id: number) => {
+    const timer = toastTimersRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      toastTimersRef.current.delete(id);
+    }
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
   const addToast = useCallback((message: string, variant = "success") => {
-    const id = Date.now();
+    toastIdRef.current += 1;
+    const id = toastIdRef.current;
     setToasts((prev) => [...prev, { id, message, variant }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 5000);
+    // BUG-DW-074 (WCAG 2.2.1 / 4.1.3): error toasts persist until dismissed;
+    // only success/status toasts auto-dismiss after 5s.
+    if (variant !== "error") {
+      const timer = setTimeout(() => {
+        toastTimersRef.current.delete(id);
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 5000);
+      toastTimersRef.current.set(id, timer);
+    }
+  }, []);
+
+  // Clear pending timers on unmount
+  useEffect(() => {
+    const timers = toastTimersRef.current;
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
+    };
   }, []);
 
   const { mutate: updateStatus, isPending } = useUpdateActionStatus({
@@ -150,13 +182,13 @@ function ActionTableContent() {
           <table aria-label="Proactive action queue">
             <thead>
               <tr>
-                <th>Type</th>
-                <th>Service</th>
-                <th>Risk Trigger</th>
-                <th>Priority</th>
-                <th>Status</th>
-                <th>Assigned To</th>
-                <th>Actions</th>
+                <th scope="col">Type</th>
+                <th scope="col">Service</th>
+                <th scope="col">Risk Trigger</th>
+                <th scope="col">Priority</th>
+                <th scope="col">Status</th>
+                <th scope="col">Assigned To</th>
+                <th scope="col">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -335,25 +367,33 @@ function ActionTableContent() {
         </div>
       )}
 
-      {/* BUG-QA-021: Toast notifications — error uses role=alert (assertive), success uses role=status (polite) */}
-      {toasts.filter((t) => t.variant === "error").length > 0 && (
-        <div className="toast-container" role="alert">
+      {/* BUG-QA-021 + BUG-DW-074 (WCAG 4.1.3): live regions are ALWAYS mounted (empty when
+          no toasts) so assistive tech registers them before content is injected.
+          Errors -> role=alert (assertive, persistent until dismissed); success -> role=status (polite). */}
+      <div className="toast-stack">
+        <div className="toast-container" role="alert" aria-atomic="true">
           {toasts.filter((t) => t.variant === "error").map((t) => (
             <div key={t.id} className={`toast-item ${t.variant}`}>
-              {t.message}
+              <span className="toast-message">{t.message}</span>
+              <button
+                type="button"
+                className="toast-dismiss"
+                onClick={() => dismissToast(t.id)}
+                aria-label="Dismiss notification"
+              >
+                <X size={16} strokeWidth={1.5} aria-hidden="true" />
+              </button>
             </div>
           ))}
         </div>
-      )}
-      {toasts.filter((t) => t.variant !== "error").length > 0 && (
-        <div className="toast-container" role="status" aria-live="polite">
+        <div className="toast-container" role="status" aria-live="polite" aria-atomic="true">
           {toasts.filter((t) => t.variant !== "error").map((t) => (
             <div key={t.id} className={`toast-item ${t.variant}`}>
-              {t.message}
+              <span className="toast-message">{t.message}</span>
             </div>
           ))}
         </div>
-      )}
+      </div>
     </>
   );
 }

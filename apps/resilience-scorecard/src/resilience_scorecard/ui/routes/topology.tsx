@@ -211,13 +211,46 @@ const SRLG_ICONS: Record<string, string> = {
   central_office: "🏢",
 };
 
+// BUG-DW-070: all SRLG strokes >=3:1 vs platinum #E8E8E8 canvas (WCAG 1.4.11).
+// #D97706 (2.60:1) -> #B45309 (4.10:1); #F26522 (2.57:1) -> #C2410C (4.23:1).
+// Brand orange #F26522 is reserved for decorative fills/accents only.
 const SRLG_COLORS: Record<string, string> = {
-  shared_conduit: "#4D4D4D",
-  bridge: "#D97706",
-  rail_crossing: "#D97706",
-  power_feed: "#F26522",
-  tunnel: "#4D4D4D",
-  central_office: "#D32F2F",
+  shared_conduit: "#4D4D4D",   // 6.90:1
+  bridge: "#B45309",           // 4.10:1
+  rail_crossing: "#B45309",    // 4.10:1
+  power_feed: "#C2410C",       // 4.23:1
+  tunnel: "#4D4D4D",           // 6.90:1
+  central_office: "#D32F2F",   // 4.06:1
+};
+
+// BUG-DW-070: SRLG types that share a color get a unique dash pattern so the
+// type is distinguishable without color (WCAG 1.4.1). Icon + text label in the
+// legend and conduit panel carry the type as well.
+const SRLG_DASHES: Record<string, string> = {
+  shared_conduit: "",          // solid
+  tunnel: "10,3,2,3",          // dash-dot
+  bridge: "",                  // solid
+  rail_crossing: "4,2",        // short dashes
+  power_feed: "8,2,2,2",       // long dash-dot
+  central_office: "12,3",      // long dashes
+};
+
+const SRLG_LABELS: Record<string, string> = {
+  shared_conduit: "Shared Conduit",
+  bridge: "Bridge",
+  rail_crossing: "Rail Crossing",
+  power_feed: "Power Feed",
+  tunnel: "Tunnel",
+  central_office: "Central Office",
+};
+
+// BUG-DW-070: hazard severity encoded by color AND stroke pattern/width so it
+// survives grayscale and forced-colors (WCAG 1.4.1, 1.4.11). All colors >=3:1 vs #E8E8E8.
+const HAZARD_SEVERITY_STYLES: Record<string, { color: string; dash: string; width: number; label: string }> = {
+  critical: { color: "#D32F2F", dash: "", width: 2.5, label: "Critical" },     // 4.06:1, solid
+  high: { color: "#C2410C", dash: "6,3", width: 2, label: "High" },            // 4.23:1, dashed
+  medium: { color: "#B45309", dash: "2,3", width: 1.5, label: "Medium" },      // 4.10:1, dotted
+  low: { color: "#4D4D4D", dash: "1,4", width: 1.5, label: "Low" },           // 6.90:1, sparse dots
 };
 
 // Hazard type icons per HAZARD-VIS-SPEC §1
@@ -232,10 +265,11 @@ const HAZARD_ICONS: Record<string, string> = {
 // Diversity colors per §2.1 — edge stroke colors
 // BUG-DW-057: darkened to ≥3:1 non-text contrast against #E8E8E8 canvas (WCAG 1.4.11)
 const DIVERSITY_COLORS: Record<string, string> = {
-  fully_diverse: "#15803D",      // was #16A34A (2.69:1) → 3.8:1 ✅
-  partially_diverse: "#B45309",  // was #D97706 (2.60:1) → 4.2:1 ✅
-  single_path: "#DC2626",        // 4.9:1 ✅ (already passes)
-  unknown: "#6B7280",            // was #9CA3AF (2.07:1) → 3.7:1 ✅
+  // BUG-DW-073: ratios re-measured vs #E8E8E8 (WCAG relative luminance)
+  fully_diverse: "#15803D",      // was #16A34A (2.69:1) → 4.09:1 ✅
+  partially_diverse: "#B45309",  // was #D97706 (2.60:1) → 4.10:1 ✅
+  single_path: "#DC2626",        // 3.94:1 ✅
+  unknown: "#6B7280",            // was #9CA3AF (2.07:1) → 3.95:1 ✅
 };
 
 // BUG-DW-066: Dash patterns per diversity status for forced-colors (WCAG 1.4.1)
@@ -271,7 +305,8 @@ const BRAND = {
   darkTeal: "#006272",
   platinum: "#E8E8E8",
   iron: "#4D4D4D",
-  orange: "#F26522",
+  orange: "#F26522",       // decorative fills/accents only (2.57:1 vs platinum)
+  orangeStroke: "#C2410C", // BUG-DW-070: selection strokes (4.23:1 vs platinum, 5.18:1 vs white)
   white: "#FFFFFF",
   riskRed: "#D32F2F",
   riskGreen: "#2E7D32",
@@ -372,8 +407,14 @@ function Legend({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => v
   if (collapsed) {
     return (
       <div className="topo-legend" role="region" aria-label="Graph legend">
-        <button className="topo-legend-collapse-btn" onClick={onToggle}>
-          Legend ▾
+        <button
+          type="button"
+          className="topo-legend-collapse-btn"
+          onClick={onToggle}
+          aria-expanded={false}
+          aria-controls="topo-legend-body"
+        >
+          Legend <span aria-hidden="true">▾</span>
         </button>
       </div>
     );
@@ -381,6 +422,7 @@ function Legend({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => v
 
   return (
     <div className="topo-legend" role="region" aria-label="Graph legend">
+      <div id="topo-legend-body">
       <h4>Legend</h4>
 
       <div className="legend-section">
@@ -425,8 +467,42 @@ function Legend({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => v
         ))}
       </div>
 
-      <button className="topo-legend-collapse-btn" onClick={onToggle}>
-        Collapse ▴
+      {/* BUG-DW-070: SRLG types — icon + text + dash pattern (color is not the only cue) */}
+      <div className="legend-section">
+        <div className="legend-section-title">Shared Risk Groups</div>
+        {Object.keys(SRLG_COLORS).map((k) => (
+          <div key={k} className="legend-item">
+            <svg width="24" height="12" aria-hidden="true" className="legend-swatch">
+              <line x1="2" y1="6" x2="22" y2="6" stroke={SRLG_COLORS[k]} strokeWidth="3" strokeDasharray={SRLG_DASHES[k] || undefined} />
+            </svg>
+            <span aria-hidden="true">{SRLG_ICONS[k]}</span>
+            {SRLG_LABELS[k]}
+          </div>
+        ))}
+      </div>
+
+      {/* BUG-DW-070: hazard severity — ring stroke pattern + width, grayscale-safe */}
+      <div className="legend-section">
+        <div className="legend-section-title">Hazard Severity</div>
+        {Object.entries(HAZARD_SEVERITY_STYLES).map(([k, st]) => (
+          <div key={k} className="legend-item">
+            <svg width="14" height="14" aria-hidden="true" className="legend-swatch">
+              <circle cx="7" cy="7" r="5" fill="none" stroke={st.color} strokeWidth={st.width} strokeDasharray={st.dash || undefined} />
+            </svg>
+            {st.label}
+          </div>
+        ))}
+      </div>
+      </div>
+
+      <button
+        type="button"
+        className="topo-legend-collapse-btn"
+        onClick={onToggle}
+        aria-expanded={true}
+        aria-controls="topo-legend-body"
+      >
+        Collapse <span aria-hidden="true">▴</span>
       </button>
     </div>
   );
@@ -989,6 +1065,9 @@ function SiteGraph({
           const firstSrlg = srlgs.find((s) => s.conduit_id === c.conduit_id);
           if (firstSrlg) {
             edgeColor = SRLG_COLORS[firstSrlg.srlg_type] ?? BRAND.iron;
+            // BUG-DW-070: non-color SRLG type encoding
+            const srlgDash = SRLG_DASHES[firstSrlg.srlg_type];
+            if (srlgDash) dashArray = srlgDash;
             glowClass = firstSrlg.severity === "critical" ? "srlg-highlight srlg-critical" : "srlg-highlight";
           }
           edgeOpacity = 1;
@@ -1005,7 +1084,7 @@ function SiteGraph({
             x2={pz.x}
             y2={pz.y}
             className={`topo-edge topo-edge-clickable ${glowClass}`}
-            stroke={isSelected ? BRAND.orange : edgeColor}
+            stroke={isSelected ? BRAND.orangeStroke : edgeColor}
             strokeWidth={isOnPath ? 3 : Math.min(1 + c.span_count / 3, 5)}
             strokeDasharray={dashArray}
             opacity={edgeOpacity}
@@ -1043,7 +1122,7 @@ function SiteGraph({
         let nodeStroke = BRAND.darkTeal;
         let nodeStrokeWidth = 2;
         if (isSelected) {
-          nodeStroke = BRAND.orange;
+          nodeStroke = BRAND.orangeStroke;
           nodeStrokeWidth = 3;
         } else if (isOnPath && overlays.diversity) {
           nodeStroke = divColor;
@@ -1108,9 +1187,9 @@ function SiteGraph({
         const hash = h.hazard_id.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
         const hx = 80 + (hash % (CANVAS_W - 160));
         const hy = 60 + ((hash * 7) % (CANVAS_H - 120));
-        const hazColor = h.severity === "critical" ? BRAND.riskRed
-          : h.severity === "high" ? BRAND.orange
-          : "#D97706";
+        // BUG-DW-070: color + stroke pattern/width per severity (grayscale-safe)
+        const sev = HAZARD_SEVERITY_STYLES[h.severity] ?? HAZARD_SEVERITY_STYLES.medium;
+        const hazColor = sev.color;
 
         return (
           <g
@@ -1131,8 +1210,8 @@ function SiteGraph({
               fill={hazColor}
               fillOpacity={0.08}
               stroke={hazColor}
-              strokeWidth={1.5}
-              strokeDasharray="4,3"
+              strokeWidth={sev.width}
+              strokeDasharray={sev.dash || undefined}
             />
             {/* Hazard icon hexagon */}
             <circle
@@ -1142,7 +1221,7 @@ function SiteGraph({
               fill={hazColor}
               fillOpacity={0.2}
               stroke={hazColor}
-              strokeWidth={1.5}
+              strokeWidth={sev.width}
             />
             <text
               x={hx}
