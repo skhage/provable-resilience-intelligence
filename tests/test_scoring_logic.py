@@ -6,8 +6,6 @@ Validates gold_resilience_score (Cell 4) and silver_srlg_diversity_analysis
 Project: Lakelink Fiber — Provable Resilience Intelligence
 """
 
-import pytest
-
 from conftest import composite_score
 
 

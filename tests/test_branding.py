@@ -27,7 +27,16 @@ META_EXCEPTIONS = {
     "BRAND-GUIDE.md",
     "UX-DESIGN-SPEC.md",
     "CONTRIBUTING.md",
+    "BRANCH-STRATEGY.md",
+    "design-system.md",
 }
+
+# Directories excluded from the scan (mirrors the CI branding grep in .github/workflows/ci.yml):
+# hidden dirs (.git, .github) and tests/ (branding fixtures + this enforcer).
+EXCLUDED_DIRS = {"tests"}
+
+# Forbidden brand references (mirrors CI: "Lumen Technologies" and "Lumen Enterprise")
+FORBIDDEN_BRAND_PATTERN = re.compile(r"lumen\s+(technologies|enterprise)", re.IGNORECASE)
 
 # CSS variable branding pattern: no 'lumen' in CSS custom property names (BUG-QA-013 resolved)
 CSS_VAR_VIOLATION_PATTERN = re.compile(r"--lf-lumen-")
@@ -37,7 +46,9 @@ def _collect_project_files():
     """Walk project tree and yield (relative_path, full_path) for scannable files."""
     for root, _dirs, files in os.walk(PROJECT_ROOT):
         # Skip hidden dirs and tests themselves
-        if any(part.startswith(".") for part in root.split(os.sep)):
+        rel_root = os.path.relpath(root, PROJECT_ROOT)
+        parts = [] if rel_root == "." else rel_root.split(os.sep)
+        if any(part.startswith(".") or part in EXCLUDED_DIRS for part in parts):
             continue
         for fname in files:
             ext = os.path.splitext(fname)[1].lower()
@@ -59,12 +70,12 @@ class TestBrandingCompliance:
             try:
                 with open(full, encoding="utf-8", errors="ignore") as f:
                     for i, line in enumerate(f, 1):
-                        if re.search(r"lumen\s+technologies", line, re.IGNORECASE):
+                        if FORBIDDEN_BRAND_PATTERN.search(line):
                             violations.append(f"{rel}:{i}: {line.strip()[:80]}")
             except OSError:
                 pass
         assert not violations, (
-            f"Branding violation — 'Lumen Technologies' found in:\n"
+            "Branding violation — 'Lumen Technologies' found in:\n"
             + "\n".join(violations)
         )
 
@@ -86,7 +97,7 @@ class TestBrandingCompliance:
             except OSError:
                 pass
         assert not violations, (
-            f"Branding violation — CSS variables containing 'lumen' found in:\n"
+            "Branding violation — CSS variables containing 'lumen' found in:\n"
             + "\n".join(violations)
         )
 

@@ -8,6 +8,7 @@ Project: Lakelink Fiber — Provable Resilience Intelligence
 import sys
 import os
 import pytest
+from pydantic import ValidationError
 
 # Add app source to path for import
 APP_SRC = os.path.join(
@@ -87,10 +88,20 @@ class TestPydanticModels:
         assert score.resilience_score == 72.5
 
     def test_action_status_enum_values(self):
-        assert set(ActionStatus) == {"pending", "in_progress", "completed", "dismissed"}
+        assert set(ActionStatus) == {"pending", "in_progress", "completed", "cancelled"}
 
     def test_action_type_enum_values(self):
-        assert set(ActionType) == {"reroute", "dispatch", "notify"}
+        assert set(ActionType) == {
+            "reroute",
+            "dispatch",
+            "dispatch_crew",
+            "notify",
+            "notify_customer",
+            "escalate",
+            "escalate_noc",
+            "preposition",
+            "preposition_splice",
+        }
 
     def test_risk_level_enum_values(self):
         assert set(RiskLevel) == {"critical", "high", "medium", "low"}
@@ -197,9 +208,26 @@ class TestMockDataGenerators:
             summary["pending_count"]
             + summary["in_progress_count"]
             + summary["completed_count"]
-            + summary["dismissed_count"]
+            + summary["cancelled_count"]
         )
         assert status_sum == len(actions)
+        # Schema contract: mock summary must validate against the API response model
+        ActionQueueSummaryOut(**summary)
+
+    def test_mock_summary_matches_response_model(self):
+        """Contract: mock dashboard summary must validate against ResilienceSummaryOut."""
+        ResilienceSummaryOut(**generate_mock_summary(generate_mock_scores()))
+
+    def test_mock_actions_match_response_model(self):
+        """Contract: every mock action must validate against ProactiveActionOut."""
+        for a in generate_mock_actions():
+            ProactiveActionOut(**a)
+
+    def test_status_update_rejects_legacy_dismissed(self):
+        """Regression guard: legacy 'dismissed' status was replaced by 'cancelled'."""
+        assert ActionStatusUpdate(status="cancelled").status == ActionStatus.CANCELLED
+        with pytest.raises(ValidationError):
+            ActionStatusUpdate(status="dismissed")
 
     def test_no_lumen_in_mock_data(self):
         """Branding: mock data must use 'Lakelink Fiber', never 'Lumen'."""

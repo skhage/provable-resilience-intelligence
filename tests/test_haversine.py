@@ -8,7 +8,6 @@ Project: Lakelink Fiber — Provable Resilience Intelligence
 """
 
 import math
-import pytest
 
 from conftest import haversine_km
 
@@ -96,7 +95,7 @@ class TestBoundingBoxFilter:
 
     def test_bounding_box_excludes_distant(self):
         """Points far outside radius must be excluded by bounding box."""
-        hazard_lat, hazard_lon, radius_km = 40.0, -74.0, 10.0
+        hazard_lat, radius_km = 40.0, 10.0
         span_lat = hazard_lat + 5.0  # ~555 km away
 
         lat_threshold = radius_km * 1.5 / 111.0
