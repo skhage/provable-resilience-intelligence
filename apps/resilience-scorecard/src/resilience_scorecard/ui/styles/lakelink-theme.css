@@ -162,14 +162,16 @@ body {
   outline-offset: 2px;
 }
 
-.nav-tabs a:hover,
-.nav-tabs a.active {
+.nav-tabs a:hover {
   color: var(--lf-white);
   background: rgba(255, 255, 255, 0.12);
 }
 
+/* BUG-DW-067: Consolidated duplicate .active rules; added non-color underline cue for HC */
 .nav-tabs a.active {
+  color: var(--lf-white);
   background: rgba(255, 255, 255, 0.18);
+  border-bottom: 3px solid currentColor;
 }
 
 /* Page content */
@@ -281,6 +283,7 @@ body {
 }
 
 /* Badges */
+/* BUG-DW-069: Added transparent border for forced-colors shape retention */
 .badge {
   display: inline-block;
   padding: 2px 10px;
@@ -288,6 +291,7 @@ body {
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
+  border: 1px solid transparent;
 }
 
 /* UX-REM-CONTRAST-BADGES: Darker text for WCAG AA (≥4.5:1) on tinted backgrounds */
@@ -361,13 +365,14 @@ body {
 .rating-pill.F { background: #FEE2E2; color: #991B1B; } /* 6.80:1 ✅ */
 
 /* Action buttons */
+/* BUG-DW-069: border:none → transparent for forced-colors shape */
 .btn {
   padding: 6px 14px;
   border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
   transition: all 0.2s;
   min-height: 36px;
 }
@@ -464,7 +469,7 @@ body {
 .nav-hamburger {
   display: none;
   background: transparent;
-  border: none;
+  border: 1px solid transparent; /* BUG-DW-069: HC shape */
   color: var(--lf-white);
   font-size: 24px;
   line-height: 1;
@@ -739,7 +744,7 @@ select:focus-visible,
 
 .expand-toggle {
   background: none;
-  border: none;
+  border: 1px solid transparent; /* BUG-DW-069: HC shape */
   padding: 6px 10px; /* BUG-DW-037: fixed from 2px 6px (~18×26px) to 6px 10px (≥24×24px) — WCAG 2.5.8 ✓ */
   min-width: 24px;
   min-height: 24px;
@@ -1072,7 +1077,7 @@ select:focus-visible,
 
 .topo-legend-collapse-btn {
   background: none;
-  border: none;
+  border: 1px solid transparent; /* BUG-DW-069: HC shape */
   font-size: 11px;
   color: var(--lf-dark-teal);
   cursor: pointer;
@@ -1095,7 +1100,7 @@ select:focus-visible,
 
 .topo-breadcrumb button {
   background: none;
-  border: none;
+  border: 1px solid transparent; /* BUG-DW-069: HC shape */
   color: var(--lf-dark-teal);
   cursor: pointer;
   font-weight: 500;
@@ -1161,7 +1166,7 @@ select:focus-visible,
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
+  border: 1px solid transparent; /* BUG-DW-069: HC shape */
   background: none;
   cursor: pointer;
   color: var(--lf-iron);
@@ -1414,6 +1419,7 @@ select:focus-visible,
 .path-trace-link:hover {
   text-decoration: underline;
 }
+/* BUG-DW-061: WCAG 2.5.8 — min 24px target size */
 .path-trace-clear {
   background: none;
   border: 1px solid var(--lf-platinum);
@@ -1422,9 +1428,37 @@ select:focus-visible,
   cursor: pointer;
   font-size: 12px;
   color: var(--lf-iron);
+  min-height: 24px;
+  min-width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .path-trace-clear:hover {
   background: var(--lf-platinum);
+}
+
+/* BUG-DW-062: Error banner retry button — replaces inline styles; WCAG 2.5.8 24px target */
+.error-retry-btn {
+  margin-left: 12px;
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  min-height: 24px;
+  min-width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.error-retry-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+.error-retry-btn:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 /* Diversity badge */
@@ -1515,8 +1549,10 @@ select:focus-visible,
   transition: border-color 0.15s ease;
 }
 
-.mobile-tree-search-input:focus {
-  outline: none;
+/* BUG-DW-068: :focus → :focus-visible; transparent outline for HC visibility */
+.mobile-tree-search-input:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
   border-color: var(--lf-dark-teal);
   box-shadow: 0 0 0 3px rgba(0, 98, 114, 0.15);
 }
@@ -1631,7 +1667,7 @@ select:focus-visible,
   align-items: center;
   justify-content: center;
   background: none;
-  border: none;
+  border: 1px solid transparent; /* BUG-DW-069: HC shape */
   cursor: pointer;
   font-size: 16px;
   border-radius: var(--radius-sm);
@@ -1819,4 +1855,115 @@ select:focus-visible,
 }
 .cross-view-table-link:hover .cross-view-icon {
   opacity: 1;
+}
+
+/* =====================================================================
+   BUG-DW-065: Windows High Contrast / Forced Colors
+   WCAG 1.4.1, 1.4.11, 2.4.7 under @media (forced-colors: active)
+   Contains fixes from BUG-DW-066 (diversity encoding), BUG-DW-067
+   (active/pressed states), BUG-DW-068 (focus indicators),
+   BUG-DW-069 (button/badge borders — handled via transparent borders
+   in base CSS; forced-colors auto-paints them in system color).
+   ===================================================================== */
+@media (forced-colors: active) {
+
+  /* --- BUG-DW-066: Topology SVG — preserve brand colors for diversity ---
+     forced-color-adjust: none keeps our WCAG-compliant palette;
+     edges fall back to system colors with dash-pattern distinction. */
+  .topo-svg {
+    forced-color-adjust: none;
+  }
+
+  /* Legend swatches: add system-color border so they remain visible */
+  .topo-legend .legend-swatch {
+    border: 1px solid CanvasText;
+  }
+
+  /* SRLG highlight: filter drop-shadow is lost; use thick stroke instead */
+  .srlg-highlight-edge {
+    stroke: Highlight !important;
+    stroke-width: 5 !important;
+  }
+
+  /* Selected conduit edge — use Highlight system color */
+  .topo-edge-selected {
+    stroke: Highlight !important;
+    stroke-width: 4 !important;
+  }
+
+  /* --- BUG-DW-067: Active/pressed state visibility --- */
+  .nav-tabs a.active,
+  .nav-tabs a[aria-current="page"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+    border-color: Highlight;
+  }
+
+  .btn[aria-pressed="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+    border: 1px solid Highlight;
+  }
+
+  /* --- BUG-DW-068: Focus indicators for SVG nodes --- */
+  .topo-region-node:focus-visible rect {
+    stroke: Highlight;
+    stroke-width: 4;
+  }
+
+  .topo-site-node:focus-visible circle {
+    stroke: Highlight;
+    stroke-width: 4;
+  }
+
+  /* Hazard overlay markers — visible in HC */
+  .hazard-overlay-marker:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  /* --- General: ensure badges & buttons show system borders --- */
+  .badge {
+    border-color: CanvasText;
+  }
+
+  .severity-critical { border-color: LinkText; }
+  .severity-high { border-color: LinkText; }
+
+  /* Data source badge */
+  .data-source-badge {
+    border: 1px solid CanvasText;
+  }
+
+  /* Score gauge bar visibility */
+  .gauge-bar {
+    border: 1px solid CanvasText;
+  }
+
+  .gauge-fill {
+    forced-color-adjust: none;
+  }
+
+  /* Cross-view links */
+  .cross-view-table-link {
+    color: LinkText;
+  }
+
+  .cross-view-icon {
+    opacity: 1;
+  }
+
+  /* Overlay toggles */
+  .topo-legend [role="switch"][aria-checked="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  /* Ensure panel close buttons have visible border */
+  .panel-close {
+    border-color: CanvasText;
+  }
 }

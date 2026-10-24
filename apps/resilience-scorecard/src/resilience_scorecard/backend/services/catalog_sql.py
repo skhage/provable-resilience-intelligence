@@ -14,7 +14,6 @@ Branding: Lakelink Fiber (never Lumen).
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from databricks.sdk import WorkspaceClient
@@ -692,19 +691,7 @@ class CatalogSqlService:
 
     # ------------------------------------------------------------------
     # Product Offerings (P10-APP-PRODUCT-VIEW-PREP)
-    # ------------------------------------------------------------------
-
-    def list_product_offerings(self) -> list[dict] | None:
-        """Return Lakelink Fiber product offerings from UC."""
-        rows = self._execute(_PRODUCT_OFFERINGS_SQL)
-        if rows is None:
-            return None
-        for r in rows:
-            r["is_diverse_eligible"] = bool(r.get("is_diverse_eligible", False))
-        return rows
-
-    # ------------------------------------------------------------------
-    # Product Offerings (P10-APP-PRODUCT-VIEW-PREP)
+    # P20-APP-LINT-CLEANUP: Removed F811 duplicate (was lines 697+710)
     # ------------------------------------------------------------------
 
     def list_product_offerings(self) -> list[dict] | None:

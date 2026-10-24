@@ -9,6 +9,7 @@
 import { Suspense, useState, useMemo, useCallback } from "react";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
+import { Link } from "@tanstack/react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useListHazardsSuspense } from "@/lib/api";
 import { HazardTypeCell } from "./hazard-type-cell";
@@ -138,7 +139,21 @@ function HazardTableContent() {
                   <HazardTypeCell type={h.hazard_type} />
                 </span>
               </td>
-              <td className="text-medium">{h.name}</td>
+              <td className="text-medium">
+                <Link
+                  to="/topology"
+                  search={{ hazard: h.hazard_id }}
+                  className="cross-view-table-link"
+                  aria-label={`View ${h.name} on topology map`}
+                >
+                  {h.name}
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="cross-view-icon">
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                    <path d="M21 14v5a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h5" />
+                  </svg>
+                </Link>
+              </td>
               <td>
                 <span className={`badge severity-${h.severity}`}>{h.severity}</span>
               </td>

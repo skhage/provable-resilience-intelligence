@@ -238,6 +238,15 @@ const DIVERSITY_COLORS: Record<string, string> = {
   unknown: "#6B7280",            // was #9CA3AF (2.07:1) → 3.7:1 ✅
 };
 
+// BUG-DW-066: Dash patterns per diversity status for forced-colors (WCAG 1.4.1)
+// Provides non-color encoding redundancy — protect paths use "8,4" separately.
+const DIVERSITY_DASHES: Record<string, string> = {
+  fully_diverse: "",          // solid
+  partially_diverse: "6,3",   // medium dashes
+  single_path: "2,3",         // dots
+  unknown: "1,4",             // sparse dots
+};
+
 // High-contrast badge pairings per §2.1 (WCAG 1.4.3 AA ≥ 4.5:1)
 // BUG-QA-054: border now references DIVERSITY_COLORS (single source of truth)
 const DIVERSITY_BADGE_STYLES: Record<string, { bg: string; text: string; border: string }> = {
@@ -398,16 +407,19 @@ function Legend({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => v
         </div>
       </div>
 
+      {/* BUG-DW-066: SVG line swatches with dash patterns for forced-colors (WCAG 1.4.1) */}
       <div className="legend-section">
         <div className="legend-section-title">Diversity</div>
         {[
-          { color: DIVERSITY_COLORS.fully_diverse, label: "Fully Diverse" },
-          { color: DIVERSITY_COLORS.partially_diverse, label: "Partially Diverse" },
-          { color: DIVERSITY_COLORS.single_path, label: "Single Path" },
-          { color: DIVERSITY_COLORS.unknown, label: "Unknown" },
+          { key: "fully_diverse", color: DIVERSITY_COLORS.fully_diverse, dash: DIVERSITY_DASHES.fully_diverse, label: "Fully Diverse" },
+          { key: "partially_diverse", color: DIVERSITY_COLORS.partially_diverse, dash: DIVERSITY_DASHES.partially_diverse, label: "Partially Diverse" },
+          { key: "single_path", color: DIVERSITY_COLORS.single_path, dash: DIVERSITY_DASHES.single_path, label: "Single Path" },
+          { key: "unknown", color: DIVERSITY_COLORS.unknown, dash: DIVERSITY_DASHES.unknown, label: "Unknown" },
         ].map((d) => (
-          <div key={d.label} className="legend-item">
-            <span className="legend-swatch" style={{ background: d.color }} />
+          <div key={d.key} className="legend-item">
+            <svg width="24" height="12" aria-hidden="true" className="legend-swatch" style={{ border: `1px solid ${d.color}`, borderRadius: 2 }}>
+              <line x1="2" y1="6" x2="22" y2="6" stroke={d.color} strokeWidth="3" strokeDasharray={d.dash || undefined} />
+            </svg>
             {d.label}
           </div>
         ))}
@@ -967,6 +979,11 @@ function SiteGraph({
 
         if (isOnPath && overlays.diversity) {
           edgeColor = divColor;
+          // BUG-DW-066: Non-color dash encoding for forced-colors (WCAG 1.4.1)
+          if (hasWorking) {
+            const divDash = DIVERSITY_DASHES[diversity?.diversity_status ?? "unknown"] ?? "";
+            if (divDash) dashArray = divDash;
+          }
         }
         if (hasSrlg) {
           const firstSrlg = srlgs.find((s) => s.conduit_id === c.conduit_id);
@@ -1846,8 +1863,9 @@ function TopologyPage() {
       {error && (
         <div className="error-banner" role="alert">
           <strong>Error:</strong> {error}
+          {/* BUG-DW-062: Replaced inline styles with CSS class; WCAG 2.5.8 24px target */}
           <button
-            style={{ marginLeft: 12, background: 'none', border: '1px solid currentColor', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}
+            className="error-retry-btn"
             onClick={() => { setError(null); setLoading(true); fetch("/api/topology/regions").then((r) => r.json()).then(setRegions).catch(() => {}).finally(() => setLoading(false)); }}
           >
             Retry

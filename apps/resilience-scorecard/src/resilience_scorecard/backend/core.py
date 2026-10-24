@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, APIRouter, Request
-from fastapi.staticfiles import StaticFiles
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
