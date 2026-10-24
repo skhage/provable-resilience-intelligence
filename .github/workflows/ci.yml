@@ -3,6 +3,8 @@
 # Enhanced: pip caching, branding compliance, dual-target validate, concurrency
 # P19-DEVOPS-CI-PIPELINE-REVIEW (session 24): reusable via workflow_call so deploy.yml
 # gates on the same checks; root ruff.toml + pytest.ini; JUnit + SHA-256 artifact manifest.
+# P21-DEVOPS-PIN-CLI-AND-FE-GATE (session 27): databricks/setup-cli pinned to v1.22.1 by
+# commit SHA (supply-chain safe); frontend tsc + eslint gate added for the scorecard app.
 
 name: CI
 
@@ -26,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
+        uses: databricks/setup-cli@8de769ec2543ee05e456ee2121350efc7efc4bda # v1.22.1
 
       - name: Validate DAB (dev)
         run: databricks bundle validate --target dev
@@ -77,6 +79,45 @@ jobs:
         with:
           name: junit-results
           path: test-results/junit.xml
+
+  frontend:
+    name: Frontend Typecheck + Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/resilience-scorecard
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect frontend manifest
+        id: detect
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::apps/resilience-scorecard/package.json not committed; tsc/eslint gate skipped (tracked as P27-APP-COMMIT-FE-MANIFEST)"
+          fi
+
+      - name: Set up Node
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/resilience-scorecard/package-lock.json
+
+      - name: Install dependencies
+        if: steps.detect.outputs.present == 'true'
+        run: npm ci
+
+      - name: Typecheck (tsc)
+        if: steps.detect.outputs.present == 'true'
+        run: npx tsc --noEmit -p .
+
+      - name: Lint (eslint)
+        if: steps.detect.outputs.present == 'true'
+        run: npx eslint "src/**/*.{ts,tsx}" --max-warnings 0
 
   artifact-manifest:
     name: Artifact Checksums

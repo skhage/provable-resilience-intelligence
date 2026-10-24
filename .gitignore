@@ -145,3 +145,6 @@ docs/_build/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Workspace-only objects unsupported by Git folders (blocked commits; pending @repo-pruner removal)
+/ml_shap_sensitivity_analysis
