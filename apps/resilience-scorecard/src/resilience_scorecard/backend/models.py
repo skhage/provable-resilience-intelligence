@@ -247,6 +247,58 @@ class TopologyConduitOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Conduit coverage (P35-APP-CONDUIT-COVERAGE-BADGE, v4 shadow — read-only)
+# Source: physical_resource_conduit_v4_candidate.span_coverage_class (DE S35)
+# ---------------------------------------------------------------------------
+
+
+class SpanCoverageClass(str, Enum):
+    """Known values. Live v4 (post BUG-DP-068 B2, 2026-10-25): REAL 55 / BB_SEGMENTED 92 / INVENTORY 1,914.
+
+    Response models type the field as str so a new DE class never 500s the API
+    (which would silently drop to mock data); the UI renders unknown classes generically.
+    """
+    REAL_SEGMENTED = "REAL_SEGMENTED"  # >=1 real SPAN-* segment
+    BB_SEGMENTED = "BB_SEGMENTED"      # CDT-BBR-* backbone route conduit carrying BBS-* segments (B2)
+    BB_ONLY = "BB_ONLY"                # legacy P35/span@11 value, superseded by B2 (kept for compat)
+    INVENTORY_ONLY = "INVENTORY_ONLY"  # no spans; inventory record only
+
+
+class ConduitCoverageOut(BaseModel):
+    """Conduit row for the conduit list + map with v4 span-coverage class."""
+    conduit_id: str
+    conduit_name: str | None = None
+    corridor: str | None = None
+    conduit_type: str | None = None
+    owner: str | None = None
+    region: str | None = Field(default=None, description="Region of the A-end site")
+    length_km: float = Field(ge=0, description="Geodesic route length (BUG-QA-066)")
+    span_coverage_class: str = Field(description="See SpanCoverageClass for known values")
+    segmented_km: float = Field(ge=0, description="km covered by spans (SPAN-* or BBS-*)")
+    coverage_pct: float = Field(ge=0, le=100, description="100*segmented_km/length_km, capped at 100")
+    site_a_id: str | None = None
+    site_z_id: str | None = None
+    lat_a: float | None = None
+    lon_a: float | None = None
+    lat_z: float | None = None
+    lon_z: float | None = None
+
+
+class ConduitCoverageClassCount(BaseModel):
+    span_coverage_class: str
+    conduit_count: int = Field(ge=0)
+    length_km: float = Field(ge=0)
+    segmented_km: float = Field(ge=0)
+
+
+class ConduitCoverageSummaryOut(BaseModel):
+    """Per-class counts for the coverage legend (live v4: 55 / 92 / 1,914)."""
+    total_conduits: int = Field(ge=0)
+    classes: list[ConduitCoverageClassCount]
+    source_table: str = "physical_resource_conduit_v4_candidate"
+
+
+# ---------------------------------------------------------------------------
 # Path Trace + SRLG + Hazard Overlay (TOPOLOGY-VIS-SPEC §2, §3, §4)
 # ---------------------------------------------------------------------------
 

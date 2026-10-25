@@ -317,6 +317,49 @@ WHERE c.is_active = TRUE
 ORDER BY c.length_km DESC
 """
 
+# P35-APP-CONDUIT-COVERAGE-BADGE: v4 shadow conduit table (READ-ONLY).
+# span_coverage_class / segmented_km / coverage_pct landed in DE S35 (v21); B2 (v29) replaced
+# BB_ONLY with BB_SEGMENTED (92 CDT-BBR-* conduits). BB_ONLY kept in the allow-list for compat.
+# The v3 FROZEN physical_resource_conduit used by /topology is untouched.
+_CONDUIT_COVERAGE_TABLE = "physical_resource_conduit_v4_candidate"
+_CONDUIT_COVERAGE_CLASSES = ("REAL_SEGMENTED", "BB_SEGMENTED", "BB_ONLY", "INVENTORY_ONLY")
+
+_CONDUIT_COVERAGE_SQL = f"""
+SELECT
+  c.conduit_id,
+  c.conduit_name,
+  c.corridor,
+  c.conduit_type,
+  c.owner,
+  sa.region,
+  ROUND(c.length_km, 1)    AS length_km,
+  c.span_coverage_class,
+  ROUND(c.segmented_km, 1) AS segmented_km,
+  c.coverage_pct,
+  c.site_a_id,
+  c.site_z_id,
+  sa.latitude  AS lat_a,
+  sa.longitude AS lon_a,
+  sz.latitude  AS lat_z,
+  sz.longitude AS lon_z
+FROM {_CONDUIT_COVERAGE_TABLE} c
+LEFT JOIN geographic_site sa ON c.site_a_id = sa.site_id
+LEFT JOIN geographic_site sz ON c.site_z_id = sz.site_id
+WHERE c.is_active = TRUE {{where}}
+ORDER BY c.length_km DESC
+"""
+
+_CONDUIT_COVERAGE_SUMMARY_SQL = f"""
+SELECT
+  span_coverage_class,
+  CAST(COUNT(*) AS INT)          AS conduit_count,
+  ROUND(SUM(length_km), 1)       AS length_km,
+  ROUND(SUM(segmented_km), 1)    AS segmented_km
+FROM {_CONDUIT_COVERAGE_TABLE}
+WHERE is_active = TRUE
+GROUP BY span_coverage_class
+"""
+
 # ---------------------------------------------------------------------------
 # Path Trace + SRLG + Hazard Overlay SQL (TOPOLOGY-VIS-SPEC §2, §3, §4)
 # ---------------------------------------------------------------------------
@@ -811,6 +854,63 @@ class CatalogSqlService:
             r["span_count"] = int(r.get("span_count", 0))
             r["length_km"] = float(r.get("length_km", 0))
         return rows
+
+    # ------------------------------------------------------------------
+    # Conduit coverage (P35-APP-CONDUIT-COVERAGE-BADGE) — v4 shadow, read-only
+    # ------------------------------------------------------------------
+
+    def list_conduit_coverage(
+        self,
+        coverage_class: str | None = "REAL_SEGMENTED",
+        region: str | None = None,
+    ) -> list[dict] | None:
+        """Return conduits with span_coverage_class. coverage_class=None means all classes.
+
+        Inputs are allow-listed / quote-escaped before interpolation (no raw user SQL).
+        """
+        clauses: list[str] = []
+        if coverage_class is not None:
+            if coverage_class not in _CONDUIT_COVERAGE_CLASSES:
+                raise ValueError(f"invalid coverage_class: {coverage_class}")
+            clauses.append(f"AND c.span_coverage_class = '{coverage_class}'")
+        if region:
+            clauses.append(f"AND sa.region = '{region.replace(chr(39), chr(39) * 2)}'")
+        sql = _CONDUIT_COVERAGE_SQL.replace("{where}", " ".join(clauses))
+        rows = self._execute(sql, row_limit=5000)
+        if rows is None:
+            return None
+        for r in rows:
+            for k in ("length_km", "segmented_km", "coverage_pct"):
+                r[k] = float(r.get(k) or 0)
+            for k in ("lat_a", "lon_a", "lat_z", "lon_z"):
+                r[k] = float(r[k]) if r.get(k) is not None else None
+        return rows
+
+    def get_conduit_coverage_summary(self) -> dict | None:
+        """Per-class conduit counts for the coverage legend."""
+        rows = self._execute(_CONDUIT_COVERAGE_SUMMARY_SQL)
+        if rows is None:
+            return None
+        # Classes present in the data, in known order; unknown future classes go last.
+        order = {c: i for i, c in enumerate(_CONDUIT_COVERAGE_CLASSES)}
+        rows = sorted(
+            (r for r in rows if r.get("span_coverage_class")),
+            key=lambda r: (order.get(r["span_coverage_class"], len(order)), r["span_coverage_class"]),
+        )
+        classes = [
+            {
+                "span_coverage_class": r["span_coverage_class"],
+                "conduit_count": int(r.get("conduit_count") or 0),
+                "length_km": float(r.get("length_km") or 0),
+                "segmented_km": float(r.get("segmented_km") or 0),
+            }
+            for r in rows
+        ]
+        return {
+            "total_conduits": sum(c["conduit_count"] for c in classes),
+            "classes": classes,
+            "source_table": _CONDUIT_COVERAGE_TABLE,
+        }
 
     # ------------------------------------------------------------------
     # Path trace + SRLG + Hazard overlay (TOPOLOGY-VIS-SPEC §2, §3, §4)

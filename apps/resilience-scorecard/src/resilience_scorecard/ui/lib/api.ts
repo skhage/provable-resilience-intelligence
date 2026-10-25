@@ -44,6 +44,38 @@ export type ActionQueueSummary = {
   completed_count: number;
   [k: string]: any;
 };
+// P35-APP-CONDUIT-COVERAGE-BADGE (v4 shadow: physical_resource_conduit_v4_candidate)
+// Live v4 (B2): REAL_SEGMENTED | BB_SEGMENTED | INVENTORY_ONLY. BB_ONLY is the superseded P35 value.
+// The backend types this as str, so the UI must tolerate unknown classes.
+export type SpanCoverageClass = "REAL_SEGMENTED" | "BB_SEGMENTED" | "BB_ONLY" | "INVENTORY_ONLY";
+export type ConduitCoverage = {
+  conduit_id: string;
+  conduit_name: string | null;
+  corridor: string | null;
+  conduit_type: string | null;
+  owner: string | null;
+  region: string | null;
+  length_km: number;
+  span_coverage_class: SpanCoverageClass | string;
+  segmented_km: number;
+  coverage_pct: number;
+  site_a_id: string | null;
+  site_z_id: string | null;
+  lat_a: number | null;
+  lon_a: number | null;
+  lat_z: number | null;
+  lon_z: number | null;
+};
+export type ConduitCoverageSummary = {
+  total_conduits: number;
+  classes: {
+    span_coverage_class: SpanCoverageClass | string;
+    conduit_count: number;
+    length_km: number;
+    segmented_km: number;
+  }[];
+  source_table: string;
+};
 export type ActionStatus = "pending" | "in_progress" | "completed" | "cancelled";
 export type ActionStatusUpdate = {
   status: ActionStatus | string;
@@ -184,6 +216,12 @@ export const useListTopologySites = queryHook<TopologySite[]>("listTopologySites
 export const useListTopologyConduits = queryHook<TopologyConduit[]>("listTopologyConduits", "/api/topology/conduits");
 export const useListTopologySrlgs = queryHook<SrlgMember[]>("listTopologySrlgs", "/api/topology/srlgs");
 export const useListTopologyHazards = queryHook<HazardOverlay[]>("listTopologyHazards", "/api/topology/hazards");
+
+// ---------------------------------------------------------------------------
+// Conduit coverage (P35-APP-CONDUIT-COVERAGE-BADGE)
+// ---------------------------------------------------------------------------
+export const useListConduitCoverageSuspense = suspenseHook<ConduitCoverage[]>("listConduitCoverage", "/api/conduits");
+export const useGetConduitCoverageSummarySuspense = suspenseHook<ConduitCoverageSummary>("getConduitCoverageSummary", "/api/conduits/coverage-summary");
 
 export function useGetServicePathTrace(serviceId: string | undefined) {
   return useQuery({

@@ -299,3 +299,49 @@ def generate_mock_action_summary(actions: list[dict]) -> dict:
         "cancelled_count": counts["cancelled"],
         "critical_pending": crit_pending,
     }
+
+
+# ---------------------------------------------------------------------------
+# Conduit coverage (P35-APP-CONDUIT-COVERAGE-BADGE) — small deterministic sample
+# Live v4 (post BUG-DP-068 B2): 55 REAL_SEGMENTED / 92 BB_SEGMENTED / 1,914 INVENTORY_ONLY.
+# ---------------------------------------------------------------------------
+
+_MOCK_CONDUITS = [
+    # id, name, corridor, type, region, km, class, seg_km, latA, lonA, latZ, lonZ
+    ("CDT-BB-0005", "Backbone St. Louis-Indianapolis", "I-70", "underground", "Central", 372.9, "REAL_SEGMENTED", 372.9, 38.62, -90.21, 39.79, -86.15),
+    ("CDT-BB-0012", "Backbone Denver-Kansas City", "I-70", "underground", "Central", 905.2, "REAL_SEGMENTED", 905.2, 39.74, -104.99, 39.10, -94.58),
+    ("CDT-BB-0009", "Backbone New York-New York", "I-10", "aerial", "East", 3.5, "REAL_SEGMENTED", 3.2, 40.71, -74.02, 40.71, -73.98),
+    ("CDT-BBR-0061", "Backbone Route Phoenix-Los Angeles #1", "I-10", "underground", "West", 598.4, "BB_SEGMENTED", 598.4, 33.45, -112.07, 34.05, -118.24),
+    ("CDT-BBR-0077", "Backbone Route Atlanta-Charlotte #1", "I-85", "aerial", "Southeast", 365.0, "BB_SEGMENTED", 365.0, 33.75, -84.39, 35.23, -80.84),
+    ("CDT-0412", "Metro Dallas Ring 4", None, "direct_buried", "Central", 18.6, "INVENTORY_ONLY", 0.0, 32.78, -96.80, 32.90, -96.70),
+    ("CDT-0988", "Metro Seattle Lateral 2", None, "underground", "West", 9.1, "INVENTORY_ONLY", 0.0, 47.61, -122.33, 47.67, -122.30),
+]
+
+
+def generate_mock_conduit_coverage() -> list[dict]:
+    """Mock conduit coverage rows (schema matches ConduitCoverageOut)."""
+    rows = []
+    for (cid, name, corr, ctype, region, km, cls, seg, la, loa, lz, loz) in _MOCK_CONDUITS:
+        rows.append({
+            "conduit_id": cid, "conduit_name": name, "corridor": corr,
+            "conduit_type": ctype, "owner": "lakelink_fiber", "region": region,
+            "length_km": km, "span_coverage_class": cls, "segmented_km": seg,
+            "coverage_pct": round(min(100.0, 100.0 * seg / km), 2) if km else 0.0,
+            "site_a_id": None, "site_z_id": None,
+            "lat_a": la, "lon_a": loa, "lat_z": lz, "lon_z": loz,
+        })
+    return rows
+
+
+def generate_mock_conduit_coverage_summary() -> dict:
+    """Mock legend counts mirroring the live v4 distribution."""
+    classes = [
+        {"span_coverage_class": "REAL_SEGMENTED", "conduit_count": 55, "length_km": 76582.7, "segmented_km": 76594.4},
+        {"span_coverage_class": "BB_SEGMENTED", "conduit_count": 92, "length_km": 131324.2, "segmented_km": 131324.9},
+        {"span_coverage_class": "INVENTORY_ONLY", "conduit_count": 1914, "length_km": 1933666.1, "segmented_km": 0.0},
+    ]
+    return {
+        "total_conduits": sum(c["conduit_count"] for c in classes),
+        "classes": classes,
+        "source_table": "physical_resource_conduit_v4_candidate",
+    }

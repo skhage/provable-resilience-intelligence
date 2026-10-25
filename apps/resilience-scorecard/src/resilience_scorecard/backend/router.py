@@ -15,6 +15,8 @@ from .core import Dependencies
 from .models import (
     ActionQueueSummaryOut,
     ActionStatusUpdate,
+    ConduitCoverageOut,
+    ConduitCoverageSummaryOut,
     HazardCrosswalkRowOut,
     HazardCrosswalkSummaryOut,
     HazardListItemOut,
@@ -36,6 +38,8 @@ from .models import (
 from .services.mock_data import (
     generate_mock_actions,
     generate_mock_action_summary,
+    generate_mock_conduit_coverage,
+    generate_mock_conduit_coverage_summary,
     generate_mock_crosswalk,
     generate_mock_crosswalk_summary,
     generate_mock_hazard_list,
@@ -390,6 +394,67 @@ def list_topology_conduits(
             logger.warning("Live topology conduits failed for %s", region, exc_info=True)
 
     return []
+
+
+# ---------------------------------------------------------------------------
+# Conduit coverage list + map (P35-APP-CONDUIT-COVERAGE-BADGE)
+# Reads physical_resource_conduit_v4_candidate (v4 shadow, read-only).
+# ---------------------------------------------------------------------------
+
+# BB_SEGMENTED replaced BB_ONLY in DE B2 (conduit_v4 v29); BB_ONLY accepted for old deep links.
+_COVERAGE_FILTER_VALUES = {"REAL_SEGMENTED", "BB_SEGMENTED", "BB_ONLY", "INVENTORY_ONLY", "ALL"}
+
+
+@router.get(
+    "/conduits/coverage-summary",
+    response_model=ConduitCoverageSummaryOut,
+    operation_id="getConduitCoverageSummary",
+)
+def get_conduit_coverage_summary(csql: Dependencies.CatalogSql):
+    """Per-class conduit counts for the coverage legend."""
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            summary = csql.get_conduit_coverage_summary()
+            if summary is not None:
+                return summary
+        except Exception:
+            logger.warning("Live conduit coverage summary failed", exc_info=True)
+    return generate_mock_conduit_coverage_summary()
+
+
+@router.get(
+    "/conduits",
+    response_model=list[ConduitCoverageOut],
+    operation_id="listConduitCoverage",
+)
+def list_conduit_coverage(
+    csql: Dependencies.CatalogSql,
+    coverage_class: str = Query(
+        "REAL_SEGMENTED",
+        description="REAL_SEGMENTED (default) | BB_SEGMENTED | INVENTORY_ONLY | ALL",
+    ),
+    region: str | None = Query(None, description="Filter by A-end site region"),
+):
+    """Conduits with v4 span-coverage class. Defaults to REAL_SEGMENTED only."""
+    cls = coverage_class.upper()
+    if cls not in _COVERAGE_FILTER_VALUES:
+        raise HTTPException(status_code=422, detail=f"Invalid coverage_class: {coverage_class}")
+    cls_arg = None if cls == "ALL" else cls
+
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            rows = csql.list_conduit_coverage(coverage_class=cls_arg, region=region)
+            if rows is not None:
+                return rows
+        except Exception:
+            logger.warning("Live conduit coverage failed", exc_info=True)
+
+    rows = generate_mock_conduit_coverage()
+    if cls_arg:
+        rows = [r for r in rows if r["span_coverage_class"] == cls_arg]
+    if region:
+        rows = [r for r in rows if r["region"] == region]
+    return rows
 
 
 # ---------------------------------------------------------------------------

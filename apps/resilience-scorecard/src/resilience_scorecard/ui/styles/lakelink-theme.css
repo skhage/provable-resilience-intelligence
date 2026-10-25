@@ -2072,3 +2072,75 @@ select:focus-visible,
     border-color: CanvasText;
   }
 }
+
+/* === Conduit Coverage (P35-APP-CONDUIT-COVERAGE-BADGE) ===
+ * Badge text contrast on tint: real 6.5:1 (teal on #E0F2F1), bb 5.53:1, inv 6.90:1.
+ * Map lines vs #F7F9FA map background: real #006272 ~7:1, bb #C2410C ~5:1, inv #858585 ~3.5:1
+ * (WCAG 1.4.11 >= 3:1). Classes also differ by dash pattern + width, never color alone. */
+.coverage-badge { white-space: nowrap; text-transform: none; }
+.coverage-badge .coverage-glyph { font-size: 11px; }
+.coverage-badge.cov-real { background: #E0F2F1; color: var(--lf-dark-teal); }
+.coverage-badge.cov-bb   { background: #FFEDD5; color: #9A3412; }
+.coverage-badge.cov-inv  { background: var(--lf-platinum); color: var(--lf-iron); }
+
+.coverage-legend {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-md);
+  display: grid;
+  gap: var(--space-sm);
+  background: var(--lf-white);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+.coverage-legend-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+}
+.coverage-legend-count { font-size: 13px; color: var(--lf-iron); min-width: 210px; }
+.coverage-swatch { flex: none; }
+
+.conduit-map-card {
+  background: var(--lf-white);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+.conduit-map { width: 100%; height: auto; display: block; }
+.conduit-map-bg { fill: #F7F9FA; }
+.conduit-map-site { fill: var(--lf-iron); }
+
+.conduit-line { fill: none; stroke-linecap: round; }
+.conduit-line.cov-real { stroke: var(--lf-dark-teal); stroke-width: 2.5; }
+.conduit-line.cov-bb   { stroke: #C2410C; stroke-width: 1.75; stroke-dasharray: 8 4; }
+.conduit-line.cov-inv  { stroke: var(--lf-platinum-shade); stroke-width: 1; stroke-dasharray: 2 3; }
+
+.coverage-warning {
+  border-left: 4px solid var(--lf-accent-orange);
+  background: #FFF7ED;
+  color: #7C2D12; /* 8.83:1 */
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  margin: 0 0 var(--space-md);
+}
+.coverage-caption { caption-side: top; text-align: left; padding-bottom: var(--space-xs); }
+.data-table th.num, .data-table td.num { text-align: right; }
+
+@media (max-width: 767px) {
+  .coverage-legend-count { min-width: 0; }
+  .filter-bar { flex-wrap: wrap; }
+}
+
+@media (forced-colors: active) {
+  .coverage-badge { border-color: CanvasText; }
+  .conduit-map-bg { fill: Canvas; }
+  .conduit-map-site { fill: CanvasText; }
+  /* Dash patterns + widths keep classes distinct when colors collapse */
+  .conduit-line.cov-real,
+  .conduit-line.cov-bb,
+  .conduit-line.cov-inv { stroke: CanvasText; }
+  .coverage-warning { border-left-color: CanvasText; }
+}
