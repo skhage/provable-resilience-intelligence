@@ -8,6 +8,9 @@
 # P26-DEVOPS-FE-BUILD-ARTIFACT (session 28): frontend job now runs vite build (which also
 # generates routeTree.gen.ts before tsc), and publishes __dist__ as a CI artifact that
 # backend/core.py serves. No lockfile is tracked, so npm install (not npm ci) is used.
+# P35-DEVOPS-V4-FROZEN-WRITE-GUARD (session 35): dedicated fail-fast gate so v4 shadow-build
+# code can only write *_v4_candidate objects, never PRI-DEMO-FREEZE-v3 FROZEN objects
+# (DEC-PRI-V4-SHADOW-BUILD). Snapshot: tests/frozen_v3_objects.json.
 
 name: CI
 
@@ -71,6 +74,10 @@ jobs:
       - name: Lint (ruff)
         # Root ruff.toml: correctness rules, *.ipynb excluded (SQL/magic cells)
         run: ruff check --config ruff.toml apps/ bundle/pipeline/ tests/
+
+      - name: v4 freeze write guard (DEC-PRI-V4-SHADOW-BUILD)
+        # Fails if any v4-scoped file writes to an object FROZEN in PRI-DEMO-FREEZE-v3
+        run: pytest -v --tb=short tests/test_v4_frozen_write_guard.py
 
       - name: Unit tests
         # pytest.ini puts tests/ + app src on sys.path; Spark-dependent tests auto-skip
