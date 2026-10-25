@@ -77,6 +77,30 @@ databricks bundle deploy --target prod
 4. Trigger test pipeline run with pipeline ID
 5. Verify dashboard renders with live data
 
+### Stage 3b: App KPI Parity vs PRI-DEMO-FREEZE-v3 (P23 smoke, P33-APP-V3-KPI-PARITY-CHECK)
+
+The app queries table HEAD (no VERSION AS OF). Before the smoke test, confirm the HEAD data-changing version of each table still equals its v3 pin. If any pin has drifted, the demo is no longer at freeze state, so stop and flag @data-planner.
+
+| Table read by app | v3 pin (version / rows) | Verified 2026-10-25 |
+| --- | --- | --- |
+| resilience_score_snapshot | v22 / 8,000 | match |
+| proactive_action | v15 / 11,276 | match |
+| service_inventory | v7 / 8,000 | match |
+| customer | v6 / 1,200 | match |
+| geographic_site | v6 / 2,969 | match |
+| shared_risk_group | v10 / 12,235 | match |
+| geographic_hazard_event | v34 / 57,399 | match |
+| hazard_span_proximity | v14 / 15,524 | match |
+
+Expected values on the `/` KPI tiles (from `/api` summary; any mock value is a FAIL):
+
+* Total services: 8,000
+* Avg resilience score: tile shows **61.5**, because `_SUMMARY_SQL` uses ROUND(...,1). The exact value is 61.549, and the v3 pin of 61.55 is the 2-dp form of the same number, so 61.5 is correct.
+* Critical (<40): **848**. High 40-60: 2,932. Medium 60-75: 2,635. Low >=75: 1,585.
+* Total revenue at risk: **$48,445,092.90**, displayed as $48.45M.
+* Total SRLG groups (distinct srlg_id): 809. Total single-point failures (sum of active_alarms): 498,465.
+* Action queue (`/actions`): 11,276 rows, and the inner join to service_inventory drops none. Pending 3,159 (critical 480 / high 805 / medium 954 / low 920). Completed 6,181. Cancelled 1,936.
+
 ## Rollback Plan
 
 ### Rollback to Baseline (v0.4-resilience)
