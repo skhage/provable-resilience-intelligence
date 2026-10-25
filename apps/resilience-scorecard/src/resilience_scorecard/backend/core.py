@@ -30,7 +30,7 @@ class AppConfig(BaseSettings):
     )
     catalog: str = Field(default="cdm_tmforum")
     schema_name: str = Field(default="provable_resilience_intelligence", alias="schema")
-    warehouse_id: str = Field(default="7b65956f30d66feb")  # Serverless Starter Warehouse
+    warehouse_id: str = Field(default="9cd919d96b11bf1c")  # Apps & Agents Warehouse (serverless)
 
 
 # ---------------------------------------------------------------------------

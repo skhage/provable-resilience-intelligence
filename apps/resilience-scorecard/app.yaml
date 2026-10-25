@@ -16,4 +16,4 @@ env:
   - name: RESILIENCE_SCORECARD_SCHEMA
     value: "provable_resilience_intelligence"
   - name: RESILIENCE_SCORECARD_WAREHOUSE_ID
-    value: "7b65956f30d66feb"
+    value: "9cd919d96b11bf1c"  # Apps & Agents Warehouse (serverless); 7b65956f30d66feb was deleted

@@ -44,7 +44,7 @@
 | `RESILIENCE_SCORECARD_LAKEBASE_ENDPOINT` | projects/telco-provable-resilience-intelligence-project/branches/production/endpoints/primary |
 | `RESILIENCE_SCORECARD_CATALOG` | cdm_tmforum |
 | `RESILIENCE_SCORECARD_SCHEMA` | provable_resilience_intelligence |
-| `RESILIENCE_SCORECARD_WAREHOUSE_ID` | 7b65956f30d66feb |
+| `RESILIENCE_SCORECARD_WAREHOUSE_ID` | 9cd919d96b11bf1c (Apps & Agents Warehouse; replaces deleted 7b65956f30d66feb) |
 
 ## Deployment Steps
 

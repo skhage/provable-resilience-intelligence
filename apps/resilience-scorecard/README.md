@@ -87,7 +87,7 @@ apps/resilience-scorecard/
 | `RESILIENCE_SCORECARD_LAKEBASE_ENDPOINT` | `projects/telco-...` | Lakebase endpoint path |
 | `RESILIENCE_SCORECARD_CATALOG` | `cdm_tmforum` | Unity Catalog name |
 | `RESILIENCE_SCORECARD_SCHEMA` | `provable_resilience_intelligence` | Schema with gold tables |
-| `RESILIENCE_SCORECARD_WAREHOUSE_ID` | `7b65956f30d66feb` | SQL warehouse for live queries |
+| `RESILIENCE_SCORECARD_WAREHOUSE_ID` | `9cd919d96b11bf1c` | SQL warehouse for live queries |
 
 ## Prerequisites
 
