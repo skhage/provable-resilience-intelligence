@@ -1,6 +1,6 @@
 # PR Packet: devops/session-25-hygiene -> main
 
-Prepared by @devops (session 31, 2026-10-25) for task P31-DEVOPS-PR-READY-PACKET. Unblocks P23-DEVOPS-CI-GREEN-PR.
+Prepared by @devops (session 33, 2026-10-25) for task P34-DEVOPS-PR-PACKET-7E10D93. Refreshes the packet for HEAD 8aaab64 (was 119d3c7).
 
 ## One-click open (about 2 minutes)
 
@@ -19,7 +19,7 @@ Prepared by @devops (session 31, 2026-10-25) for task P31-DEVOPS-PR-READY-PACKET
 
 ```markdown
 ## Summary
-This PR merges every commit on devops/session-25-hygiene into main, from 95e697c through HEAD. At packet time that was 13 commits. @app-developer is still pushing UI fixes to this branch, so check the commit list on the PR page.
+This PR merges every commit on devops/session-25-hygiene into main, from 95e697c through HEAD 8aaab64. At packet time that is 15 commits (d17a694 inherited from session-24 + 14 on session-25).
 It supersedes devops/session-24-ci-review, whose commits are all included here.
 
 ### CI / release engineering
@@ -50,23 +50,25 @@ It supersedes devops/session-24-ci-review, whose commits are all included here.
   - the legend explains the new encoding
 - BUG-DW-084 (45c6f28): LoadingRegion announces Suspense fallbacks for WCAG 4.1.3. It drops aria-busy and injects the label into an empty live region after a 100ms delay.
 - BUG-DW-085 (87e9967): the topology edge aria-label now appends the max SRLG severity per conduit, and ring/glow use the same max.
+- 7e10d93: repoints RESILIENCE_SCORECARD_WAREHOUSE_ID from deleted warehouse 7b65956f30d66feb to 9cd919d96b11bf1c (Apps & Agents Warehouse).
+- 8aaab64: adds PRI-DEMO-FREEZE-v3 KPI parity values to the P23 smoke-test checklist.
 
 ### Docs
-- P31-DEVOPS-PR-READY-PACKET: adds this packet at .github/PR-PACKET-session-25-hygiene.md.
+- P31-DEVOPS-PR-READY-PACKET / P34-DEVOPS-PR-PACKET-7E10D93: adds and refreshes this packet at .github/PR-PACKET-session-25-hygiene.md.
 
-## Gate results (local, on HEAD of the branch, 2026-10-25)
+## Gate results (local, on HEAD 8aaab64, 2026-10-25 session 33)
 | Gate | Result |
 |---|---|
 | ruff check | PASS (all checks passed) |
 | pytest | PASS: 72 passed, 27 skipped (Spark-only), 0 failed |
-| Branding (CI grep, clean git archive) | PASS, no forbidden references |
-| bundle validate --target dev | Validation OK |
-| bundle validate --target prod | Validation OK |
+| Branding (CI grep, clean git archive) | PASS — all grep hits are meta-docs/tests explaining the rule |
+| bundle validate --target dev | Validation OK (YAML parsed, 6 resource files) |
+| bundle validate --target prod | Validation OK (root_path under deployer home, CAN_MANAGE set) |
 | frontend tsc/eslint/vite | Runs in GitHub Actions only (no Node on the agent runtime). Confirm on this PR. |
 
 ## Risk / rollback
 - No data or UC changes. The PR only touches code, CI, and the bundle config.
-- Rollback: revert the merge commit. main is 2632e12 today.
+- Rollback: revert the merge commit. main is still at 2632e12.
 - The prod root_path change only matters on the next prod deploy, and the first prod deploy is still CEO-gated.
 ```
 
