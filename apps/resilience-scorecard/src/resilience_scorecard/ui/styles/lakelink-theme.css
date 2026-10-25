@@ -1418,6 +1418,14 @@ select:focus-visible,
 .srlg-badge-ring {
   fill: #FFFFFF;
 }
+/* BUG-DW-087: static outer ring marks critical SRLG severity (no animation, no color dependency) */
+.srlg-badge-critical-ring {
+  fill: none;
+  pointer-events: none;
+}
+@media (forced-colors: active) {
+  .srlg-badge-critical-ring { stroke: CanvasText; }
+}
 .srlg-badge-code {
   /* BUG-DW-085: 10px -> 11px for legibility; still fits inside the r=8 ring */
   font: 700 11px 'Inter', sans-serif;

@@ -9,6 +9,7 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
+import { LoadingRegion } from "@/components/ui/loading-region";
 
 // ---------------------------------------------------------------------------
 // Viewport width hook (§6.2 — Mobile tree fallback below 768px)
@@ -519,6 +520,14 @@ function Legend({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => v
             {SRLG_LABELS[k]}
           </div>
         ))}
+        {/* BUG-DW-087: document the non-color critical cue */}
+        <div className="legend-item">
+          <svg width="26" height="26" aria-hidden="true" className="legend-swatch srlg-badge">
+            <circle cx="13" cy="13" r="11" className="srlg-badge-critical-ring" stroke={BRAND.iron} strokeWidth="1.5" fill="none" />
+            <circle cx="13" cy="13" r="8" className="srlg-badge-ring" stroke={BRAND.iron} strokeWidth="3" />
+          </svg>
+          Double ring = critical severity
+        </div>
       </div>
 
       {/* BUG-DW-070: hazard severity — ring stroke pattern + width, grayscale-safe */}
@@ -1172,6 +1181,10 @@ function SiteGraph({
             const dimmed = hasPathTrace && !pathConduitIds.has(c.conduit_id);
             return (
               <g key={`srlg-badge-${c.conduit_id}`} className="srlg-badge" transform={`translate(${mx},${my})`} opacity={dimmed ? 0.35 : 1}>
+                {/* BUG-DW-087: static second cue for critical (outer concentric ring), survives reduced-motion, grayscale, forced-colors */}
+                {maxSrlgSeverity(srlgs.filter((s) => s.conduit_id === c.conduit_id)) === "critical" && (
+                  <circle r={11} className="srlg-badge-critical-ring" stroke={color} strokeWidth={1.5} fill="none" />
+                )}
                 <circle r={8} className="srlg-badge-ring" stroke={color} strokeWidth={maxSrlgSeverity(srlgs.filter((s) => s.conduit_id === c.conduit_id)) === "critical" ? 3 : 2} />
                 <text className="srlg-badge-code" fill={color}>{code}</text>
                 {extra > 0 && (
@@ -2029,10 +2042,11 @@ function TopologyPage() {
 
       {/* Mobile tree view fallback (§6.2) — replaces graph below 768px */}
       {isMobile ? (
-        <div className="topo-canvas-wrap topo-canvas-wrap--mobile" aria-busy={loading}>
+        /* BUG-DW-086: no aria-busy on the wrapper; it would suppress the LoadingRegion live announcement */
+        <div className="topo-canvas-wrap topo-canvas-wrap--mobile">
           {loading && (
-            <div className="topo-loading" role="status" aria-label="Loading topology data">
-              <div className="topo-skeleton-grid">
+            <LoadingRegion label="Loading topology data" className="topo-loading">
+              <div className="topo-skeleton-grid" aria-hidden="true">
                 {[1, 2].map((i) => (
                   <div key={i} className="topo-skeleton-card">
                     <div className="skeleton-loading" style={{ width: '60%', height: 16, marginBottom: 8 }} />
@@ -2041,8 +2055,7 @@ function TopologyPage() {
                   </div>
                 ))}
               </div>
-              <span className="sr-only">Loading topology data…</span>
-            </div>
+            </LoadingRegion>
           )}
           {!loading && regions.length > 0 && (
             <MobileTreeView
@@ -2064,10 +2077,11 @@ function TopologyPage() {
         </div>
       ) : (
         /* Desktop/tablet: full SVG graph */
-        <div className="topo-canvas-wrap" aria-busy={loading}>
+        /* BUG-DW-086: no aria-busy on the wrapper; it would suppress the LoadingRegion live announcement */
+        <div className="topo-canvas-wrap">
           {loading && (
-            <div className="topo-loading" role="status" aria-label="Loading topology data">
-              <div className="topo-skeleton-grid">
+            <LoadingRegion label="Loading topology data" className="topo-loading">
+              <div className="topo-skeleton-grid" aria-hidden="true">
                 {[1, 2, 3, 4].map((i) => (
                   <div key={i} className="topo-skeleton-card">
                     <div className="skeleton-loading" style={{ width: '60%', height: 16, marginBottom: 8 }} />
@@ -2076,8 +2090,7 @@ function TopologyPage() {
                   </div>
                 ))}
               </div>
-              <span className="sr-only">Loading topology data…</span>
-            </div>
+            </LoadingRegion>
           )}
 
           {!loading && !selectedRegion && regions.length > 0 && (
