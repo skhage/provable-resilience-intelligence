@@ -19,7 +19,7 @@ Prepared by @devops (session 31, 2026-10-25) for task P31-DEVOPS-PR-READY-PACKET
 
 ```markdown
 ## Summary
-This PR merges 9 commits from devops/session-25-hygiene into main: 35 files, +1423/-192.
+This PR merges 11 commits from devops/session-25-hygiene into main. That is 10 code commits plus this packet.
 It supersedes devops/session-24-ci-review, whose commits are all included here.
 
 ### CI / release engineering
@@ -48,6 +48,10 @@ It supersedes devops/session-24-ci-review, whose commits are all included here.
   - SRLG type moves to a midpoint letter-badge layer, and the edge dash now means path role and diversity
   - partially_diverse now draws as dash-dot
   - the legend explains the new encoding
+- BUG-DW-084 (45c6f28): LoadingRegion announces Suspense fallbacks for WCAG 4.1.3. It drops aria-busy and injects the label into an empty live region after a 100ms delay.
+
+### Docs
+- P31-DEVOPS-PR-READY-PACKET: adds this packet at .github/PR-PACKET-session-25-hygiene.md.
 
 ## Gate results (local, on HEAD of the branch, 2026-10-25)
 | Gate | Result |
