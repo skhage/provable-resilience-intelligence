@@ -19,7 +19,7 @@ Prepared by @devops (session 31, 2026-10-25) for task P31-DEVOPS-PR-READY-PACKET
 
 ```markdown
 ## Summary
-This PR merges 11 commits from devops/session-25-hygiene into main. That is 10 code commits plus this packet.
+This PR merges every commit on devops/session-25-hygiene into main, from 95e697c through HEAD. At packet time that was 13 commits. @app-developer is still pushing UI fixes to this branch, so check the commit list on the PR page.
 It supersedes devops/session-24-ci-review, whose commits are all included here.
 
 ### CI / release engineering
@@ -49,6 +49,7 @@ It supersedes devops/session-24-ci-review, whose commits are all included here.
   - partially_diverse now draws as dash-dot
   - the legend explains the new encoding
 - BUG-DW-084 (45c6f28): LoadingRegion announces Suspense fallbacks for WCAG 4.1.3. It drops aria-busy and injects the label into an empty live region after a 100ms delay.
+- BUG-DW-085 (87e9967): the topology edge aria-label now appends the max SRLG severity per conduit, and ring/glow use the same max.
 
 ### Docs
 - P31-DEVOPS-PR-READY-PACKET: adds this packet at .github/PR-PACKET-session-25-hygiene.md.
@@ -77,4 +78,5 @@ It supersedes devops/session-24-ci-review, whose commits are all included here.
 - [ ] `setup-cli` is pinned by commit SHA, not by tag.
 - [ ] No `Lumen` brand strings outside the allowlisted meta-docs.
 - [ ] No notebooks or data files are in the diff. The working-tree edits to `notebooks/hazard_span_intersection_pipeline.ipynb`, `pipelines/resilience_scoring_pipeline.ipynb` and `ml_freeze_guard.py` are freeze-gated and intentionally NOT included.
+- [ ] Branch hygiene: the PR branch is a moving target. After the merge, @app-developer should cut feature branches from main (app/<bug-id>) instead of committing to devops/* branches.
 - [ ] Merge commit, not squash. After the merge, delete the two devops branches and fast-forward `develop`.
