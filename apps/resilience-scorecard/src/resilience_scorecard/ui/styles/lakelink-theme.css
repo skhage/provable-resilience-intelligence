@@ -1419,13 +1419,15 @@ select:focus-visible,
   fill: #FFFFFF;
 }
 .srlg-badge-code {
-  font: 700 10px 'Inter', sans-serif;
+  /* BUG-DW-085: 10px -> 11px for legibility; still fits inside the r=8 ring */
+  font: 700 11px 'Inter', sans-serif;
   text-anchor: middle;
   dominant-baseline: central;
   pointer-events: none;
 }
 .srlg-badge-extra {
-  font: 600 9px 'Inter', sans-serif;
+  /* BUG-DW-085: 9px -> 10px */
+  font: 600 10px 'Inter', sans-serif;
   fill: var(--lf-iron);
   pointer-events: none;
 }

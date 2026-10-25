@@ -249,6 +249,17 @@ const SRLG_LABELS: Record<string, string> = {
   central_office: "Central Office",
 };
 
+// BUG-DW-085: max SRLG severity per conduit drives the ring, glow AND aria-label so they agree.
+const SRLG_SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+function maxSrlgSeverity(members: { severity: string | null }[]): string | null {
+  let best: string | null = null;
+  for (const m of members) {
+    const sev = m.severity?.toLowerCase() ?? null;
+    if (sev && (SRLG_SEVERITY_RANK[sev] ?? 0) > (best ? SRLG_SEVERITY_RANK[best] ?? 0 : 0)) best = sev;
+  }
+  return best;
+}
+
 // BUG-DW-070: hazard severity encoded by color AND stroke pattern/width so it
 // survives grayscale and forced-colors (WCAG 1.4.1, 1.4.11). All colors >=3:1 vs #E8E8E8.
 const HAZARD_SEVERITY_STYLES: Record<string, { color: string; dash: string; width: number; label: string }> = {
@@ -1095,7 +1106,10 @@ function SiteGraph({
           if (firstSrlg) {
             edgeColor = SRLG_COLORS[firstSrlg.srlg_type] ?? BRAND.iron;
             // BUG-DW-077: SRLG type is shown by the midpoint badge layer, not by the dash
-            glowClass = firstSrlg.severity === "critical" ? "srlg-highlight srlg-critical" : "srlg-highlight";
+            glowClass =
+              maxSrlgSeverity(srlgs.filter((s) => s.conduit_id === c.conduit_id)) === "critical"
+                ? "srlg-highlight srlg-critical"
+                : "srlg-highlight";
           }
           edgeOpacity = 1;
         }
@@ -1105,6 +1119,7 @@ function SiteGraph({
         const srlgTypesHere = hasSrlg
           ? Array.from(new Set(srlgs.filter((s) => s.conduit_id === c.conduit_id).map((s) => SRLG_LABELS[s.srlg_type] ?? s.srlg_type)))
           : [];
+        const srlgSevHere = hasSrlg ? maxSrlgSeverity(srlgs.filter((s) => s.conduit_id === c.conduit_id)) : null;
         const roleLabel = isOnPath ? (hasWorking && hasProtect ? ", working and protect path" : hasProtect ? ", protect path" : ", working path") : "";
 
         return (
@@ -1122,7 +1137,7 @@ function SiteGraph({
             style={hasSrlg ? { ["--srlg-color" as string]: edgeColor } : undefined}
             tabIndex={0}
             role="button"
-            aria-label={`Conduit ${c.conduit_id}: ${c.conduit_type}, ${c.length_km} km, ${c.span_count} spans${roleLabel}${srlgTypesHere.length ? ` (SRLG: ${srlgTypesHere.join(", ")})` : ""}. Press Enter for details.`}
+            aria-label={`Conduit ${c.conduit_id}: ${c.conduit_type}, ${c.length_km} km, ${c.span_count} spans${roleLabel}${srlgTypesHere.length ? ` (SRLG: ${srlgTypesHere.join(", ")}${srlgSevHere ? ` - ${srlgSevHere}` : ""})` : ""}. Press Enter for details.`}
             aria-describedby={`conduit-desc-${c.conduit_id}`}
             onClick={() => onSelectConduit(isSelected ? null : c)}
             onKeyDown={(e) => {
@@ -1157,7 +1172,7 @@ function SiteGraph({
             const dimmed = hasPathTrace && !pathConduitIds.has(c.conduit_id);
             return (
               <g key={`srlg-badge-${c.conduit_id}`} className="srlg-badge" transform={`translate(${mx},${my})`} opacity={dimmed ? 0.35 : 1}>
-                <circle r={8} className="srlg-badge-ring" stroke={color} strokeWidth={first.severity === "critical" ? 3 : 2} />
+                <circle r={8} className="srlg-badge-ring" stroke={color} strokeWidth={maxSrlgSeverity(srlgs.filter((s) => s.conduit_id === c.conduit_id)) === "critical" ? 3 : 2} />
                 <text className="srlg-badge-code" fill={color}>{code}</text>
                 {extra > 0 && (
                   <text x={9} y={-7} className="srlg-badge-extra">{`+${extra}`}</text>
