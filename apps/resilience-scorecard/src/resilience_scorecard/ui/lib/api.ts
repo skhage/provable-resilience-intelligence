@@ -245,6 +245,42 @@ export function useGetServiceDiversity(serviceId: string | undefined) {
 export const useListActionsSuspense = suspenseHook<ProactiveAction[]>("listActions", "/api/actions");
 export const useGetActionSummarySuspense = suspenseHook<ActionQueueSummary>("getActionSummary", "/api/actions/summary");
 
+// ---------------------------------------------------------------------------
+// V4 KPIs (V4-KPI-COPY-SPEC §0/§1), gated by PRI_V4_KPIS (default false)
+// ---------------------------------------------------------------------------
+export type FeatureFlags = { v4_kpis: boolean };
+export type MrcProtected = {
+  mrc_protected_usd: number;
+  services_protected: number;
+  /** Share of total MRC, 0..1 */
+  mrc_share: number;
+  total_mrc_usd: number;
+  total_services: number;
+  source?: string;
+};
+
+/** True only when the backend reports PRI_V4_KPIS=true. Loading/error = false (v3 UI). */
+export function useV4Kpis(): boolean {
+  const { data } = useQuery<FeatureFlags>({
+    queryKey: ["getFeatureFlags"],
+    queryFn: () => request<FeatureFlags>("GET", "/api/config/features"),
+    staleTime: Infinity,
+    retry: false,
+  });
+  return data?.v4_kpis === true;
+}
+
+/** MRC Protected KPI. No retries: on 404/503 the card is hidden (never $0). */
+export function useGetMrcProtected(enabled: boolean) {
+  return useQuery<MrcProtected>({
+    queryKey: ["getMrcProtected"],
+    queryFn: () => request<MrcProtected>("GET", "/api/actions/mrc-protected"),
+    enabled,
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
 export function useGetAction(actionId: string | undefined) {
   return useQuery({
     queryKey: ["getAction", actionId],

@@ -12,7 +12,10 @@ import {
   useListActionsSuspense,
   useGetActionSummarySuspense,
   useUpdateActionStatus,
+  useV4Kpis,
+  useGetMrcProtected,
 } from "@/lib/api";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { useQueryClient } from "@tanstack/react-query";
 import selector from "@/lib/selector";
 import {
@@ -43,8 +46,52 @@ const ACTION_TYPE_ICONS: Record<string, LucideIcon> = {
   preposition_splice: Scissors,
 };
 
+/** V4-KPI-COPY-SPEC §1 definition (verbatim; tooltip + README). */
+const MRC_PROTECTED_DEFINITION =
+  "Monthly recurring charge of distinct services with at least one completed proactive action. Each service is counted once.";
+
+/** $ + millions to 1 dp + M; under $1M use $###K. Returns [display, spoken]. */
+function formatMonthlyUsd(usd: number): [string, string] {
+  if (usd >= 1_000_000) {
+    const m = (usd / 1_000_000).toFixed(1);
+    return [`$${m}M`, `$${m} million`];
+  }
+  const k = Math.round(usd / 1_000);
+  return [`$${k}K`, `$${k} thousand`];
+}
+
+/**
+ * P36-APP-V4-MRC-PROTECTED-KPI: 5th Action Queue card, after Completed.
+ * Source: mv_mrc_protected_v4_candidate (distinct service_id, never summed per action).
+ * Null / error / zero: render nothing (never $0).
+ */
+function MrcProtectedCard() {
+  const { data, isError } = useGetMrcProtected(true);
+  if (isError || !data || !(data.mrc_protected_usd > 0) || !(data.services_protected > 0)) {
+    return null;
+  }
+  const [value, spoken] = formatMonthlyUsd(data.mrc_protected_usd);
+  const services = data.services_protected.toLocaleString("en-US");
+  const share = (data.mrc_share * 100).toFixed(1);
+  return (
+    <div className="kpi-card success"
+         role="group"
+         aria-label={`MRC Protected: ${spoken} per month across ${services} services with at least one completed action`}>
+      <div className="kpi-label kpi-label-row">
+        <span>MRC Protected</span>
+        <InfoTooltip label="About MRC Protected" text={MRC_PROTECTED_DEFINITION} />
+      </div>
+      <div className="kpi-value">
+        {value}<span className="kpi-sub">/mo</span>
+      </div>
+      <div className="kpi-caption">{services} services · {share}% of MRC</div>
+    </div>
+  );
+}
+
 function ActionSummaryCards() {
   const { data: summary } = useGetActionSummarySuspense(selector());
+  const v4Kpis = useV4Kpis();
 
   return (
     <div className="kpi-row">
@@ -68,6 +115,7 @@ function ActionSummaryCards() {
         <div className="kpi-label">Completed</div>
         <div className="kpi-value">{summary.completed_count}</div>
       </div>
+      {v4Kpis && <MrcProtectedCard />}
     </div>
   );
 }
@@ -137,6 +185,7 @@ function ActionTableContent() {
       onSuccess: (_data, variables) => {
         queryClient.invalidateQueries({ queryKey: ["listActions"] });
         queryClient.invalidateQueries({ queryKey: ["getActionSummary"] });
+        queryClient.invalidateQueries({ queryKey: ["getMrcProtected"] });
         const label = variables.data.status.replace("_", " ");
         addToast(`Action updated to ${label}`);
       },

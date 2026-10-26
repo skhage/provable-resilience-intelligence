@@ -133,6 +133,25 @@ class ActionQueueSummaryOut(BaseModel):
     critical_pending: int
 
 
+class FeatureFlagsOut(BaseModel):
+    """UI feature flags (V4-KPI-COPY-SPEC §0). v4_kpis=False renders the v3 freeze UI."""
+    v4_kpis: bool = False
+
+
+class MrcProtectedOut(BaseModel):
+    """MRC Protected KPI (V4-KPI-COPY-SPEC §1, DEC-PRI-REV-PROTECTED-DEFINITION).
+
+    Monthly recurring charge of distinct services with at least one completed proactive
+    action. Each service is counted once (never summed per action).
+    """
+    mrc_protected_usd: float = Field(gt=0)
+    services_protected: int = Field(gt=0)
+    mrc_share: float = Field(ge=0, le=1, description="Share of total MRC, 0..1")
+    total_mrc_usd: float
+    total_services: int
+    source: str = "mv_mrc_protected_v4_candidate"
+
+
 # ---------------------------------------------------------------------------
 # Hazard Summary Models (HAZARD-VIS-SPEC §6.1)
 # ---------------------------------------------------------------------------

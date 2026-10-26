@@ -322,6 +322,19 @@ ORDER BY c.length_km DESC
 # BB_ONLY with BB_SEGMENTED (92 CDT-BBR-* conduits). BB_ONLY kept in the allow-list for compat.
 # The v3 FROZEN physical_resource_conduit used by /topology is untouched.
 _CONDUIT_COVERAGE_TABLE = "physical_resource_conduit_v4_candidate"
+
+# P36-APP-V4-MRC-PROTECTED-KPI: v4 candidate metric view (renamed by @data-analyst at cutover,
+# P30-DA-GENIE-MRC-PROTECTED-CUTOVER; update this constant then).
+_MRC_PROTECTED_VIEW = "mv_mrc_protected_v4_candidate"
+_MRC_PROTECTED_SQL = f"""
+SELECT
+  MEASURE(`MRC Protected USD`)  AS mrc_protected_usd,
+  MEASURE(`Services Protected`) AS services_protected,
+  MEASURE(`MRC Protected Share`) AS mrc_share,
+  MEASURE(`Total MRC USD`)      AS total_mrc_usd,
+  MEASURE(`Total Services`)     AS total_services
+FROM {_MRC_PROTECTED_VIEW}
+"""
 _CONDUIT_COVERAGE_CLASSES = ("REAL_SEGMENTED", "BB_SEGMENTED", "BB_ONLY", "INVENTORY_ONLY")
 
 _CONDUIT_COVERAGE_SQL = f"""
@@ -992,4 +1005,30 @@ class CatalogSqlService:
             "completed_count": int(row.get("completed_count", 0)),
             "cancelled_count": int(row.get("cancelled_count", 0)),
             "critical_pending": int(row.get("critical_pending", 0)),
+        }
+
+    def get_mrc_protected(self) -> dict | None:
+        """MRC Protected KPI from the v4 metric view (P36-APP-V4-MRC-PROTECTED-KPI).
+
+        Deduplicated per service inside the metric view; never sum per action.
+        Returns None on null/zero so the UI hides the card instead of showing $0.
+        """
+        rows = self._execute(_MRC_PROTECTED_SQL)
+        if not rows:
+            return None
+        row = rows[0]
+        keys = ("mrc_protected_usd", "services_protected", "mrc_share", "total_mrc_usd", "total_services")
+        if any(row.get(k) is None for k in keys):
+            return None
+        mrc = float(row["mrc_protected_usd"])
+        services = int(row["services_protected"])
+        if mrc <= 0 or services <= 0:
+            return None
+        return {
+            "mrc_protected_usd": mrc,
+            "services_protected": services,
+            "mrc_share": float(row["mrc_share"]),
+            "total_mrc_usd": float(row["total_mrc_usd"]),
+            "total_services": int(row["total_services"]),
+            "source": _MRC_PROTECTED_VIEW,
         }

@@ -76,6 +76,8 @@ apps/resilience-scorecard/
 | GET | `/api/scores/{service_id}` | `getServiceScore` | Single service |
 | GET | `/api/actions` | `listActions` | Action queue (Lakebase) |
 | GET | `/api/actions/summary` | `getActionSummary` | Queue counts |
+| GET | `/api/config/features` | `getFeatureFlags` | UI feature flags (`v4_kpis`) |
+| GET | `/api/actions/mrc-protected` | `getMrcProtected` | MRC Protected KPI (v4 flag only; 404 when off, 503 when null/unavailable) |
 | PATCH | `/api/actions/{action_id}` | `updateActionStatus` | Update status |
 | GET | `/api/actions/{action_id}` | `getAction` | Single action |
 
@@ -88,6 +90,13 @@ apps/resilience-scorecard/
 | `RESILIENCE_SCORECARD_CATALOG` | `cdm_tmforum` | Unity Catalog name |
 | `RESILIENCE_SCORECARD_SCHEMA` | `provable_resilience_intelligence` | Schema with gold tables |
 | `RESILIENCE_SCORECARD_WAREHOUSE_ID` | `9cd919d96b11bf1c` | SQL warehouse for live queries |
+| `PRI_V4_KPIS` | `false` | Gates all V4-KPI-COPY-SPEC UI changes. Keep `false` until the @pm v4 cutover; off = v3 freeze UI |
+
+### MRC Protected (v4, `PRI_V4_KPIS=true`)
+
+Monthly recurring charge of distinct services with at least one completed proactive action. Each service is counted once.
+
+Source: `mv_mrc_protected_v4_candidate` (MEASURE `MRC Protected USD`, deduplicated per `service_id`). Shown as the 5th Action Queue card after Completed, with a `/mo` unit; the scorecard Revenue at Risk card also gets `/mo` under the same flag. If the measure is null or the query fails, the card is hidden (never `$0`).
 
 ## Prerequisites
 

@@ -2144,3 +2144,83 @@ select:focus-visible,
   .conduit-line.cov-inv { stroke: CanvasText; }
   .coverage-warning { border-left-color: CanvasText; }
 }
+
+/* ==========================================================================
+   P36-APP-V4-MRC-PROTECTED-KPI — V4-KPI-COPY-SPEC §1/§4 (rendered only when PRI_V4_KPIS=true)
+   ========================================================================== */
+.kpi-label-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Sub-line / disclosure text: solid iron #4D4D4D (8.45:1), never the 80% alpha label color.
+   Wraps at 320px reflow (SC 1.4.10), never truncates. */
+.kpi-caption {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #4D4D4D;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  text-transform: none;
+}
+
+/* 24x24 target (WCAG 2.5.8) around a 16px Lucide Info icon */
+.info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent; /* keeps shape in forced-colors */
+  border-radius: 50%;
+  background: transparent;
+  color: var(--lf-dark-teal, #006272);
+  cursor: help;
+}
+
+.info-btn:focus-visible {
+  outline: 2px solid var(--lf-dark-teal, #006272);
+  outline-offset: 2px;
+}
+
+/* Opens above the trigger so it never covers the KPI value (SC 1.4.13) */
+.info-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  width: max-content;
+  max-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid #4D4D4D;
+  border-radius: 4px;
+  background: #FFFFFF;
+  color: #4D4D4D;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.info-tooltip[hidden] {
+  display: none;
+}
+
+@media (forced-colors: active) {
+  .info-btn { color: ButtonText; }
+  .info-btn:focus-visible { outline-color: Highlight; }
+  .info-tooltip { background: Canvas; color: CanvasText; border-color: CanvasText; }
+  .kpi-caption { color: CanvasText; }
+}

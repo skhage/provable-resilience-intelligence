@@ -7,7 +7,7 @@ import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
-import { useGetResilienceSummarySuspense } from "@/lib/api";
+import { useGetResilienceSummarySuspense, useV4Kpis } from "@/lib/api";
 import selector from "@/lib/selector";
 
 function scoreClass(score: number): string {
@@ -19,6 +19,8 @@ function scoreClass(score: number): string {
 
 function ScorecardHeaderContent() {
   const { data: summary } = useGetResilienceSummarySuspense(selector());
+  // V4-KPI-COPY-SPEC §1 unit consistency: Revenue at Risk is monthly, shown as /mo under the flag.
+  const v4Kpis = useV4Kpis();
 
   return (
     <div className="kpi-row">
@@ -65,10 +67,11 @@ function ScorecardHeaderContent() {
       {/* UX-REVENUE-DISPLAY: Core business metric (~$47.7M/year project value) */}
       {summary.total_revenue_at_risk_usd != null && (
         <div className="kpi-card critical"
-             role="group" aria-label={`Revenue at Risk: $${(summary.total_revenue_at_risk_usd / 1_000_000).toFixed(1)}M`}>
+             role="group" aria-label={`Revenue at Risk: $${(summary.total_revenue_at_risk_usd / 1_000_000).toFixed(1)}M${v4Kpis ? " per month" : ""}`}>
           <div className="kpi-label">Revenue at Risk</div>
           <div className="kpi-value">
             ${(summary.total_revenue_at_risk_usd / 1_000_000).toFixed(1)}M
+            {v4Kpis && <span className="kpi-sub">/mo</span>}
           </div>
         </div>
       )}

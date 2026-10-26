@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 logger = logging.getLogger("resilience_scorecard")
 
@@ -31,6 +31,12 @@ class AppConfig(BaseSettings):
     catalog: str = Field(default="cdm_tmforum")
     schema_name: str = Field(default="provable_resilience_intelligence", alias="schema")
     warehouse_id: str = Field(default="9cd919d96b11bf1c")  # Apps & Agents Warehouse (serverless)
+    # V4-KPI-COPY-SPEC §0: one flag gates every v4 UI change. Default off = PRI-DEMO-FREEZE-v3 UI.
+    # Read from PRI_V4_KPIS (spec name); RESILIENCE_SCORECARD_V4_KPIS accepted for prefix consistency.
+    v4_kpis: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("PRI_V4_KPIS", "RESILIENCE_SCORECARD_V4_KPIS"),
+    )
 
 
 # ---------------------------------------------------------------------------

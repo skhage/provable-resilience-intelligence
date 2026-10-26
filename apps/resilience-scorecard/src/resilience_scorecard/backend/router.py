@@ -17,12 +17,14 @@ from .models import (
     ActionStatusUpdate,
     ConduitCoverageOut,
     ConduitCoverageSummaryOut,
+    FeatureFlagsOut,
     HazardCrosswalkRowOut,
     HazardCrosswalkSummaryOut,
     HazardListItemOut,
     HazardOverlayOut,
     HazardSummaryOut,
     HealthOut,
+    MrcProtectedOut,
     ProactiveActionOut,
     ProductOfferingOut,
     ResilienceScoreOut,
@@ -621,6 +623,44 @@ def get_action_summary(lb: Dependencies.LakebaseClient, csql: Dependencies.Catal
 
     actions = generate_mock_actions()
     return generate_mock_action_summary(actions)
+
+
+# ---------------------------------------------------------------------------
+# V4 KPIs (V4-KPI-COPY-SPEC §0/§1) — gated by PRI_V4_KPIS, default off.
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/config/features",
+    response_model=FeatureFlagsOut,
+    operation_id="getFeatureFlags",
+)
+def get_feature_flags(config: Dependencies.Config):
+    """UI feature flags. v4_kpis=False keeps the PRI-DEMO-FREEZE-v3 UI."""
+    return {"v4_kpis": bool(getattr(config, "v4_kpis", False))}
+
+
+@router.get(
+    "/actions/mrc-protected",
+    response_model=MrcProtectedOut,
+    operation_id="getMrcProtected",
+)
+def get_mrc_protected(config: Dependencies.Config, csql: Dependencies.CatalogSql):
+    """MRC Protected: MRC of distinct services with >=1 completed proactive action.
+
+    404 when PRI_V4_KPIS is off. 503 when the measure is unavailable or null:
+    no mock fallback, because the UI must hide the card rather than show $0 or a fake value.
+    """
+    if not getattr(config, "v4_kpis", False):
+        raise HTTPException(status_code=404, detail="Not found")
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            result = csql.get_mrc_protected()
+            if result is not None:
+                return result
+        except Exception:
+            logger.warning("MRC Protected query failed", exc_info=True)
+    raise HTTPException(status_code=503, detail="MRC Protected unavailable")
 
 
 @router.patch(
