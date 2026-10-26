@@ -240,9 +240,16 @@ function ConduitTable({ conduits }: { conduits: ConduitCoverage[] }) {
     );
   }
   return (
-    <div className="data-table">
+    // BUG-DW-089 (WCAG 1.4.10): the 8-column table scrolls horizontally inside its own
+    // keyboard-focusable region instead of being clipped by .data-table overflow:hidden.
+    <div
+      className="data-table table-scroll"
+      role="region"
+      aria-labelledby="conduit-table-caption"
+      tabIndex={0}
+    >
       <table aria-label="Conduits by span coverage">
-        <caption className="text-caption coverage-caption">
+        <caption id="conduit-table-caption" className="text-caption coverage-caption">
           Showing {shown.length.toLocaleString()} of {conduits.length.toLocaleString()} conduits, longest first.
         </caption>
         <thead>

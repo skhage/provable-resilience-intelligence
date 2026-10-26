@@ -657,11 +657,19 @@ select:focus-visible,
   font-weight: 500;
 }
 
+/* BUG-DW-089 (WCAG 1.4.11): border was platinum #E8E8E8 on white (1.2:1). Iron #4D4D4D = 8.45:1. */
 .filter-select {
   padding: 6px 12px;
   border-radius: 6px;
-  border: 1px solid var(--lf-platinum);
+  border: 1px solid var(--lf-iron);
+  background: var(--lf-white);
+  color: var(--lf-iron);
   font-size: 0.875rem;
+}
+
+.filter-select:focus-visible {
+  outline: 2px solid var(--lf-dark-teal); /* 7.02:1 on white */
+  outline-offset: 2px;
 }
 
 /* BUG-DW-038: subtitle below section heading */
@@ -2127,6 +2135,21 @@ select:focus-visible,
   margin: 0 0 var(--space-md);
 }
 .coverage-caption { caption-side: top; text-align: left; padding-bottom: var(--space-xs); }
+
+/* BUG-DW-089 (WCAG 1.4.10 Reflow): data tables are exempt from single-axis reflow, but must not be
+   clipped. .table-scroll overrides .data-table overflow:hidden at ALL widths (320px and 200% zoom fall
+   into the mobile breakpoint, where the tablet-only overflow-x rule never applied). The region is
+   tabIndex=0 + role=region + aria-labelledby caption so keyboard users can scroll it. */
+.data-table.table-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+.data-table.table-scroll table { min-width: 760px; }
+.data-table.table-scroll:focus-visible {
+  outline: 2px solid var(--lf-dark-teal); /* 7.02:1 */
+  outline-offset: 2px;
+}
 .data-table th.num, .data-table td.num { text-align: right; }
 
 @media (max-width: 767px) {
@@ -2143,6 +2166,9 @@ select:focus-visible,
   .conduit-line.cov-bb,
   .conduit-line.cov-inv { stroke: CanvasText; }
   .coverage-warning { border-left-color: CanvasText; }
+  .filter-select { border-color: ButtonText; }
+  .filter-select:focus-visible,
+  .data-table.table-scroll:focus-visible { outline-color: Highlight; }
 }
 
 /* ==========================================================================
