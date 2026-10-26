@@ -2121,10 +2121,26 @@ select:focus-visible,
 .conduit-map-bg { fill: #F7F9FA; }
 .conduit-map-site { fill: var(--lf-iron); }
 
-.conduit-line { fill: none; stroke-linecap: round; }
+/* BUG-DW-090: the 960-unit viewBox shrinks to ~0.33x at 320px, which made 1-unit strokes sub-pixel.
+   non-scaling-stroke keeps widths + dash patterns in CSS px at every viewport (WCAG 1.4.11). */
+.conduit-line { fill: none; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .conduit-line.cov-real { stroke: var(--lf-dark-teal); stroke-width: 2.5; }
 .conduit-line.cov-bb   { stroke: #C2410C; stroke-width: 1.75; stroke-dasharray: 8 4; }
 .conduit-line.cov-inv  { stroke: var(--lf-platinum-shade); stroke-width: 1; stroke-dasharray: 2 3; }
+
+/* BUG-DW-090: shared backbone corridor route count (xN). #9A3412 on white halo = 7.3:1. */
+.corridor-count {
+  font-size: 13px;
+  font-weight: 700;
+  fill: #9A3412;
+  paint-order: stroke;
+  stroke: #FFFFFF;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  pointer-events: auto;
+}
+.corridor-summary { margin: var(--space-xs) 0 0; }
+.filter-result-count { margin: 0; color: var(--lf-iron); min-height: 1.2em; }
 
 .coverage-warning {
   border-left: 4px solid var(--lf-accent-orange);
@@ -2165,6 +2181,7 @@ select:focus-visible,
   .conduit-line.cov-real,
   .conduit-line.cov-bb,
   .conduit-line.cov-inv { stroke: CanvasText; }
+  .corridor-count { fill: CanvasText; stroke: Canvas; }
   .coverage-warning { border-left-color: CanvasText; }
   .filter-select { border-color: ButtonText; }
   .filter-select:focus-visible,

@@ -14,7 +14,7 @@
  * alternative to the map.
  * Deep links: /conduits?coverage=BB_SEGMENTED&region=Central
  */
-import { Suspense, useMemo, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
@@ -170,6 +170,16 @@ const hasCoords = (c: ConduitCoverage) =>
 
 // Draw order (metaFor().order): inventory under backbone under real, so verified paths stay on top.
 
+// BUG-DW-090: backbone route conduits overlap (92 conduits on 31 geometries, BUG-QA-074). Group them by
+// direction-independent endpoint pair so each shared corridor is annotated once with its route count.
+const isBackbone = (cls: string) => cls === "BB_SEGMENTED" || cls === "BB_ONLY";
+const corridorKey = (c: ConduitCoverage) => {
+  const a = `${(c.lat_a as number).toFixed(4)},${(c.lon_a as number).toFixed(4)}`;
+  const z = `${(c.lat_z as number).toFixed(4)},${(c.lon_z as number).toFixed(4)}`;
+  return a < z ? `${a}|${z}` : `${z}|${a}`;
+};
+type Corridor = { key: string; count: number; x: number; y: number; ids: string[] };
+
 function ConduitMap({ conduits, filterLabel }: { conduits: ConduitCoverage[]; filterLabel: string }) {
   const drawable = useMemo(
     () =>
@@ -178,6 +188,41 @@ function ConduitMap({ conduits, filterLabel }: { conduits: ConduitCoverage[]; fi
         .sort((a, b) => metaFor(a.span_coverage_class).order - metaFor(b.span_coverage_class).order),
     [conduits],
   );
+  const { corridors, bbCount } = useMemo(() => {
+    const groups = new Map<string, Corridor>();
+    let bb = 0;
+    for (const c of drawable) {
+      if (!isBackbone(c.span_coverage_class)) continue;
+      bb += 1;
+      const key = corridorKey(c);
+      const g = groups.get(key);
+      if (g) {
+        g.count += 1;
+        g.ids.push(c.conduit_id);
+      } else {
+        groups.set(key, {
+          key,
+          count: 1,
+          x: (projX(c.lon_a as number) + projX(c.lon_z as number)) / 2,
+          y: (projY(c.lat_a as number) + projY(c.lat_z as number)) / 2,
+          ids: [c.conduit_id],
+        });
+      }
+    }
+    return { corridors: [...groups.values()], bbCount: bb };
+  }, [drawable]);
+  const sharedCorridors = corridors.filter((g) => g.count > 1);
+  const corridorSummary =
+    bbCount > 0
+      ? `${bbCount.toLocaleString()} backbone conduit${bbCount === 1 ? "" : "s"} drawn on ${corridors.length.toLocaleString()} distinct corridor${corridors.length === 1 ? "" : "s"}` +
+        (sharedCorridors.length > 0
+          ? `; ${sharedCorridors.length.toLocaleString()} corridor${sharedCorridors.length === 1 ? " is" : "s are"} shared by parallel routes, marked with a route count (\u00D7N).`
+          : ".")
+      : "";
+  const tableNote =
+    conduits.length > TABLE_ROW_LIMIT
+      ? `The table below lists the ${TABLE_ROW_LIMIT.toLocaleString()} longest of ${conduits.length.toLocaleString()} matching conduits.`
+      : "The table below lists the same conduits.";
   const sites = useMemo(() => {
     const m = new Map<string, [number, number]>();
     for (const c of drawable) {
@@ -193,7 +238,7 @@ function ConduitMap({ conduits, filterLabel }: { conduits: ConduitCoverage[]; fi
         viewBox={`0 0 ${MAP_W} ${MAP_H}`}
         className="conduit-map"
         role="img"
-        aria-label={`Conduit coverage map, ${filterLabel}: ${drawable.length} conduits drawn. The table below lists the same conduits.`}
+        aria-label={`Conduit coverage map, ${filterLabel}: ${drawable.length.toLocaleString()} conduits drawn.${corridorSummary ? ` ${corridorSummary}` : ""} ${tableNote}`}
       >
         <rect x="0" y="0" width={MAP_W} height={MAP_H} className="conduit-map-bg" />
         {drawable.map((c) => {
@@ -206,6 +251,7 @@ function ConduitMap({ conduits, filterLabel }: { conduits: ConduitCoverage[]; fi
               x2={projX(c.lon_z as number)}
               y2={projY(c.lat_z as number)}
               className={`conduit-line ${m.cls}`}
+              vectorEffect="non-scaling-stroke"
             >
               <title>{`${c.conduit_id} · ${m.label} · ${c.length_km} km · ${c.coverage_pct}% segmented`}</title>
             </line>
@@ -214,7 +260,14 @@ function ConduitMap({ conduits, filterLabel }: { conduits: ConduitCoverage[]; fi
         {sites.map(([lon, lat]) => (
           <circle key={`${lat},${lon}`} cx={projX(lon)} cy={projY(lat)} r={2.5} className="conduit-map-site" />
         ))}
+        {sharedCorridors.map((g) => (
+          <text key={g.key} x={g.x} y={g.y - 6} textAnchor="middle" className="corridor-count">
+            <title>{`Shared corridor: ${g.count} backbone routes on one geometry (${g.ids.join(", ")})`}</title>
+            {`\u00D7${g.count}`}
+          </text>
+        ))}
       </svg>
+      {corridorSummary && <p className="text-caption corridor-summary">{corridorSummary}</p>}
       {drawable.length < conduits.length && (
         <p className="text-caption">
           {conduits.length - drawable.length} conduit(s) have no site coordinates and are listed in the table only.
@@ -285,11 +338,26 @@ function ConduitTable({ conduits }: { conduits: ConduitCoverage[] }) {
   );
 }
 
-function ConduitListAndMap({ coverage, region }: { coverage: CoverageFilter; region?: string }) {
+function ConduitListAndMap({
+  coverage,
+  region,
+  onResult,
+}: {
+  coverage: CoverageFilter;
+  region?: string;
+  onResult: (message: string) => void;
+}) {
   const { data: conduits } = useListConduitCoverageSuspense({
     params: { coverage_class: coverage, region },
     query: { staleTime: 60_000 },
   });
+  // BUG-DW-090 (WCAG 4.1.3): announce the filtered result count through the page-level status region.
+  useEffect(() => {
+    const n = conduits.length;
+    onResult(
+      `${n.toLocaleString()} conduit${n === 1 ? "" : "s"} match. Coverage: ${FILTER_LABELS[coverage].replace(" (default)", "")}. Region: ${region ?? "all regions"}.`,
+    );
+  }, [conduits, coverage, region, onResult]);
   const includesSynthetic = coverage === "BB_SEGMENTED" || coverage === "BB_ONLY" || coverage === "ALL";
   return (
     <>
@@ -342,6 +410,8 @@ function Boundary({ label, children }: { label: string; children: ReactNode }) {
 function ConduitCoveragePage() {
   const { coverage, region } = useSearch({ from: "/conduits" });
   const navigate = useNavigate({ from: "/conduits" });
+  // Stable setter (useState) so the child effect does not re-run on every page render.
+  const [resultMessage, setResultMessage] = useState("");
 
   return (
     <>
@@ -397,9 +467,13 @@ function ConduitCoveragePage() {
               </option>
             ))}
           </select>
+          {/* Persistent live region (outside Suspense) so screen readers hear each filter result. */}
+          <p className="text-caption filter-result-count" role="status" aria-live="polite" aria-atomic="true">
+            {resultMessage}
+          </p>
         </div>
         <Boundary label="Conduits">
-          <ConduitListAndMap coverage={coverage} region={region} />
+          <ConduitListAndMap coverage={coverage} region={region} onResult={setResultMessage} />
         </Boundary>
       </section>
     </>
