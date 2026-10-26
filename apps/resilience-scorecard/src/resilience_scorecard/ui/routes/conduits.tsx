@@ -295,13 +295,20 @@ function ConduitTable({ conduits }: { conduits: ConduitCoverage[] }) {
   return (
     // BUG-DW-089 (WCAG 1.4.10): the 8-column table scrolls horizontally inside its own
     // keyboard-focusable region instead of being clipped by .data-table overflow:hidden.
+    // BUG-DW-094: the region has ONE static name (it no longer follows the dynamic caption),
+    // and the table is named only by its <caption>. The visible hint shows under 768px
+    // because overlay scrollbars (macOS/iOS) hide that the 760px table scrolls.
+    <>
+    <p className="text-caption table-scroll-hint" aria-hidden="true">
+      Scroll for more columns →
+    </p>
     <div
       className="data-table table-scroll"
       role="region"
-      aria-labelledby="conduit-table-caption"
+      aria-label="Conduit table, scrolls horizontally"
       tabIndex={0}
     >
-      <table aria-label="Conduits by span coverage">
+      <table>
         <caption id="conduit-table-caption" className="text-caption coverage-caption">
           Showing {shown.length.toLocaleString()} of {conduits.length.toLocaleString()} conduits, longest first.
         </caption>
@@ -335,6 +342,7 @@ function ConduitTable({ conduits }: { conduits: ConduitCoverage[] }) {
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 

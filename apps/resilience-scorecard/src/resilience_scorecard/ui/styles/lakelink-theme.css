@@ -2168,9 +2168,21 @@ select:focus-visible,
 }
 .data-table th.num, .data-table td.num { text-align: right; }
 
+/* BUG-DW-094: overlay scrollbars (macOS/iOS) hide that the 760px table scrolls. A visible text cue
+   is used rather than background-attachment:local shadows, because opaque th (teal) and zebra td
+   (platinum) backgrounds would paint over the gradients. Iron = 8.45:1 on white, 6.9:1 on platinum. */
+.table-scroll-hint {
+  display: none;
+  margin: 0 0 var(--space-xs);
+  font-size: 12px;
+  color: var(--lf-iron);
+  text-align: right;
+}
+
 @media (max-width: 767px) {
   .coverage-legend-count { min-width: 0; }
   .filter-bar { flex-wrap: wrap; }
+  .table-scroll-hint { display: block; }
 }
 
 @media (forced-colors: active) {
@@ -2186,6 +2198,7 @@ select:focus-visible,
   .filter-select { border-color: ButtonText; }
   .filter-select:focus-visible,
   .data-table.table-scroll:focus-visible { outline-color: Highlight; }
+  .table-scroll-hint { color: CanvasText; forced-color-adjust: none; }
 }
 
 /* ==========================================================================

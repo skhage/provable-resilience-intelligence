@@ -156,7 +156,8 @@ function CrosswalkTableContent() {
           id="xwalk-hazard-filter"
           value={hazardFilter}
           onChange={(e) => setHazardFilter(e.target.value)}
-          aria-label="Filter crosswalk by hazard type"
+          // BUG-DW-094 (WCAG 2.5.3 Label in Name): no aria-label here; the accessible
+          // name comes from the visible <label htmlFor> so voice-control users can say it.
           className="filter-select"
         >
           {HAZARD_TYPES.map((ht) => (
