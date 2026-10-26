@@ -14,4 +14,5 @@ ruff>=0.1.0
 fastapi>=0.100.0
 uvicorn>=0.20.0
 pydantic>=2.0
+pydantic-settings>=2.0.0  # P39: app config (tests/test_mrc_protected.py, test_conduit_coverage.py import it)
 httpx>=0.24.0

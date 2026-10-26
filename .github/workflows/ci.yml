@@ -11,6 +11,10 @@
 # P35-DEVOPS-V4-FROZEN-WRITE-GUARD (session 35): dedicated fail-fast gate so v4 shadow-build
 # code can only write *_v4_candidate objects, never PRI-DEMO-FREEZE-v3 FROZEN objects
 # (DEC-PRI-V4-SHADOW-BUILD). Snapshot: tests/frozen_v3_objects.json.
+# P39-DEVOPS-V4-CANDIDATE-CODE-COVERAGE (session 39): guard moved to its own job
+# (`v4-freeze-guard`) so it can be set as a REQUIRED status check in branch protection.
+# Writer coverage is advisory while PRI_V4_COVERAGE_STRICT != '1'. Flip the repo variable
+# PRI_V4_COVERAGE_STRICT to 1 (Settings > Variables) once all writers are checked in; no code change.
 
 name: CI
 
@@ -75,10 +79,6 @@ jobs:
         # Root ruff.toml: correctness rules, *.ipynb excluded (SQL/magic cells)
         run: ruff check --config ruff.toml apps/ bundle/pipeline/ tests/
 
-      - name: v4 freeze write guard (DEC-PRI-V4-SHADOW-BUILD)
-        # Fails if any v4-scoped file writes to an object FROZEN in PRI-DEMO-FREEZE-v3
-        run: pytest -v --tb=short tests/test_v4_frozen_write_guard.py
-
       - name: Unit tests
         # pytest.ini puts tests/ + app src on sys.path; Spark-dependent tests auto-skip
         run: pytest -v --tb=short --junitxml=test-results/junit.xml
@@ -89,6 +89,31 @@ jobs:
         with:
           name: junit-results
           path: test-results/junit.xml
+
+  v4-freeze-guard:
+    # REQUIRED status check (branch protection on main + develop): "v4 Freeze Guard"
+    name: v4 Freeze Guard
+    runs-on: ubuntu-latest
+    env:
+      # '0' = writer coverage advisory (warnings), '1' = blocking. Frozen-write check is always blocking.
+      PRI_V4_COVERAGE_STRICT: ${{ vars.PRI_V4_COVERAGE_STRICT || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: v4 freeze write guard + writer coverage (DEC-PRI-V4-SHADOW-BUILD)
+        # Fails if any v4-scoped file writes to an object FROZEN in PRI-DEMO-FREEZE-v3,
+        # or (strict mode) if any registered *_v4_candidate object lacks a versioned writer.
+        run: |
+          echo "PRI_V4_COVERAGE_STRICT=${PRI_V4_COVERAGE_STRICT}"
+          pytest -v --tb=short -rw tests/test_v4_frozen_write_guard.py
 
   frontend:
     name: Frontend Build + Typecheck + Lint

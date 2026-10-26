@@ -311,6 +311,12 @@ def load_v4_candidates():
     return {o.lower() for o in data["v4_candidate_objects"]}
 
 
+def load_v4_writers():
+    """P39: object -> {expected_writer, owner_role, owner_task, status}."""
+    data = json.loads(CANDIDATES_PATH.read_text())
+    return {k.lower(): v for k, v in data.get("writers", {}).items()}
+
+
 def v4_writer_index(root: pathlib.Path = PROJECT_ROOT):
     """Map each resolved write target in v4-scoped files to the files that write it."""
     index = {}
@@ -335,6 +341,21 @@ def test_v4_candidate_registry_well_formed():
     assert not (cands & frozen), f"v4 candidates overlap FROZEN v3: {cands & frozen}"
 
 
+def test_v4_candidate_writers_mapped():
+    """P39: every candidate records an expected writer path and an owning Lakebase task."""
+    cands, writers = load_v4_candidates(), load_v4_writers()
+    assert set(writers) == cands, (
+        f"writers map drift: unmapped={sorted(cands - set(writers))}, extra={sorted(set(writers) - cands)}"
+    )
+    for obj, meta in writers.items():
+        for key in ("expected_writer", "owner_role", "owner_task"):
+            assert meta.get(key), f"{obj}: missing {key}"
+        assert meta["owner_role"].startswith("@"), f"{obj}: owner_role must be an @role"
+        assert not pathlib.PurePosixPath(meta["expected_writer"]).is_absolute(), (
+            f"{obj}: expected_writer must be repo-relative"
+        )
+
+
 def test_v4_candidates_have_versioned_writer():
     import os
 
@@ -342,9 +363,16 @@ def test_v4_candidates_have_versioned_writer():
     missing = sorted(c for c in load_v4_candidates() if c not in index)
     if not missing:
         return
+    writers = load_v4_writers()
+
+    def _describe(obj):
+        m = writers.get(obj, {})
+        return f"{obj} -> expected {m.get('expected_writer', '?')} (owner {m.get('owner_role', '?')}, {m.get('owner_task', '?')})"
+
     msg = (
-        "v4 candidate objects with no versioned writer in the repo (built from ad-hoc "
-        "agent sessions; the freeze guard cannot inspect them):\n  " + "\n  ".join(missing)
+        f"{len(missing)} v4 candidate object(s) with no versioned writer in the repo (built from "
+        "ad-hoc agent sessions; the freeze guard cannot inspect them):\n  "
+        + "\n  ".join(_describe(o) for o in missing)
     )
     if os.environ.get("PRI_V4_COVERAGE_STRICT") == "1":
         pytest.fail(msg)

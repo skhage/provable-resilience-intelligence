@@ -1,5 +1,5 @@
 {
-  "_comment": "P37-DEVOPS-V4-PR-READINESS: registry of live v4 shadow-build objects in cdm_tmforum.provable_resilience_intelligence (captured 2026-10-26 from information_schema). Each object should have a versioned writer in this repo. Refresh when a new *_v4_candidate object is created.",
+  "_comment": "P37-DEVOPS-V4-PR-READINESS / P39-DEVOPS-V4-CANDIDATE-CODE-COVERAGE: registry of live v4 shadow-build objects in cdm_tmforum.provable_resilience_intelligence (re-captured 2026-10-26 09:05 UTC from information_schema: 14 objects). Each object must have a versioned writer in this repo. 'writers' records the expected writer path and the owning Lakebase task for every object. Refresh when a new *_v4_candidate object is created.",
   "captured_at": "2026-10-26",
   "schema": "cdm_tmforum.provable_resilience_intelligence",
   "v4_candidate_objects": [
@@ -9,6 +9,29 @@
     "span_risk_predictions_v4_candidate",
     "physical_resource_span_v4_candidate",
     "hazard_proximity_count_v4_candidate",
-    "resilience_score_snapshot_v4_candidate"
-  ]
+    "resilience_score_snapshot_v4_candidate",
+    "derived_srlg_shared_conduit_v4_candidate",
+    "derived_srlg_common_site_v4_candidate",
+    "derived_srlg_geo_proximity_v4_candidate",
+    "derived_srlg_shared_route_v4_candidate",
+    "derived_shared_risk_group_v4_candidate",
+    "unified_shared_risk_group_v4_candidate",
+    "kpi_delta_attribution_v4_candidate"
+  ],
+  "writers": {
+    "span_risk_predictions_v4_candidate": {"expected_writer": "ml_v4_candidate_writers.ipynb", "owner_role": "@ml-engineer", "owner_task": "P37-ML-V4-WRITERS-CHECKIN", "status": "covered"},
+    "resilience_score_snapshot_v4_candidate": {"expected_writer": "ml_v4_candidate_writers.ipynb", "owner_role": "@ml-engineer", "owner_task": "P37-ML-V4-WRITERS-CHECKIN", "status": "covered"},
+    "physical_resource_span_v4_candidate": {"expected_writer": "pipelines/de_v4_candidate_writers.ipynb", "owner_role": "@data-engineer", "owner_task": "P37-DE-V4-WRITERS-CHECKIN", "status": "missing"},
+    "physical_resource_conduit_v4_candidate": {"expected_writer": "pipelines/de_v4_candidate_writers.ipynb", "owner_role": "@data-engineer", "owner_task": "P37-DE-V4-WRITERS-CHECKIN", "status": "missing"},
+    "hazard_span_intersection_v4_candidate": {"expected_writer": "pipelines/de_v4_candidate_writers.ipynb", "owner_role": "@data-engineer", "owner_task": "P37-DE-V4-WRITERS-CHECKIN", "status": "missing"},
+    "hazard_proximity_count_v4_candidate": {"expected_writer": "pipelines/de_v4_candidate_writers.ipynb", "owner_role": "@data-engineer", "owner_task": "P37-DE-V4-WRITERS-CHECKIN", "status": "missing"},
+    "mv_mrc_protected_v4_candidate": {"expected_writer": "pipelines/de_v4_candidate_writers.ipynb", "owner_role": "@data-engineer", "owner_task": "P37-DE-V4-WRITERS-CHECKIN", "status": "missing"},
+    "derived_srlg_shared_conduit_v4_candidate": {"expected_writer": "pipelines/srlg_v4_candidate_derivation.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-ML-V4-GUARD-SRLG-PIPELINE", "status": "uncommitted (cell 7 of pipelines/srlg_colocation_derivation.ipynb; split required, see owner_task)"},
+    "derived_srlg_common_site_v4_candidate": {"expected_writer": "pipelines/srlg_v4_candidate_derivation.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-ML-V4-GUARD-SRLG-PIPELINE", "status": "uncommitted (cell 7 of pipelines/srlg_colocation_derivation.ipynb; split required, see owner_task)"},
+    "derived_srlg_geo_proximity_v4_candidate": {"expected_writer": "pipelines/srlg_v4_candidate_derivation.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-ML-V4-GUARD-SRLG-PIPELINE", "status": "uncommitted (cell 7 of pipelines/srlg_colocation_derivation.ipynb; split required, see owner_task)"},
+    "derived_srlg_shared_route_v4_candidate": {"expected_writer": "pipelines/srlg_v4_candidate_derivation.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-ML-V4-GUARD-SRLG-PIPELINE", "status": "uncommitted (cell 7 of pipelines/srlg_colocation_derivation.ipynb; split required, see owner_task)"},
+    "derived_shared_risk_group_v4_candidate": {"expected_writer": "pipelines/srlg_v4_candidate_derivation.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-ML-V4-GUARD-SRLG-PIPELINE", "status": "uncommitted (cell 7 of pipelines/srlg_colocation_derivation.ipynb; split required, see owner_task)"},
+    "unified_shared_risk_group_v4_candidate": {"expected_writer": "pipelines/srlg_v4_candidate_derivation.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-ML-V4-GUARD-SRLG-PIPELINE", "status": "missing"},
+    "kpi_delta_attribution_v4_candidate": {"expected_writer": "notebooks/da_v4_kpi_delta_attribution.ipynb", "owner_role": "@data-analyst", "owner_task": "P40-DA-V4-WRITERS-CHECKIN", "status": "missing"}
+  }
 }
