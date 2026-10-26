@@ -36,9 +36,11 @@ class _Capture:
 
     def __init__(self):
         self.sql = None
+        self.params = None
 
-    def _execute(self, sql, row_limit=12000):
+    def _execute(self, sql, row_limit=12000, params=None):
         self.sql = sql
+        self.params = params
         return []
 
 
@@ -72,7 +74,7 @@ def test_mock_summary_matches_live_distribution():
 
 def test_summary_orders_known_classes_and_keeps_unknown():
     class _Rows(_Capture):
-        def _execute(self, sql, row_limit=12000):
+        def _execute(self, sql, row_limit=12000, params=None):
             return [
                 {"span_coverage_class": "INVENTORY_ONLY", "conduit_count": 3, "length_km": 1, "segmented_km": 0},
                 {"span_coverage_class": "ZZ_NEW", "conduit_count": 1, "length_km": 1, "segmented_km": 0},
@@ -99,13 +101,38 @@ def test_router_rejects_unknown_class():
     assert exc.value.status_code == 422
 
 
-def test_sql_reads_v4_shadow_and_escapes_region():
+def test_sql_reads_v4_shadow_and_binds_region():
+    """BUG-QA-077: region and class are bound parameters, never inlined."""
     fake = _Capture()
     cs.CatalogSqlService.list_conduit_coverage(fake, coverage_class="BB_SEGMENTED", region="We'st")
     assert "physical_resource_conduit_v4_candidate" in fake.sql
-    assert "span_coverage_class = 'BB_SEGMENTED'" in fake.sql
-    assert "sa.region = 'We''st'" in fake.sql
+    assert "span_coverage_class = :coverage_class" in fake.sql
+    assert "sa.region = :region" in fake.sql
+    assert "We'st" not in fake.sql
+    assert fake.params == {"coverage_class": "BB_SEGMENTED", "region": "We'st"}
     assert "{where}" not in fake.sql
+
+
+def test_router_aliases_legacy_bb_only():
+    """BUG-QA-078: legacy ?coverage_class=BB_ONLY returns BB_SEGMENTED rows, not an empty table."""
+    rows = r.list_conduit_coverage(csql=_Unavailable(), coverage_class="bb_only", region=None)
+    assert rows and all(x["span_coverage_class"] == "BB_SEGMENTED" for x in rows)
+
+
+def test_router_passes_aliased_class_to_live_service():
+    class _Live:
+        is_available = True
+
+        def __init__(self):
+            self.seen = None
+
+        def list_conduit_coverage(self, coverage_class, region):
+            self.seen = coverage_class
+            return []
+
+    live = _Live()
+    r.list_conduit_coverage(csql=live, coverage_class="BB_ONLY", region=None)
+    assert live.seen == "BB_SEGMENTED"
 
 
 def test_sql_service_rejects_unknown_class():

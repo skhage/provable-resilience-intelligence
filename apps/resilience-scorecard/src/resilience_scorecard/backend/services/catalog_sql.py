@@ -17,7 +17,11 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.sql import ColumnInfoTypeName, StatementState
+from databricks.sdk.service.sql import (
+    ColumnInfoTypeName,
+    StatementParameterListItem,
+    StatementState,
+)
 
 if TYPE_CHECKING:
     from ..core import AppConfig
@@ -287,7 +291,7 @@ LEFT JOIN (
   FROM physical_resource_conduit WHERE is_active = TRUE
   GROUP BY site_z_id
 ) cz ON cz.sid = s.site_id
-WHERE s.is_active = TRUE AND s.region = '{region}'
+WHERE s.is_active = TRUE AND s.region = :region
   AND s.tier IN ('tier_1', 'tier_2')
 ORDER BY s.tier, s.site_name
 """
@@ -311,7 +315,7 @@ LEFT JOIN (
   GROUP BY conduit_id
 ) sp_cnt ON sp_cnt.conduit_id = c.conduit_id
 WHERE c.is_active = TRUE
-  AND (sa.region = '{region}' OR sz.region = '{region}')
+  AND (sa.region = :region OR sz.region = :region)
   AND sa.tier IN ('tier_1', 'tier_2')
   AND sz.tier IN ('tier_1', 'tier_2')
 ORDER BY c.length_km DESC
@@ -401,7 +405,7 @@ JOIN physical_resource_span prs ON sp.span_id = prs.span_id
 LEFT JOIN physical_resource_conduit prc ON prs.conduit_id = prc.conduit_id
 LEFT JOIN geographic_site sa ON prs.site_a_id = sa.site_id
 LEFT JOIN geographic_site sz ON prs.site_z_id = sz.site_id
-WHERE sp.service_id = '{service_id}'
+WHERE sp.service_id = :service_id
 ORDER BY sp.path_type, sp.hop_index
 """
 
@@ -427,7 +431,7 @@ SELECT
 FROM service_inventory si
 LEFT JOIN service_path sp ON si.service_id = sp.service_id
 LEFT JOIN physical_resource_span prs ON sp.span_id = prs.span_id
-WHERE si.service_id = '{service_id}'
+WHERE si.service_id = :service_id
 GROUP BY si.service_id, si.path_diversity_status
 """
 
@@ -448,7 +452,7 @@ FROM shared_risk_group srg
 JOIN physical_resource_span prs ON srg.span_id = prs.span_id AND prs.is_active = TRUE
 JOIN geographic_site sa ON prs.site_a_id = sa.site_id
 JOIN geographic_site sz ON prs.site_z_id = sz.site_id
-WHERE (sa.region = '{region}' OR sz.region = '{region}')
+WHERE (sa.region = :region OR sz.region = :region)
   AND sa.tier IN ('tier_1', 'tier_2')
   AND sz.tier IN ('tier_1', 'tier_2')
 ORDER BY
@@ -573,11 +577,25 @@ class CatalogSqlService:
     def is_available(self) -> bool:
         return self._available
 
-    def _execute(self, sql: str, row_limit: int = 12000) -> list[dict[str, Any]] | None:
-        """Execute SQL via Statement Execution API and return rows as dicts."""
+    def _execute(
+        self,
+        sql: str,
+        row_limit: int = 12000,
+        params: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]] | None:
+        """Execute SQL via Statement Execution API and return rows as dicts.
+
+        BUG-QA-077: user-supplied values MUST be passed in ``params`` and referenced as
+        ``:name`` markers in the SQL. Never interpolate them into the statement text.
+        """
         if self._w is None:
             return None
         try:
+            parameters = (
+                [StatementParameterListItem(name=k, value=v, type="STRING") for k, v in params.items()]
+                if params
+                else None
+            )
             resp = self._w.statement_execution.execute_statement(
                 warehouse_id=self._config.warehouse_id,
                 statement=sql,
@@ -585,6 +603,7 @@ class CatalogSqlService:
                 schema=self._config.schema_name,
                 wait_timeout="50s",
                 row_limit=row_limit,
+                parameters=parameters,
             )
             if resp.status and resp.status.state == StatementState.SUCCEEDED:
                 cols = [c.name for c in resp.manifest.schema.columns]
@@ -711,9 +730,9 @@ class CatalogSqlService:
             JOIN customer c                 ON s.customer_id = c.customer_id
             LEFT JOIN geographic_site ga    ON s.site_a_id   = ga.site_id
             LEFT JOIN geographic_site gz    ON s.site_z_id   = gz.site_id
-            WHERE r.service_id = '{service_id}'
+            WHERE r.service_id = :service_id
         """
-        rows = self._execute(sql)
+        rows = self._execute(sql, params={"service_id": service_id})
         if rows is None or len(rows) == 0:
             return None
         row = rows[0]
@@ -775,7 +794,7 @@ class CatalogSqlService:
                   ROUND(AVG(affected_service_cnt), 1) AS avg_services_per_span,
                   ROUND(AVG(distance_km), 2) AS avg_distance_km
                 FROM hazard_span_intersection
-                WHERE hazard_type = '{hazard_type}'
+                WHERE hazard_type = :hazard_type
                 GROUP BY hazard_type, proximity_band
                 ORDER BY CASE proximity_band
                     WHEN 'direct_impact' THEN 1
@@ -783,7 +802,7 @@ class CatalogSqlService:
                     WHEN 'buffer_zone' THEN 3
                   END
             """
-            return self._execute(sql)
+            return self._execute(sql, params={"hazard_type": hazard_type})
         return self._execute(_CROSSWALK_SQL)
 
     def get_crosswalk_summary(self) -> dict | None:
@@ -847,8 +866,7 @@ class CatalogSqlService:
 
     def get_topology_sites(self, region: str) -> list[dict] | None:
         """Return tier_1+tier_2 sites in a region for drill-in view."""
-        sql = _TOPOLOGY_SITES_SQL.replace("{region}", region.replace("'", "''"))
-        rows = self._execute(sql)
+        rows = self._execute(_TOPOLOGY_SITES_SQL, params={"region": region})
         if rows is None:
             return None
         for r in rows:
@@ -859,8 +877,7 @@ class CatalogSqlService:
 
     def get_topology_conduits(self, region: str) -> list[dict] | None:
         """Return conduits between tier_1+tier_2 sites in a region."""
-        sql = _TOPOLOGY_CONDUITS_SQL.replace("{region}", region.replace("'", "''"))
-        rows = self._execute(sql)
+        rows = self._execute(_TOPOLOGY_CONDUITS_SQL, params={"region": region})
         if rows is None:
             return None
         for r in rows:
@@ -879,17 +896,21 @@ class CatalogSqlService:
     ) -> list[dict] | None:
         """Return conduits with span_coverage_class. coverage_class=None means all classes.
 
-        Inputs are allow-listed / quote-escaped before interpolation (no raw user SQL).
+        coverage_class is allow-listed; both values are bound as statement parameters
+        (BUG-QA-077). Only fixed clause text is spliced into {where}.
         """
         clauses: list[str] = []
+        params: dict[str, str] = {}
         if coverage_class is not None:
             if coverage_class not in _CONDUIT_COVERAGE_CLASSES:
                 raise ValueError(f"invalid coverage_class: {coverage_class}")
-            clauses.append(f"AND c.span_coverage_class = '{coverage_class}'")
+            clauses.append("AND c.span_coverage_class = :coverage_class")
+            params["coverage_class"] = coverage_class
         if region:
-            clauses.append(f"AND sa.region = '{region.replace(chr(39), chr(39) * 2)}'")
+            clauses.append("AND sa.region = :region")
+            params["region"] = region
         sql = _CONDUIT_COVERAGE_SQL.replace("{where}", " ".join(clauses))
-        rows = self._execute(sql, row_limit=5000)
+        rows = self._execute(sql, row_limit=5000, params=params or None)
         if rows is None:
             return None
         for r in rows:
@@ -931,8 +952,7 @@ class CatalogSqlService:
 
     def get_service_path_trace(self, service_id: str) -> list[dict] | None:
         """Return hop-by-hop path for a service (working + protect)."""
-        sql = _SERVICE_PATH_TRACE_SQL.replace("{service_id}", service_id.replace("'", "''"))
-        rows = self._execute(sql, row_limit=500)
+        rows = self._execute(_SERVICE_PATH_TRACE_SQL, row_limit=500, params={"service_id": service_id})
         if rows is None:
             return None
         for r in rows:
@@ -944,8 +964,7 @@ class CatalogSqlService:
 
     def get_service_diversity(self, service_id: str) -> dict | None:
         """Return diversity status for a service."""
-        sql = _SERVICE_DIVERSITY_SQL.replace("{service_id}", service_id.replace("'", "''"))
-        rows = self._execute(sql)
+        rows = self._execute(_SERVICE_DIVERSITY_SQL, params={"service_id": service_id})
         if rows is None or len(rows) == 0:
             return None
         row = rows[0]
@@ -961,8 +980,7 @@ class CatalogSqlService:
 
     def get_srlgs_by_region(self, region: str) -> list[dict] | None:
         """Return SRLG memberships for spans in a region."""
-        sql = _SRLG_BY_REGION_SQL.replace("{region}", region.replace("'", "''"))
-        rows = self._execute(sql, row_limit=500)
+        rows = self._execute(_SRLG_BY_REGION_SQL, row_limit=500, params={"region": region})
         if rows is None:
             return None
         for r in rows:

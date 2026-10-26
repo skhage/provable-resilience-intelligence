@@ -403,8 +403,10 @@ def list_topology_conduits(
 # Reads physical_resource_conduit_v4_candidate (v4 shadow, read-only).
 # ---------------------------------------------------------------------------
 
-# BB_SEGMENTED replaced BB_ONLY in DE B2 (conduit_v4 v29); BB_ONLY accepted for old deep links.
+# BB_SEGMENTED replaced BB_ONLY in DE B2 (conduit_v4 v29). BUG-QA-078: legacy BB_ONLY deep links
+# are aliased to BB_SEGMENTED (conduit_v4 has no BB_ONLY rows, so passing it through returned 0).
 _COVERAGE_FILTER_VALUES = {"REAL_SEGMENTED", "BB_SEGMENTED", "BB_ONLY", "INVENTORY_ONLY", "ALL"}
+_COVERAGE_FILTER_ALIASES = {"BB_ONLY": "BB_SEGMENTED"}
 
 
 @router.get(
@@ -441,6 +443,7 @@ def list_conduit_coverage(
     cls = coverage_class.upper()
     if cls not in _COVERAGE_FILTER_VALUES:
         raise HTTPException(status_code=422, detail=f"Invalid coverage_class: {coverage_class}")
+    cls = _COVERAGE_FILTER_ALIASES.get(cls, cls)
     cls_arg = None if cls == "ALL" else cls
 
     if hasattr(csql, "is_available") and csql.is_available:
