@@ -296,6 +296,78 @@ def test_v4_shadow_code_never_writes_frozen_v3():
 
 
 # ---------------------------------------------------------------------------
+# v4 candidate writer coverage (P37-DEVOPS-V4-PR-READINESS)
+# ---------------------------------------------------------------------------
+# Every live *_v4_candidate object must have a versioned writer in this repo, so the
+# freeze guard above can actually inspect the code that builds it. Objects built only
+# from ad-hoc agent sessions are reported. The check is advisory (warning) until the
+# writers are checked in; set PRI_V4_COVERAGE_STRICT=1 to make it blocking.
+
+CANDIDATES_PATH = pathlib.Path(__file__).with_name("v4_candidate_objects.json")
+
+
+def load_v4_candidates():
+    data = json.loads(CANDIDATES_PATH.read_text())
+    return {o.lower() for o in data["v4_candidate_objects"]}
+
+
+def v4_writer_index(root: pathlib.Path = PROJECT_ROOT):
+    """Map each resolved write target in v4-scoped files to the files that write it."""
+    index = {}
+    for path in iter_v4_files(root):
+        rel = str(path.relative_to(root))
+        chunks = list(iter_code_chunks(path))
+        consts = collect_constants("\n".join(code for _, code in chunks))
+        for _, code in chunks:
+            for kind, rx in COMPILED:
+                for m in rx.finditer(code):
+                    name = normalize_target(resolve(m.group("target"), consts), kind)
+                    if name:
+                        index.setdefault(name, set()).add(rel)
+    return index
+
+
+def test_v4_candidate_registry_well_formed():
+    _, frozen = load_frozen()
+    cands = load_v4_candidates()
+    assert cands, "v4 candidate registry is empty"
+    assert all(c.endswith(SHADOW_SUFFIX) for c in cands), cands
+    assert not (cands & frozen), f"v4 candidates overlap FROZEN v3: {cands & frozen}"
+
+
+def test_v4_candidates_have_versioned_writer():
+    import os
+
+    index = v4_writer_index()
+    missing = sorted(c for c in load_v4_candidates() if c not in index)
+    if not missing:
+        return
+    msg = (
+        "v4 candidate objects with no versioned writer in the repo (built from ad-hoc "
+        "agent sessions; the freeze guard cannot inspect them):\n  " + "\n  ".join(missing)
+    )
+    if os.environ.get("PRI_V4_COVERAGE_STRICT") == "1":
+        pytest.fail(msg)
+    warnings.warn(msg)
+
+
+def test_v4_candidate_registry_matches_live():
+    pyspark_sql = pytest.importorskip("pyspark.sql")
+    spark = pyspark_sql.SparkSession.getActiveSession()
+    if spark is None:
+        pytest.skip("No active Spark session (CI runner); live v4 registry check skipped")
+    catalog, schema = CATALOG_SCHEMA.split(".")
+    rows = spark.sql(
+        f"SELECT lower(table_name) AS o FROM {catalog}.information_schema.tables "
+        "WHERE table_schema = :s AND lower(table_name) LIKE '%\\_v4\\_candidate'",
+        args={"s": schema},
+    ).collect()
+    live = {r.o for r in rows}
+    cands = load_v4_candidates()
+    assert live == cands, f"v4 registry drift: unregistered={live - cands}, dropped={cands - live}"
+
+
+# ---------------------------------------------------------------------------
 # Drift check vs live manifest (runs only where a Spark session exists)
 # ---------------------------------------------------------------------------
 

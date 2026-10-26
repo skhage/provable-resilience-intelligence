@@ -1,0 +1,14 @@
+{
+  "_comment": "P37-DEVOPS-V4-PR-READINESS: registry of live v4 shadow-build objects in cdm_tmforum.provable_resilience_intelligence (captured 2026-10-26 from information_schema). Each object should have a versioned writer in this repo. Refresh when a new *_v4_candidate object is created.",
+  "captured_at": "2026-10-26",
+  "schema": "cdm_tmforum.provable_resilience_intelligence",
+  "v4_candidate_objects": [
+    "mv_mrc_protected_v4_candidate",
+    "hazard_span_intersection_v4_candidate",
+    "physical_resource_conduit_v4_candidate",
+    "span_risk_predictions_v4_candidate",
+    "physical_resource_span_v4_candidate",
+    "hazard_proximity_count_v4_candidate",
+    "resilience_score_snapshot_v4_candidate"
+  ]
+}
