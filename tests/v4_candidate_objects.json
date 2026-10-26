@@ -32,6 +32,6 @@
     "derived_srlg_shared_route_v4_candidate": {"expected_writer": "pipelines/srlg_v4_candidate_derivation.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-ML-V4-GUARD-SRLG-PIPELINE", "status": "covered"},
     "derived_shared_risk_group_v4_candidate": {"expected_writer": "pipelines/srlg_v4_candidate_derivation.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-ML-V4-GUARD-SRLG-PIPELINE", "status": "covered"},
     "unified_shared_risk_group_v4_candidate": {"expected_writer": "pipelines/srlg_v4_candidate_derivation.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-ML-V4-GUARD-SRLG-PIPELINE", "status": "covered"},
-    "kpi_delta_attribution_v4_candidate": {"expected_writer": "notebooks/da_v4_kpi_delta_attribution.ipynb", "owner_role": "@data-analyst", "owner_task": "P40-DA-V4-WRITERS-CHECKIN", "status": "missing"}
+    "kpi_delta_attribution_v4_candidate": {"expected_writer": "notebooks/da_v4_kpi_delta_attribution.ipynb", "owner_role": "@data-analyst", "owner_task": "P40-DA-V4-WRITERS-CHECKIN", "status": "covered"}
   }
 }
