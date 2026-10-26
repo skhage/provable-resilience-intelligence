@@ -64,9 +64,20 @@ function formatMonthlyUsd(usd: number): [string, string] {
  * P36-APP-V4-MRC-PROTECTED-KPI: 5th Action Queue card, after Completed.
  * Source: mv_mrc_protected_v4_candidate (distinct service_id, never summed per action).
  * Null / error / zero: render nothing (never $0).
+ * Pending: same-size decorative skeleton card (BUG-DW-092) so the other 4
+ * cards in the auto-fit .kpi-row do not resize when the value arrives.
  */
 function MrcProtectedCard() {
-  const { data, isError } = useGetMrcProtected(true);
+  const { data, isError, isPending } = useGetMrcProtected(true);
+  if (isPending) {
+    return (
+      <div className="kpi-card kpi-card-skeleton" aria-hidden="true">
+        <Skeleton className="kpi-skel-label" />
+        <Skeleton className="kpi-skel-value" />
+        <Skeleton className="kpi-skel-caption" />
+      </div>
+    );
+  }
   if (isError || !data || !(data.mrc_protected_usd > 0) || !(data.services_protected > 0)) {
     return null;
   }

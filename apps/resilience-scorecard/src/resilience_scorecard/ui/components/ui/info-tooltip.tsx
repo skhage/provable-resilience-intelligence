@@ -7,9 +7,18 @@
  * above the trigger so it never covers the KPI value below the label.
  * The tooltip text is always wired via aria-describedby, so screen readers get
  * the definition even while it is visually hidden.
+ *
+ * BUG-DW-092 (SC 1.4.13 Hoverable): two layers keep the tooltip reachable.
+ * (1) CSS hover bridge: .info-tooltip::after fills the 6px gap above the
+ *     trigger, so the pointer never leaves span.info-tip on the way up.
+ * (2) A 150ms close delay on mouseleave, cancelled on re-enter. This covers
+ *     sub-pixel gaps at 200% zoom and fast diagonal pointer paths.
  */
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Info } from "lucide-react";
+
+/** Grace period before a hover-opened tooltip closes (BUG-DW-092). */
+const HOVER_CLOSE_DELAY_MS = 150;
 
 export interface InfoTooltipProps {
   /** Accessible name of the button, e.g. "About MRC Protected" */
@@ -23,7 +32,31 @@ export function InfoTooltip({ label, text }: InfoTooltipProps) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const open = (hovered || focused) && !dismissed;
+
+  const cancelClose = useCallback(() => {
+    if (closeTimer.current !== null) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  }, []);
+
+  const onPointerEnter = useCallback(() => {
+    cancelClose();
+    setHovered(true);
+  }, [cancelClose]);
+
+  const onPointerLeave = useCallback(() => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = null;
+      setHovered(false);
+    }, HOVER_CLOSE_DELAY_MS);
+  }, [cancelClose]);
+
+  // Clear any pending close timer on unmount.
+  useEffect(() => cancelClose, [cancelClose]);
 
   // Esc dismisses even when the tooltip was opened by hover (focus may be elsewhere).
   useEffect(() => {
@@ -43,8 +76,8 @@ export function InfoTooltip({ label, text }: InfoTooltipProps) {
   return (
     <span
       className="info-tip"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={onPointerEnter}
+      onMouseLeave={onPointerLeave}
     >
       <button
         type="button"
