@@ -85,6 +85,12 @@ class ResilienceSummaryOut(BaseModel):
         description="'partial' while the SRLG table the app reads has no backbone (BB-*/BBS-*) span rows; "
                     "'complete' once backbone shared-risk groups are present",
     )
+    # P41-APP-V4-INTERIM-BADGE (V4-KPI-COPY-SPEC §6.2). Set only when PRI_V4_KPIS=true; null = v3 UI.
+    report_status: Literal["INTERIM", "FINAL"] | None = Field(
+        default=None,
+        description="v4 delta report status from kpi_delta_attribution_v4_candidate. 'INTERIM' shows the "
+                    "Interim badge on Avg Score, Critical and Revenue at Risk; 'FINAL' removes it",
+    )
 
 
 class RiskDistributionOut(BaseModel):

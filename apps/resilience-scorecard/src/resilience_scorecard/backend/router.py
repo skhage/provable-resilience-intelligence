@@ -139,8 +139,31 @@ def get_resilience_summary(csql: Dependencies.CatalogSql, config: Dependencies.C
     if summary is None:
         summary = generate_mock_summary(generate_mock_scores())
     if getattr(config, "v4_kpis", False):
-        summary = {**summary, "bb_srlg_coverage": _resolve_bb_srlg_coverage(config, csql)}
+        summary = {
+            **summary,
+            "bb_srlg_coverage": _resolve_bb_srlg_coverage(config, csql),
+            "report_status": _resolve_v4_report_status(config, csql),
+        }
     return summary
+
+
+def _resolve_v4_report_status(config, csql) -> str:
+    """V4-KPI-COPY-SPEC §6.2 badge state. Env override wins; auto reads the attribution table.
+
+    Conservative: the Interim badge is only removed once the report is proven FINAL
+    (unknown, empty table or query failure all report INTERIM).
+    """
+    override = str(getattr(config, "v4_report_status", "auto") or "auto").strip().upper()
+    if override in ("INTERIM", "FINAL"):
+        return override
+    if hasattr(csql, "is_available") and csql.is_available and hasattr(csql, "get_v4_report_status"):
+        try:
+            state = csql.get_v4_report_status()
+            if state in ("INTERIM", "FINAL"):
+                return state
+        except Exception:
+            logger.warning("v4 report_status query failed; reporting INTERIM", exc_info=True)
+    return "INTERIM"
 
 
 def _resolve_bb_srlg_coverage(config, csql) -> str:

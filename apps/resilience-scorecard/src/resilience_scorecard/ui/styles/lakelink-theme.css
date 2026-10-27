@@ -1,7 +1,7 @@
 /* Lakelink Fiber — Provable Resilience Intelligence Brand Theme
  * Implements UX-DESIGN-SPEC.md Appendix A (BINDING)
  * Tokens: --lf-dark-teal #006272, --lf-platinum #E8E8E8, --lf-iron #4D4D4D, --lf-accent-orange #F26522
- * NEVER reference "Lumen" — branding mandate.
+ * Company name is always "Lakelink Fiber" — branding mandate.
  */
 
 :root {
@@ -2349,4 +2349,54 @@ select:focus-visible,
   .topo-legend .legend-coverage-note,
   .panel-bb-caveat,
   .mobile-tree-bb-unverified { color: CanvasText; }
+}
+
+/* ==========================================================================
+   P41-APP-V4-INTERIM-BADGE — V4-KPI-COPY-SPEC §6.2/§6.4 (rendered only when PRI_V4_KPIS=true and
+   the API reports report_status=INTERIM). Iron #4D4D4D on platinum #E8E8E8 = 6.9:1 (PASS).
+   The 3px brand-orange #F26522 left accent is decorative only: never orange text (3.15:1 FAIL) and
+   never iron on orange (2.68:1 FAIL).
+   ========================================================================== */
+.kpi-label-row--interim {
+  flex-wrap: wrap; /* SC 1.4.10: badge drops below the label at 320px instead of overflowing */
+  row-gap: 2px;
+}
+
+.interim-badge-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  letter-spacing: normal;
+}
+
+.interim-badge {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid #4D4D4D;
+  border-left: 3px solid #F26522;
+  border-radius: 4px;
+  background: #E8E8E8;
+  color: #4D4D4D;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* §6.4: v3-to-v4 delta text is neutral iron in every direction (no red/green, SC 1.4.1). */
+.v4-delta {
+  color: #4D4D4D;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (forced-colors: active) {
+  .interim-badge {
+    background: Canvas;
+    color: CanvasText;
+    border-color: CanvasText;
+    border-left-color: CanvasText;
+  }
+  .v4-delta { color: CanvasText; }
 }

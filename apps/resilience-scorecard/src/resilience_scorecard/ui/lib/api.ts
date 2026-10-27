@@ -22,6 +22,8 @@ export type ResilienceScore = { service_id: string; resilience_score: number; [k
 export type ResilienceSummary = {
   avg_resilience_score: number;
   critical_count: number;
+  /** V4-KPI-COPY-SPEC §6.2; set only when PRI_V4_KPIS=true (null/absent = v3 UI). */
+  report_status?: "INTERIM" | "FINAL" | null;
   [k: string]: any;
 };
 export type RiskDistributionBucket = { [k: string]: any };

@@ -8,7 +8,7 @@ Queries gold tables via Databricks SDK Statement Execution API:
   - proactive_action (10.8K actions)
 
 Falls back gracefully if the warehouse is unavailable or tables are missing.
-Branding: Lakelink Fiber (never Lumen).
+Branding: Lakelink Fiber only (branding mandate).
 """
 
 from __future__ import annotations
@@ -350,6 +350,17 @@ _BB_SRLG_COVERAGE_SQL = """
 SELECT CAST(COUNT(*) AS BIGINT) AS bb_srlg_rows
 FROM shared_risk_group
 WHERE span_id LIKE 'BB%'
+"""
+# P41-APP-V4-INTERIM-BADGE (V4-KPI-COPY-SPEC §6.2): FINAL only when every attribution row is FINAL;
+# any INTERIM/other row keeps the badge. Empty table -> NULL (router treats unknown as INTERIM).
+_KPI_DELTA_TABLE = "kpi_delta_attribution_v4_candidate"
+_V4_REPORT_STATUS_SQL = f"""
+SELECT CASE
+         WHEN COUNT(*) = 0 THEN NULL
+         WHEN COUNT_IF(UPPER(TRIM(report_status)) = 'FINAL') = COUNT(*) THEN 'FINAL'
+         ELSE 'INTERIM'
+       END AS report_status
+FROM {_KPI_DELTA_TABLE}
 """
 _CONDUIT_COVERAGE_CLASSES = ("REAL_SEGMENTED", "BB_SEGMENTED", "BB_ONLY", "INVENTORY_ONLY")
 
@@ -1098,6 +1109,14 @@ class CatalogSqlService:
         if not rows or rows[0].get("bb_srlg_rows") is None:
             return None
         return "complete" if int(rows[0]["bb_srlg_rows"]) > 0 else "partial"
+
+    def get_v4_report_status(self) -> str | None:
+        """'INTERIM' or 'FINAL' from the v4 delta attribution table. None = unknown."""
+        rows = self._execute(_V4_REPORT_STATUS_SQL)
+        if not rows:
+            return None
+        state = rows[0].get("report_status")
+        return state if state in ("INTERIM", "FINAL") else None
 
     def get_mrc_protected(self) -> dict | None:
         """MRC Protected KPI from the v4 metric view (P36-APP-V4-MRC-PROTECTED-KPI).

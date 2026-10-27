@@ -43,6 +43,12 @@ class AppConfig(BaseSettings):
         default="auto",
         validation_alias=AliasChoices("PRI_BB_SRLG_COVERAGE", "RESILIENCE_SCORECARD_BB_SRLG_COVERAGE"),
     )
+    # P41-APP-V4-INTERIM-BADGE (V4-KPI-COPY-SPEC §6.2): auto = read report_status from
+    # kpi_delta_attribution_v4_candidate (FINAL only when every row is FINAL). INTERIM/FINAL force it.
+    v4_report_status: str = Field(
+        default="auto",
+        validation_alias=AliasChoices("PRI_V4_REPORT_STATUS", "RESILIENCE_SCORECARD_V4_REPORT_STATUS"),
+    )
 
 
 # ---------------------------------------------------------------------------

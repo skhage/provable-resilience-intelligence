@@ -4,7 +4,7 @@ Used until gold tables (resilience_score_snapshot, proactive_action) are
 populated by the data pipeline. Every mock record matches the target schema
 so the UI needs zero changes when real data lands.
 
-Branding: Lakelink Fiber (never Lumen).
+Branding: Lakelink Fiber only (branding mandate).
 """
 
 from __future__ import annotations

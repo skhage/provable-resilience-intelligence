@@ -8,6 +8,7 @@ import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { InterimBadge } from "@/components/ui/interim-badge";
 import { useGetResilienceSummarySuspense, useV4Kpis } from "@/lib/api";
 import {
   BB_SRLG_PARTIAL_TOOLTIP,
@@ -17,6 +18,12 @@ import {
   formatCount,
   type BbSrlgCoverage,
 } from "@/lib/bb-srlg-disclosure";
+import {
+  formatKpiCount,
+  formatMillions,
+  formatScore,
+  showInterimBadge,
+} from "@/lib/v4-delta-format";
 import selector from "@/lib/selector";
 
 function scoreClass(score: number): string {
@@ -56,18 +63,38 @@ function ScorecardHeaderContent() {
   const { data: summary } = useGetResilienceSummarySuspense(selector());
   // V4-KPI-COPY-SPEC §1 unit consistency: Revenue at Risk is monthly, shown as /mo under the flag.
   const v4Kpis = useV4Kpis();
+  // P41-APP-V4-INTERIM-BADGE (V4-KPI-COPY-SPEC §6.2/§6.4): badge driven by the API report_status
+  // (never hard-coded) on Avg Score, Critical and Revenue at Risk only (not MRC Protected).
+  // Flag off: every expression below falls back to the v3 freeze markup/formatting.
+  const interim = showInterimBadge(v4Kpis, summary.report_status);
+  const avgScore = v4Kpis ? formatScore(summary.avg_resilience_score) : summary.avg_resilience_score.toFixed(1);
+  const critical = v4Kpis ? formatKpiCount(summary.critical_count) : summary.critical_count;
 
   return (
     <div className="kpi-row">
       <div className={`kpi-card ${scoreClass(summary.avg_resilience_score)}`}
-           role="group" aria-label={`Avg Resilience Score: ${summary.avg_resilience_score.toFixed(1)}`}>
-        <div className="kpi-label">Avg Resilience Score</div>
-        <div className="kpi-value score">{summary.avg_resilience_score.toFixed(1)}</div>
+           role="group" aria-label={`Avg Resilience Score: ${avgScore}`}>
+        {interim ? (
+          <div className="kpi-label kpi-label-row kpi-label-row--interim">
+            <span>Avg Resilience Score</span>
+            <InterimBadge />
+          </div>
+        ) : (
+          <div className="kpi-label">Avg Resilience Score</div>
+        )}
+        <div className="kpi-value score">{avgScore}</div>
       </div>
       <div className="kpi-card critical"
-           role="group" aria-label={`Critical Risk: ${summary.critical_count}`}>
-        <div className="kpi-label">Critical Risk</div>
-        <div className="kpi-value">{summary.critical_count}</div>
+           role="group" aria-label={`Critical Risk: ${critical}`}>
+        {interim ? (
+          <div className="kpi-label kpi-label-row kpi-label-row--interim">
+            <span>Critical Risk</span>
+            <InterimBadge />
+          </div>
+        ) : (
+          <div className="kpi-label">Critical Risk</div>
+        )}
+        <div className="kpi-value">{critical}</div>
       </div>
       <div className="kpi-card high"
            role="group" aria-label={`High Risk: ${summary.high_risk_count}`}>
@@ -109,10 +136,17 @@ function ScorecardHeaderContent() {
       {/* UX-REVENUE-DISPLAY: Core business metric (~$47.7M/year project value) */}
       {summary.total_revenue_at_risk_usd != null && (
         <div className="kpi-card critical"
-             role="group" aria-label={`Revenue at Risk: $${(summary.total_revenue_at_risk_usd / 1_000_000).toFixed(1)}M${v4Kpis ? " per month" : ""}`}>
-          <div className="kpi-label">Revenue at Risk</div>
+             role="group" aria-label={`Revenue at Risk: $${v4Kpis ? formatMillions(summary.total_revenue_at_risk_usd) : (summary.total_revenue_at_risk_usd / 1_000_000).toFixed(1)}M${v4Kpis ? " per month" : ""}`}>
+          {interim ? (
+            <div className="kpi-label kpi-label-row kpi-label-row--interim">
+              <span>Revenue at Risk</span>
+              <InterimBadge />
+            </div>
+          ) : (
+            <div className="kpi-label">Revenue at Risk</div>
+          )}
           <div className="kpi-value">
-            ${(summary.total_revenue_at_risk_usd / 1_000_000).toFixed(1)}M
+            ${v4Kpis ? formatMillions(summary.total_revenue_at_risk_usd) : (summary.total_revenue_at_risk_usd / 1_000_000).toFixed(1)}M
             {v4Kpis && <span className="kpi-sub">/mo</span>}
           </div>
         </div>

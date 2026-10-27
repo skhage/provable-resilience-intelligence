@@ -8,7 +8,8 @@ import { ErrorBoundary } from "react-error-boundary";
 import { Link } from "@tanstack/react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
-import { useListResilienceScoresSuspense } from "@/lib/api";
+import { useBbSrlgCoverage, useListResilienceScoresSuspense } from "@/lib/api";
+import { METRO_ACCESS, METRO_ACCESS_SPOKEN } from "@/lib/bb-srlg-disclosure";
 import selector from "@/lib/selector";
 
 function gaugeClass(score: number): string {
@@ -44,6 +45,8 @@ function ServiceTableContent() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
+  // P41-APP-V4-INTERIM-BADGE §6.3: null when PRI_V4_KPIS is off, so the v3 header is unchanged.
+  const bbCoverage = useBbSrlgCoverage();
   const { data: scores } = useListResilienceScoresSuspense({
     params: { sort_by: "resilience_score", sort_dir: sortDir },
     ...selector(),
@@ -93,7 +96,15 @@ function ServiceTableContent() {
             <th>Environ.</th>
             <th>Path Div.</th>
             <th>SPFs</th>
-            <th>SRLGs</th>
+            <th>
+              SRLGs
+              {bbCoverage === "partial" && (
+                <>
+                  <span aria-hidden="true">{`\u00A0${METRO_ACCESS}`}</span>
+                  <span className="sr-only">{` ${METRO_ACCESS_SPOKEN}`}</span>
+                </>
+              )}
+            </th>
           </tr>
         </thead>
         <tbody>
