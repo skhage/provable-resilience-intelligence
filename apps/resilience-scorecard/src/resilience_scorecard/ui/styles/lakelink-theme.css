@@ -1323,12 +1323,14 @@ select:focus-visible,
    Phase 13c+13d+13e
    ===================================================================== */
 
-/* Diversity status colors (TOPOLOGY-VIS-SPEC §2.1) */
+/* Diversity status colors (TOPOLOGY-VIS-SPEC §2.1)
+   BUG-DW-060: Synced to WCAG-compliant DIVERSITY_COLORS in topology.tsx (lines 23-28).
+   Canonical source: first :root block (lines 45-48). */
 :root {
-  --lf-diversity-full: #16A34A;
-  --lf-diversity-partial: #D97706;
+  --lf-diversity-full: #15803D;
+  --lf-diversity-partial: #B45309;
   --lf-diversity-single: #DC2626;
-  --lf-diversity-unknown: #9CA3AF;
+  --lf-diversity-unknown: #6B7280;
 }
 
 /* Edge clickability */
@@ -1788,4 +1790,33 @@ select:focus-visible,
   .mobile-tree-row { transition: none; }
   .mobile-tree-search-input { transition: none; }
   .panel-action-link { transition: none; }
+  .cross-view-table-link { transition: none; }
+}
+
+/* BUG-DW-063: Cross-view table links (§9.2 — ServiceTable → topology) */
+.cross-view-table-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--lf-dark-teal);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.1s ease;
+}
+.cross-view-table-link:hover {
+  text-decoration: underline;
+  color: #004d5a; /* darker teal for hover contrast */
+}
+.cross-view-table-link:focus-visible {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.cross-view-icon {
+  opacity: 0.5;
+  flex-shrink: 0;
+  transition: opacity 0.1s ease;
+}
+.cross-view-table-link:hover .cross-view-icon {
+  opacity: 1;
 }

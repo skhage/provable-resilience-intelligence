@@ -5,6 +5,7 @@
 import { Suspense, useState } from "react";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
+import { Link } from "@tanstack/react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useListResilienceScoresSuspense } from "@/lib/api";
 import selector from "@/lib/selector";
@@ -97,7 +98,21 @@ function ServiceTableContent() {
         <tbody>
           {paginatedScores.map((s) => (
             <tr key={s.service_id}>
-              <td className="text-medium">{s.service_name}</td>
+              <td className="text-medium">
+                <Link
+                  to="/topology"
+                  search={{ service: s.service_id }}
+                  className="cross-view-table-link"
+                  aria-label={`View ${s.service_name} on topology map`}
+                >
+                  {s.service_name}
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="cross-view-icon">
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                    <path d="M21 14v5a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h5" />
+                  </svg>
+                </Link>
+              </td>
               <td>{s.customer_name}</td>
               <td>
                 <ScoreGauge score={s.resilience_score} label="Resilience score" />
