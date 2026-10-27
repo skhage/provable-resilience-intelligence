@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from .core import Dependencies
 from .models import (
@@ -54,6 +54,9 @@ from .services.mock_data import (
 logger = logging.getLogger("resilience_scorecard.router")
 
 router = APIRouter(prefix="/api")
+
+# BUG-QA-080: per-response provenance for topology live queries ('live' | 'unavailable').
+DATA_SOURCE_HEADER = "X-PRI-Data-Source"
 
 # ---------------------------------------------------------------------------
 # Health
@@ -494,18 +497,23 @@ def list_conduit_coverage(
 def get_service_path_trace(
     service_id: str,
     csql: Dependencies.CatalogSql,
+    response: Response,
 ):
     """Return hop-by-hop path trace for a service (working + protect).
 
     TOPOLOGY-VIS-SPEC §2.1 — on-demand query for service path visualization.
+    BUG-QA-080: X-PRI-Data-Source is 'live' or 'unavailable' (never silent).
     """
     if hasattr(csql, "is_available") and csql.is_available:
         try:
             hops = csql.get_service_path_trace(service_id)
             if hops is not None:
+                response.headers[DATA_SOURCE_HEADER] = "live"
                 return hops
         except Exception:
             logger.warning("Live path trace failed for %s", service_id, exc_info=True)
+    logger.error("Path trace unavailable for %s (live query failed or warehouse down)", service_id)
+    response.headers[DATA_SOURCE_HEADER] = "unavailable"
     return []
 
 
@@ -517,19 +525,29 @@ def get_service_path_trace(
 def get_service_diversity(
     service_id: str,
     csql: Dependencies.CatalogSql,
+    response: Response,
 ):
     """Return diversity status for a service.
 
     TOPOLOGY-VIS-SPEC §2.1 — diversity classification for path coloring.
+    BUG-QA-080: 503 when the live query fails (distinct from 404 not-found).
     """
     if hasattr(csql, "is_available") and csql.is_available:
         try:
             div = csql.get_service_diversity(service_id)
-            if div is not None:
-                return div
         except Exception:
             logger.warning("Live diversity failed for %s", service_id, exc_info=True)
-    raise HTTPException(status_code=404, detail=f"Service {service_id} not found")
+            div = None
+        else:
+            if div is not None:
+                response.headers[DATA_SOURCE_HEADER] = "live"
+                return div
+            raise HTTPException(status_code=404, detail=f"Service {service_id} not found")
+    raise HTTPException(
+        status_code=503,
+        detail="Diversity data unavailable",
+        headers={DATA_SOURCE_HEADER: "unavailable"},
+    )
 
 
 @router.get(
@@ -539,19 +557,24 @@ def get_service_diversity(
 )
 def list_topology_srlgs(
     csql: Dependencies.CatalogSql,
+    response: Response,
     region: str = Query(..., description="Region name"),
 ):
     """Return SRLG memberships for spans in a region.
 
     TOPOLOGY-VIS-SPEC §3 — lazy-loaded when SRLG overlay is toggled on.
+    BUG-QA-080: X-PRI-Data-Source is 'live' or 'unavailable' (never silent).
     """
     if hasattr(csql, "is_available") and csql.is_available:
         try:
             srlgs = csql.get_srlgs_by_region(region)
             if srlgs is not None:
+                response.headers[DATA_SOURCE_HEADER] = "live"
                 return srlgs
         except Exception:
             logger.warning("Live SRLGs failed for %s", region, exc_info=True)
+    logger.error("SRLGs unavailable for region %s (live query failed or warehouse down)", region)
+    response.headers[DATA_SOURCE_HEADER] = "unavailable"
     return []
 
 

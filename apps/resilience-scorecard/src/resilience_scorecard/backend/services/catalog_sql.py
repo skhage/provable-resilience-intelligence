@@ -396,7 +396,8 @@ GROUP BY span_coverage_class
 _SERVICE_PATH_TRACE_SQL = """
 SELECT
   sp.service_id,
-  sp.hop_index,
+  -- BUG-QA-080: physical column is hop_sequence; API contract keeps hop_index.
+  sp.hop_sequence AS hop_index,
   sp.span_id,
   sp.path_type,
   prs.conduit_id,
@@ -404,7 +405,8 @@ SELECT
   prs.site_z_id AS span_site_z_id,
   ROUND(prs.length_km, 1) AS span_length_km,
   prs.fiber_type,
-  prs.strand_count,
+  -- BUG-QA-080 (found by live contract): span column is fiber_count.
+  prs.fiber_count AS strand_count,
   prc.conduit_type,
   ROUND(prc.length_km, 1) AS conduit_length_km,
   prc.corridor,
@@ -418,36 +420,73 @@ LEFT JOIN physical_resource_conduit prc ON prs.conduit_id = prc.conduit_id
 LEFT JOIN geographic_site sa ON prs.site_a_id = sa.site_id
 LEFT JOIN geographic_site sz ON prs.site_z_id = sz.site_id
 WHERE sp.service_id = :service_id
-ORDER BY sp.path_type, sp.hop_index
+ORDER BY sp.path_type, sp.hop_sequence
 """
 
+# BUG-QA-080: service_inventory has no path_diversity_status column. Diversity is derived
+# from the governed path structure (service_path -> span -> conduit, shared_risk_group);
+# see classify_diversity(). path_diversity_score is returned for context only, because it
+# is not consistent with path structure (single-path services can score 100).
 _SERVICE_DIVERSITY_SQL = """
+WITH hops AS (
+  SELECT sp.path_type, sp.span_id, prs.conduit_id
+  FROM service_path sp
+  LEFT JOIN physical_resource_span prs ON sp.span_id = prs.span_id
+  WHERE sp.service_id = :service_id
+),
+w_srlg AS (
+  SELECT DISTINCT srg.srlg_id FROM shared_risk_group srg
+  JOIN hops h ON srg.span_id = h.span_id WHERE h.path_type = 'working'
+),
+p_srlg AS (
+  SELECT DISTINCT srg.srlg_id FROM shared_risk_group srg
+  JOIN hops h ON srg.span_id = h.span_id WHERE h.path_type = 'protect'
+),
+w_cdt AS (SELECT DISTINCT conduit_id FROM hops WHERE path_type = 'working' AND conduit_id IS NOT NULL),
+p_cdt AS (SELECT DISTINCT conduit_id FROM hops WHERE path_type = 'protect' AND conduit_id IS NOT NULL),
+agg AS (
+  SELECT
+    COUNT(DISTINCT CASE WHEN path_type = 'working' THEN span_id END) AS working_hops,
+    COUNT(DISTINCT CASE WHEN path_type = 'protect' THEN span_id END) AS protect_hops,
+    COUNT(DISTINCT CASE WHEN path_type = 'working' THEN conduit_id END) AS working_conduits,
+    COUNT(DISTINCT CASE WHEN path_type = 'protect' THEN conduit_id END) AS protect_conduits,
+    -- P36-APP-V4-BB-SRLG-DISCLOSURE: backbone spans are BB-* (v3) / BBS-* (v4 segments)
+    MAX(CASE WHEN span_id LIKE 'BB%' THEN 1 ELSE 0 END) AS crosses_backbone
+  FROM hops
+),
+score AS (
+  SELECT path_diversity_score FROM resilience_score_snapshot
+  WHERE service_id = :service_id
+  ORDER BY score_time DESC
+  LIMIT 1
+)
 SELECT
   si.service_id,
-  si.path_diversity_status,
-  COUNT(DISTINCT CASE WHEN sp.path_type = 'working' THEN sp.span_id END) AS working_hops,
-  COUNT(DISTINCT CASE WHEN sp.path_type = 'protect' THEN sp.span_id END) AS protect_hops,
-  COUNT(DISTINCT CASE WHEN sp.path_type = 'working' THEN prs.conduit_id END) AS working_conduits,
-  COUNT(DISTINCT CASE WHEN sp.path_type = 'protect' THEN prs.conduit_id END) AS protect_conduits,
-  (
-    SELECT COUNT(DISTINCT srg.srlg_id)
-    FROM shared_risk_group srg
-    JOIN service_path sp2 ON srg.span_id = sp2.span_id
-    WHERE sp2.service_id = si.service_id AND sp2.path_type = 'working'
-    AND srg.srlg_id IN (
-      SELECT srg2.srlg_id FROM shared_risk_group srg2
-      JOIN service_path sp3 ON srg2.span_id = sp3.span_id
-      WHERE sp3.service_id = si.service_id AND sp3.path_type = 'protect'
-    )
-  ) AS shared_srlg_count,
-  -- P36-APP-V4-BB-SRLG-DISCLOSURE: backbone spans are BB-* (v3) / BBS-* (v4 segments)
-  MAX(CASE WHEN sp.span_id LIKE 'BB%' THEN 1 ELSE 0 END) AS crosses_backbone
+  si.sold_as_diverse,
+  a.working_hops,
+  a.protect_hops,
+  a.working_conduits,
+  a.protect_conduits,
+  (SELECT COUNT(*) FROM w_cdt JOIN p_cdt USING (conduit_id)) AS shared_conduit_count,
+  (SELECT COUNT(*) FROM w_srlg JOIN p_srlg USING (srlg_id)) AS shared_srlg_count,
+  a.crosses_backbone,
+  (SELECT ROUND(path_diversity_score, 1) FROM score) AS path_diversity_score
 FROM service_inventory si
-LEFT JOIN service_path sp ON si.service_id = sp.service_id
-LEFT JOIN physical_resource_span prs ON sp.span_id = prs.span_id
+CROSS JOIN agg a
 WHERE si.service_id = :service_id
-GROUP BY si.service_id, si.path_diversity_status
 """
+
+
+def classify_diversity(protect_hops: int, shared_conduit_count: int, shared_srlg_count: int, working_hops: int) -> str:
+    """BUG-QA-080: fully_diverse | partially_diverse | single_path | unknown from path structure."""
+    if working_hops <= 0:
+        return "unknown"
+    if protect_hops <= 0:
+        return "single_path"
+    if shared_conduit_count == 0 and shared_srlg_count == 0:
+        return "fully_diverse"
+    return "partially_diverse"
+
 
 _SRLG_BY_REGION_SQL = """
 SELECT
@@ -455,7 +494,8 @@ SELECT
   srg.srlg_type,
   srg.severity,
   srg.span_id,
-  srg.description,
+  -- BUG-QA-080: shared_risk_group has no description column; srlg_name is the label.
+  srg.srlg_name AS description,
   prs.site_a_id,
   prs.site_z_id,
   prs.conduit_id,
@@ -983,14 +1023,23 @@ class CatalogSqlService:
         if rows is None or len(rows) == 0:
             return None
         row = rows[0]
+        working_hops = int(row.get("working_hops", 0) or 0)
+        protect_hops = int(row.get("protect_hops", 0) or 0)
+        shared_conduits = int(row.get("shared_conduit_count", 0) or 0)
+        shared_srlgs = int(row.get("shared_srlg_count", 0) or 0)
+        sold = row.get("sold_as_diverse")
+        score = row.get("path_diversity_score")
         return {
             "service_id": row.get("service_id"),
-            "diversity_status": row.get("path_diversity_status", "unknown"),
-            "working_hops": int(row.get("working_hops", 0) or 0),
-            "protect_hops": int(row.get("protect_hops", 0) or 0),
+            "diversity_status": classify_diversity(protect_hops, shared_conduits, shared_srlgs, working_hops),
+            "working_hops": working_hops,
+            "protect_hops": protect_hops,
             "working_conduits": int(row.get("working_conduits", 0) or 0),
             "protect_conduits": int(row.get("protect_conduits", 0) or 0),
-            "shared_srlg_count": int(row.get("shared_srlg_count", 0) or 0),
+            "shared_conduit_count": shared_conduits,
+            "shared_srlg_count": shared_srlgs,
+            "sold_as_diverse": None if sold is None else str(sold).lower() in ("true", "1"),
+            "path_diversity_score": None if score is None else float(score),
             "crosses_backbone": (
                 None if row.get("crosses_backbone") is None else int(row["crosses_backbone"]) > 0
             ),

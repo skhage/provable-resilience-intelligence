@@ -359,7 +359,11 @@ class ServiceDiversityOut(BaseModel):
     protect_hops: int = Field(ge=0)
     working_conduits: int = Field(ge=0)
     protect_conduits: int = Field(ge=0)
+    # BUG-QA-080: diversity_status is derived from shared conduits + shared SRLGs.
+    shared_conduit_count: int = Field(ge=0, default=0)
     shared_srlg_count: int = Field(ge=0)
+    sold_as_diverse: bool | None = None
+    path_diversity_score: float | None = Field(default=None, description="Latest resilience_score_snapshot.path_diversity_score (context only)")
     # P36-APP-V4-BB-SRLG-DISCLOSURE: any working/protect hop on a backbone span (BB-*/BBS-*).
     crosses_backbone: bool | None = Field(default=None, description="True if any path hop crosses a backbone span")
 
