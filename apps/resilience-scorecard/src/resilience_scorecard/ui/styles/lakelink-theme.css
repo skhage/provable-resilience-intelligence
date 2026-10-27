@@ -1541,6 +1541,56 @@ select:focus-visible,
   background: var(--lf-platinum);
 }
 
+/* BUG-DW-098: live-data outage / not-found state. Neutral iron #4D4D4D on white (8.45:1).
+   Not a risk signal, so no orange or red, and no diversity badge or hop stats. */
+.path-trace-unavailable {
+  color: #4D4D4D;
+}
+.path-trace-retry {
+  background: #FFFFFF;
+  border: 1px solid #4D4D4D;
+  border-radius: 4px;
+  padding: 2px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4D4D4D;
+  min-height: 24px;
+  min-width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.path-trace-retry:hover {
+  background: var(--lf-platinum);
+}
+.path-trace-retry:focus-visible {
+  outline: 2px solid #006272;
+  outline-offset: 2px;
+}
+@media (max-width: 768px) {
+  .path-trace-retry {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+.topo-legend .legend-srlg-unavailable {
+  color: #4D4D4D;
+}
+@media (forced-colors: active) {
+  .path-trace-unavailable,
+  .topo-legend .legend-srlg-unavailable {
+    color: CanvasText;
+  }
+  .path-trace-retry {
+    color: ButtonText;
+    border-color: ButtonText;
+  }
+  .path-trace-retry:focus-visible {
+    outline-color: Highlight;
+  }
+}
+
 /* BUG-DW-062: Error banner retry button — replaces inline styles; WCAG 2.5.8 24px target */
 .error-retry-btn {
   margin-left: 12px;

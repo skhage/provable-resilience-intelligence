@@ -26,6 +26,17 @@ import {
   showBackboneUnverified,
   type BbSrlgCoverage,
 } from "@/lib/bb-srlg-disclosure";
+// BUG-DW-098: live | unavailable | not_found per fetch (X-PRI-Data-Source / 503 / 404)
+import {
+  RETRY_LABEL,
+  fetchWithState,
+  showSrlgUnavailable,
+  srlgUnavailableMsg,
+  traceBannerMessage,
+  traceBannerMode,
+  type DataState,
+  type TraceBannerMode,
+} from "@/lib/topology-data-state";
 
 // ---------------------------------------------------------------------------
 // Viewport width hook (§6.2 — Mobile tree fallback below 768px)
@@ -446,12 +457,20 @@ function Legend({
   collapsed,
   onToggle,
   bbCoverage = null,
+  srlgUnavailableRegion = null,
 }: {
   collapsed: boolean;
   onToggle: () => void;
   /** P36-APP-V4-BB-SRLG-DISCLOSURE: null = PRI_V4_KPIS off (v3 legend) */
   bbCoverage?: BbSrlgCoverage | null;
+  /** BUG-DW-098: region whose SRLG overlay fetch is unavailable (never an empty overlay silently) */
+  srlgUnavailableRegion?: string | null;
 }) {
+  const srlgUnavailableLine = srlgUnavailableRegion ? (
+    <p className="legend-coverage-note legend-srlg-unavailable" role="status">
+      {srlgUnavailableMsg(srlgUnavailableRegion)}
+    </p>
+  ) : null;
   if (collapsed) {
     return (
       <div className="topo-legend" role="region" aria-label="Graph legend">
@@ -464,6 +483,7 @@ function Legend({
         >
           Legend <span aria-hidden="true">▾</span>
         </button>
+        {srlgUnavailableLine}
       </div>
     );
   }
@@ -561,6 +581,7 @@ function Legend({
         {bbCoverage === "partial" && (
           <p className="legend-coverage-note">{BB_LEGEND_COVERAGE_LINE}</p>
         )}
+        {srlgUnavailableLine}
       </div>
 
       {/* BUG-DW-070: hazard severity — ring stroke pattern + width, grayscale-safe */}
@@ -825,13 +846,41 @@ function PathTraceBanner({
   hops,
   onClear,
   bbCoverage = null,
+  mode = "live",
+  onRetry,
 }: {
   serviceId: string;
   diversity: ServiceDiversity | null;
   hops: PathHop[];
   onClear: () => void;
   bbCoverage?: BbSrlgCoverage | null;
+  /** BUG-DW-098: unavailable/not_found render neutral copy with NO badge and NO hop stats */
+  mode?: TraceBannerMode;
+  onRetry?: () => void;
 }) {
+  const nonLiveMessage = traceBannerMessage(mode, serviceId);
+  if (nonLiveMessage) {
+    return (
+      <div className="path-trace-banner path-trace-banner-nodata" role="status" aria-live="polite">
+        <div className="path-trace-info">
+          <span className="mono" style={{ fontWeight: 600 }}>
+            {serviceId}
+          </span>
+          <span className="path-trace-unavailable">{nonLiveMessage}</span>
+        </div>
+        <div className="path-trace-actions">
+          {mode === "unavailable" && onRetry && (
+            <button type="button" className="path-trace-retry" onClick={onRetry}>
+              {RETRY_LABEL}
+            </button>
+          )}
+          <button className="path-trace-clear" onClick={onClear}>
+            ✕ Clear trace
+          </button>
+        </div>
+      </div>
+    );
+  }
   // V4-KPI-COPY-SPEC §2.1: diverse services crossing backbone get a text second line (no new color)
   const bbUnverified = showBackboneUnverified(bbCoverage, diversity?.diversity_status, diversity?.crosses_backbone);
   const workingHops = hops.filter((h) => h.path_type === "working");
@@ -1438,6 +1487,8 @@ interface MobileTreeProps {
   diversity: ServiceDiversity | null;
   tracedServiceId: string | null;
   bbCoverage?: BbSrlgCoverage | null;
+  /** BUG-DW-098: same 3-state handling as the desktop path banner */
+  traceMode?: TraceBannerMode;
 }
 
 function MobileTreeView({
@@ -1448,6 +1499,7 @@ function MobileTreeView({
   diversity,
   tracedServiceId,
   bbCoverage = null,
+  traceMode = "live",
 }: MobileTreeProps) {
   const [expandedRegions, setExpandedRegions] = useState<Set<string>>(
     new Set()
@@ -1805,7 +1857,13 @@ function MobileTreeView({
       </ul>
 
       {/* Diversity summary when tracing */}
-      {tracedServiceId && diversity && overlays.diversity && (
+      {tracedServiceId && overlays.diversity && traceBannerMessage(traceMode, tracedServiceId) && (
+        <div className="mobile-tree-diversity-summary" role="status">
+          <strong>Tracing:</strong> {tracedServiceId}
+          <span className="path-trace-unavailable">{traceBannerMessage(traceMode, tracedServiceId)}</span>
+        </div>
+      )}
+      {tracedServiceId && diversity && overlays.diversity && !traceBannerMessage(traceMode, tracedServiceId) && (
         <div className="mobile-tree-diversity-summary" role="status">
           <strong>Tracing:</strong> {tracedServiceId}
           {diversityBadge(diversity.diversity_status)}
@@ -1926,9 +1984,15 @@ function TopologyPage() {
   const [tracedServiceId, setTracedServiceId] = useState<string | null>(null);
   const [pathHops, setPathHops] = useState<PathHop[]>([]);
   const [diversity, setDiversity] = useState<ServiceDiversity | null>(null);
+  // BUG-DW-098: per-fetch data state (null = pending / not requested)
+  const [pathState, setPathState] = useState<DataState | null>(null);
+  const [divState, setDivState] = useState<DataState | null>(null);
+  const [traceRetry, setTraceRetry] = useState(0);
+  const traceMode = traceBannerMode(pathState, divState);
 
   // SRLG overlay state (§3)
   const [srlgs, setSrlgs] = useState<SrlgMember[]>([]);
+  const [srlgState, setSrlgState] = useState<DataState | null>(null);
 
   // Hazard overlay state (§4)
   const [hazards, setHazards] = useState<HazardOverlay[]>([]);
@@ -1997,43 +2061,61 @@ function TopologyPage() {
   }, [selectedRegion]);
 
   // Fetch path trace when a service is selected (§2, §10.2)
+  // BUG-DW-098: a new service resets the 3-state result; a Retry keeps the current
+  // banner mounted (no pending flash) until the new result arrives.
+  useEffect(() => {
+    setPathState(null);
+    setDivState(null);
+  }, [tracedServiceId]);
+
   useEffect(() => {
     if (!tracedServiceId) {
       setPathHops([]);
       setDiversity(null);
       return;
     }
+    let cancelled = false;
     Promise.all([
-      fetch(`/api/topology/path-trace/${encodeURIComponent(tracedServiceId)}`).then((r) => r.json()),
-      fetch(`/api/topology/diversity/${encodeURIComponent(tracedServiceId)}`).then((r) =>
-        r.ok ? r.json() : null
-      ),
-    ])
-      .then(([hops, div]) => {
-        setPathHops(hops);
-        setDiversity(div);
-        // Auto-navigate to first region on path if not already in one
-        if (hops.length > 0 && !selectedRegion) {
-          const firstRegion = hops[0].site_a_region;
-          if (firstRegion) setSelectedRegion(firstRegion);
-        }
-      })
-      .catch(() => {
-        setPathHops([]);
-        setDiversity(null);
-      });
-  }, [tracedServiceId]);
+      fetchWithState<PathHop[]>(`/api/topology/path-trace/${encodeURIComponent(tracedServiceId)}`),
+      fetchWithState<ServiceDiversity>(`/api/topology/diversity/${encodeURIComponent(tracedServiceId)}`),
+    ]).then(([path, div]) => {
+      if (cancelled) return;
+      const hops = Array.isArray(path.data) ? path.data : [];
+      setPathHops(hops);
+      setDiversity(div.data);
+      setPathState(path.state);
+      setDivState(div.state);
+      // Auto-navigate to first region on path if not already in one
+      if (hops.length > 0 && !selectedRegion) {
+        const firstRegion = hops[0].site_a_region;
+        if (firstRegion) setSelectedRegion(firstRegion);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tracedServiceId, traceRetry]);
 
   // Fetch SRLGs when overlay toggled on and region selected (§3)
   useEffect(() => {
     if (!overlays.srlg || !selectedRegion) {
       setSrlgs([]);
+      setSrlgState(null);
       return;
     }
-    fetch(`/api/topology/srlgs?region=${encodeURIComponent(selectedRegion)}`)
-      .then((r) => r.json())
-      .then(setSrlgs)
-      .catch(() => setSrlgs([]));
+    // BUG-DW-098: an unavailable overlay is disclosed in the legend, never drawn as an empty map
+    let cancelled = false;
+    setSrlgState(null);
+    fetchWithState<SrlgMember[]>(`/api/topology/srlgs?region=${encodeURIComponent(selectedRegion)}`).then(
+      ({ state, data }) => {
+        if (cancelled) return;
+        setSrlgState(state);
+        setSrlgs(Array.isArray(data) ? data : []);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [overlays.srlg, selectedRegion]);
 
   // Fetch hazards when overlay toggled on (§4)
@@ -2083,6 +2165,8 @@ function TopologyPage() {
     setTracedServiceId(null);
     setPathHops([]);
     setDiversity(null);
+    setPathState(null);
+    setDivState(null);
     // Clear URL param
     navigate({ to: "/topology", search: {} });
   }, [navigate]);
@@ -2100,13 +2184,17 @@ function TopologyPage() {
       />
 
       {/* Path trace banner (§2) */}
-      {tracedServiceId && pathHops.length > 0 && (
+      {/* BUG-DW-098: live render unchanged (needs hops); outage/not-found always disclosed */}
+      {tracedServiceId &&
+        (traceMode === "unavailable" || traceMode === "not_found" || (traceMode === "live" && pathHops.length > 0)) && (
         <PathTraceBanner
           serviceId={tracedServiceId}
           diversity={diversity}
           hops={pathHops}
           onClear={handleClearTrace}
           bbCoverage={bbCoverage}
+          mode={traceMode}
+          onRetry={() => setTraceRetry((n) => n + 1)}
         />
       )}
 
@@ -2149,6 +2237,7 @@ function TopologyPage() {
               diversity={diversity}
               tracedServiceId={tracedServiceId}
               bbCoverage={bbCoverage}
+              traceMode={traceMode}
             />
           )}
           {!loading && regions.length === 0 && (
@@ -2222,6 +2311,9 @@ function TopologyPage() {
             collapsed={legendCollapsed}
             onToggle={() => setLegendCollapsed((c) => !c)}
             bbCoverage={bbCoverage}
+            srlgUnavailableRegion={
+              showSrlgUnavailable(overlays.srlg, selectedRegion, srlgState) ? selectedRegion : null
+            }
           />
 
           {/* Site detail panel (§5.1) */}
