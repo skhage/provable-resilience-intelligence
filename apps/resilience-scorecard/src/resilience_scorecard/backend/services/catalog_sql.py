@@ -721,7 +721,7 @@ class CatalogSqlService:
 
     def get_service_score(self, service_id: str) -> dict | None:
         """Get resilience score for a single service."""
-        sql = f"""
+        sql = """
             SELECT
               r.service_id,
               CASE
@@ -799,7 +799,7 @@ class CatalogSqlService:
     def get_crosswalk(self, hazard_type: str | None = None) -> list[dict] | None:
         """Return hazard×span crosswalk aggregated by type × proximity band."""
         if hazard_type:
-            sql = f"""
+            sql = """
                 SELECT
                   hazard_type,
                   proximity_band,
