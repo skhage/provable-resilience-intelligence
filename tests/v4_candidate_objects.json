@@ -41,7 +41,7 @@
     "kpi_delta_attribution_v4_candidate": {"expected_writer": "notebooks/da_v4_kpi_delta_attribution.ipynb", "owner_role": "@data-analyst", "owner_task": "P40-DA-V4-WRITERS-CHECKIN", "status": "covered"},
     "resource_alarm_v4_candidate": {"expected_writer": "pipelines/de_v4_candidate_writers.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-QA-072", "status": "covered"},
     "resource_performance_measure_v4_candidate": {"expected_writer": "pipelines/de_v4_candidate_writers.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-QA-072", "status": "covered"},
-    "revenue_at_risk_v4_candidate": {"expected_writer": "notebooks/da_v4_candidate_writers.ipynb", "owner_role": "@data-analyst", "owner_task": "P48-DA-V4-WRITERS-CHECKIN", "status": "missing"},
+    "revenue_at_risk_v4_candidate": {"expected_writer": "notebooks/da_v4_candidate_writers.ipynb", "owner_role": "@data-analyst", "owner_task": "P48-DA-V4-WRITERS-CHECKIN", "status": "covered"},
     "span_hazard_features_v4_candidate": {"expected_writer": "ml_v4_candidate_writers.ipynb", "owner_role": "@ml-engineer", "owner_task": "P44-ML-HSI-BBS-GRAIN-FEATURES", "status": "missing"},
     "path_diversity_conduit_v4_candidate": {"expected_writer": "pipelines/srlg_v4_candidate_derivation.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-QA-085", "status": "missing"},
     "hazard_span_proximity_v4_candidate": {"expected_writer": "ml_v4_candidate_writers.ipynb", "owner_role": "@ml-engineer", "owner_task": "P48-ML-V4-WRITERS-CHECKIN", "status": "missing"}
