@@ -1,6 +1,6 @@
 {
-  "_comment": "P37-DEVOPS-V4-PR-READINESS / P39-DEVOPS-V4-CANDIDATE-CODE-COVERAGE: registry of live v4 shadow-build objects in cdm_tmforum.provable_resilience_intelligence (re-captured 2026-10-26 09:05 UTC from information_schema: 14 objects). Each object must have a versioned writer in this repo. 'writers' records the expected writer path and the owning Lakebase task for every object. Refresh when a new *_v4_candidate object is created.",
-  "captured_at": "2026-10-26",
+  "_comment": "P37-DEVOPS-V4-PR-READINESS / P39-DEVOPS-V4-CANDIDATE-CODE-COVERAGE: registry of live v4 shadow-build objects in cdm_tmforum.provable_resilience_intelligence (re-captured 2026-10-27 by @devops S46 / P48-DEVOPS-V4-WRITER-SOURCE-CI-CHECK from information_schema: 20 objects). Each object must have a versioned writer in this repo. 'writers' records the expected writer path and the owning Lakebase task for every object. Refresh when a new *_v4_candidate object is created. P48: test_v4_candidate_writer_contains_literal_name requires expected_writer to be a tracked file containing the literal object name (blocking in the v4 Freeze Guard job).",
+  "captured_at": "2026-10-27",
   "schema": "cdm_tmforum.provable_resilience_intelligence",
   "v4_candidate_objects": [
     "mv_mrc_protected_v4_candidate",
@@ -18,7 +18,11 @@
     "unified_shared_risk_group_v4_candidate",
     "kpi_delta_attribution_v4_candidate",
     "resource_alarm_v4_candidate",
-    "resource_performance_measure_v4_candidate"
+    "resource_performance_measure_v4_candidate",
+    "revenue_at_risk_v4_candidate",
+    "span_hazard_features_v4_candidate",
+    "path_diversity_conduit_v4_candidate",
+    "hazard_span_proximity_v4_candidate"
   ],
   "writers": {
     "span_risk_predictions_v4_candidate": {"expected_writer": "ml_v4_candidate_writers.ipynb", "owner_role": "@ml-engineer", "owner_task": "P37-ML-V4-WRITERS-CHECKIN", "status": "covered"},
@@ -36,6 +40,10 @@
     "unified_shared_risk_group_v4_candidate": {"expected_writer": "pipelines/srlg_v4_candidate_derivation.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-ML-V4-GUARD-SRLG-PIPELINE", "status": "covered"},
     "kpi_delta_attribution_v4_candidate": {"expected_writer": "notebooks/da_v4_kpi_delta_attribution.ipynb", "owner_role": "@data-analyst", "owner_task": "P40-DA-V4-WRITERS-CHECKIN", "status": "covered"},
     "resource_alarm_v4_candidate": {"expected_writer": "pipelines/de_v4_candidate_writers.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-QA-072", "status": "covered"},
-    "resource_performance_measure_v4_candidate": {"expected_writer": "pipelines/de_v4_candidate_writers.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-QA-072", "status": "covered"}
+    "resource_performance_measure_v4_candidate": {"expected_writer": "pipelines/de_v4_candidate_writers.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-QA-072", "status": "covered"},
+    "revenue_at_risk_v4_candidate": {"expected_writer": "notebooks/da_v4_candidate_writers.ipynb", "owner_role": "@data-analyst", "owner_task": "P48-DA-V4-WRITERS-CHECKIN", "status": "missing"},
+    "span_hazard_features_v4_candidate": {"expected_writer": "ml_v4_candidate_writers.ipynb", "owner_role": "@ml-engineer", "owner_task": "P44-ML-HSI-BBS-GRAIN-FEATURES", "status": "missing"},
+    "path_diversity_conduit_v4_candidate": {"expected_writer": "pipelines/srlg_v4_candidate_derivation.ipynb", "owner_role": "@data-engineer", "owner_task": "BUG-QA-085", "status": "missing"},
+    "hazard_span_proximity_v4_candidate": {"expected_writer": "ml_v4_candidate_writers.ipynb", "owner_role": "@ml-engineer", "owner_task": "P48-ML-V4-WRITERS-CHECKIN", "status": "missing"}
   }
 }

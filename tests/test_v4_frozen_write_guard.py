@@ -379,6 +379,44 @@ def test_v4_candidates_have_versioned_writer():
     warnings.warn(msg)
 
 
+def _repo_text(rel: str, root: pathlib.Path = PROJECT_ROOT) -> str:
+    """Code text of a repo file: notebook code cells only (outputs/markdown ignored)."""
+    path = root / rel
+    if path.suffix == ".ipynb":
+        nb = json.loads(path.read_text())
+        return "\n".join(
+            "".join(c.get("source", "")) for c in nb.get("cells", []) if c.get("cell_type") == "code"
+        )
+    return path.read_text(errors="replace")
+
+
+def test_v4_candidate_writer_contains_literal_name():
+    """P48-DEVOPS-V4-WRITER-SOURCE-CI-CHECK (BUG-QA-085): BLOCKING, not gated on strict mode.
+
+    Every registered *_v4_candidate object (registry is refreshed from information_schema;
+    test_v4_candidate_registry_matches_live catches drift where Spark exists) must have its
+    expected_writer checked in, and that writer's code cells must contain the literal target
+    name. Readers (apps, dashboards) do not count. Catches tables built inline in agent
+    sessions whose writer notebook was never updated (reproducibility gate).
+    """
+    writers = load_v4_writers()
+    problems = []
+    for obj in sorted(load_v4_candidates()):
+        rel = writers.get(obj, {}).get("expected_writer")
+        owner = writers.get(obj, {})
+        tag = f"(owner {owner.get('owner_role', '?')}, {owner.get('owner_task', '?')})"
+        if not rel:
+            problems.append(f"{obj}: no expected_writer registered {tag}")
+        elif not (PROJECT_ROOT / rel).is_file():
+            problems.append(f"{obj}: expected_writer {rel} is not in the repo {tag}")
+        elif obj not in _repo_text(rel).lower():
+            problems.append(f"{obj}: {rel} has no code cell containing the literal name {tag}")
+    assert not problems, (
+        f"{len(problems)} v4 candidate object(s) cannot be reproduced from checked-in source:\n  "
+        + "\n  ".join(problems)
+    )
+
+
 def test_v4_candidate_registry_matches_live():
     pyspark_sql = pytest.importorskip("pyspark.sql")
     spark = pyspark_sql.SparkSession.getActiveSession()

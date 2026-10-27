@@ -109,6 +109,9 @@ jobs:
         run: pip install pytest
 
       - name: v4 freeze write guard + writer coverage (DEC-PRI-V4-SHADOW-BUILD)
+        # P48-DEVOPS-V4-WRITER-SOURCE-CI-CHECK: always fails if a registered *_v4_candidate object's
+        # expected_writer is missing or does not contain the literal object name (BUG-QA-085),
+        # regardless of PRI_V4_COVERAGE_STRICT.
         # Fails if any v4-scoped file writes to an object FROZEN in PRI-DEMO-FREEZE-v3,
         # or (strict mode) if any registered *_v4_candidate object lacks a versioned writer.
         run: |
