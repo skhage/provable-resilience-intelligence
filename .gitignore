@@ -153,3 +153,6 @@ docs/_build/
 
 # Workspace-only objects unsupported by Git folders (blocked commits; pending @repo-pruner removal)
 /ml_shap_sensitivity_analysis
+
+# P46-DEVOPS-REQS-DEPENDENCY-SCAN: never track built/downloaded wheels (CI installs only from requirements files)
+*.whl
