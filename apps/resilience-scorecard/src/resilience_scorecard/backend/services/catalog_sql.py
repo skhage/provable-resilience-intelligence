@@ -28,6 +28,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("resilience_scorecard.catalog_sql")
 
+
+class CatalogQueryError(RuntimeError):
+    """A live Statement Execution query failed (FAILED/CANCELED state or SDK exception).
+
+    BUG-QA-086: raised where the caller must tell "query failed" (503, data source
+    'unavailable') apart from "query succeeded with zero rows" (404 not found).
+    """
+
+
 # ---------------------------------------------------------------------------
 # Rating helpers (match mock_data.py exactly)
 # ---------------------------------------------------------------------------
@@ -1029,9 +1038,16 @@ class CatalogSqlService:
         return rows
 
     def get_service_diversity(self, service_id: str) -> dict | None:
-        """Return diversity status for a service."""
+        """Return diversity status for a service.
+
+        Returns None only when the query succeeded with zero rows (service not found).
+        Raises CatalogQueryError when the live query failed (BUG-QA-086), so the router
+        can answer 503 + X-PRI-Data-Source: unavailable instead of a false 404.
+        """
         rows = self._execute(_SERVICE_DIVERSITY_SQL, params={"service_id": service_id})
-        if rows is None or len(rows) == 0:
+        if rows is None:
+            raise CatalogQueryError(f"Diversity query failed for service {service_id}")
+        if len(rows) == 0:
             return None
         row = rows[0]
         working_hops = int(row.get("working_hops", 0) or 0)

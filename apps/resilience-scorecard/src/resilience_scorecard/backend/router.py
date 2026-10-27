@@ -554,13 +554,16 @@ def get_service_diversity(
 
     TOPOLOGY-VIS-SPEC §2.1 — diversity classification for path coloring.
     BUG-QA-080: 503 when the live query fails (distinct from 404 not-found).
+    BUG-QA-086: the service raises CatalogQueryError on a FAILED statement (or any
+    exception), which lands here as 503 + header 'unavailable'. 404 is returned only
+    when the query succeeded with zero rows.
     """
     if hasattr(csql, "is_available") and csql.is_available:
         try:
             div = csql.get_service_diversity(service_id)
         except Exception:
+            # Includes CatalogQueryError (FAILED/CANCELED statement or SDK error).
             logger.warning("Live diversity failed for %s", service_id, exc_info=True)
-            div = None
         else:
             if div is not None:
                 response.headers[DATA_SOURCE_HEADER] = "live"
