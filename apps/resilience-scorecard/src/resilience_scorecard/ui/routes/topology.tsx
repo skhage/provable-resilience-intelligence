@@ -16,9 +16,13 @@ import {
   BB_LEGEND_COVERAGE_LINE,
   BB_UNVERIFIED,
   METRO_ACCESS,
+  METRO_ACCESS_SPOKEN,
+  conduitEdgeDescribedBy,
+  conduitEdgeName,
   formatCount,
   hasBackboneSpans,
   isBackboneOnly,
+  panelSrlgMode,
   showBackboneUnverified,
   type BbSrlgCoverage,
 } from "@/lib/bb-srlg-disclosure";
@@ -700,6 +704,7 @@ function EdgeDetailPanel({
   const srlgGroups = Array.from(
     new Map(conduitSrlgs.map((s) => [s.srlg_id, s])).values()
   );
+  const srlgMode = panelSrlgMode(bbCoverage, conduit);
 
   return (
     <div
@@ -741,10 +746,17 @@ function EdgeDetailPanel({
           <p className="panel-bb-caveat">{BB_EDGE_CAVEAT}</p>
         )}
 
-        {srlgGroups.length > 0 && (
+        {/* BUG-DW-096: backbone-only + partial shows the caveat only, matching the suppressed map badge */}
+        {srlgGroups.length > 0 && srlgMode !== "caveat-only" && (
           <>
             <h4 className="panel-section-title">
               Shared Risk Groups ({srlgGroups.length})
+              {srlgMode === "qualified" && (
+                <>
+                  <span aria-hidden="true">{`\u00A0${METRO_ACCESS}`}</span>
+                  <span className="sr-only">{` ${METRO_ACCESS_SPOKEN}`}</span>
+                </>
+              )}
             </h4>
             {srlgGroups.map((s) => (
               <div key={s.srlg_id} className="panel-conduit-item">
@@ -1201,8 +1213,11 @@ function SiteGraph({
             style={hasSrlg ? { ["--srlg-color" as string]: edgeColor } : undefined}
             tabIndex={0}
             role="button"
-            aria-label={`Conduit ${c.conduit_id}: ${c.conduit_type}, ${c.length_km} km, ${c.span_count} spans${roleLabel}${srlgTypesHere.length ? ` (SRLG: ${srlgTypesHere.join(", ")}${srlgSevHere ? ` - ${srlgSevHere}` : ""})` : ""}. Press Enter for details.${bbPartial ? ` ${BB_EDGE_CAVEAT}` : ""}`}
-            aria-describedby={`conduit-desc-${c.conduit_id}`}
+            aria-label={conduitEdgeName(
+              `Conduit ${c.conduit_id}: ${c.conduit_type}, ${c.length_km} km, ${c.span_count} spans${roleLabel}${srlgTypesHere.length ? ` (SRLG: ${srlgTypesHere.join(", ")}${srlgSevHere ? ` - ${srlgSevHere}` : ""})` : ""}`,
+              bbPartial,
+            )}
+            aria-describedby={conduitEdgeDescribedBy(c.conduit_id, bbPartial)}
             onClick={() => onSelectConduit(isSelected ? null : c)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {

@@ -61,6 +61,37 @@ export function isBackboneOnly(c: EdgeSpanCounts): boolean {
   return hasBackboneSpans(c) && (c.backbone_span_count ?? 0) >= c.span_count;
 }
 
+/**
+ * BUG-DW-096 (1): what the conduit detail panel shows for its SRLG list.
+ * - "caveat-only": backbone-only conduit while partial. The map suppresses its badge, so the
+ *   panel must not list SRLGs either (WCAG 3.2.4). Only BB_EDGE_CAVEAT is shown.
+ * - "qualified": mixed conduit while partial. List kept, heading gets the (metro/access) qualifier.
+ * - "list": coverage complete or flag off (null). v3 behaviour, unchanged.
+ */
+export type PanelSrlgMode = "list" | "qualified" | "caveat-only";
+export function panelSrlgMode(coverage: BbSrlgCoverage | null, c: EdgeSpanCounts): PanelSrlgMode {
+  if (coverage !== "partial") return "list";
+  if (isBackboneOnly(c)) return "caveat-only";
+  if (hasBackboneSpans(c)) return "qualified";
+  return "list";
+}
+
+/**
+ * BUG-DW-096 (2): conduit edge accessible name. The caveat (with its closing period) comes
+ * before the instruction. With bbPartial false this is the v3 string, character for character.
+ */
+export function conduitEdgeName(base: string, bbPartial: boolean): string {
+  return `${base}.${bbPartial ? ` ${BB_EDGE_CAVEAT}.` : ""} Press Enter for details.`;
+}
+
+/**
+ * BUG-DW-096 (3): the <title> repeats the caveat for the hover tooltip, so edges that carry it
+ * drop aria-describedby (otherwise screen readers announce it twice).
+ */
+export function conduitEdgeDescribedBy(conduitId: string, bbPartial: boolean): string | undefined {
+  return bbPartial ? undefined : `conduit-desc-${conduitId}`;
+}
+
 /** §2.1: only diverse services crossing backbone get the second badge line. */
 export function showBackboneUnverified(
   coverage: BbSrlgCoverage | null,

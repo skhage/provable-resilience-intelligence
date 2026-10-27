@@ -176,7 +176,10 @@ def test_topology_surfaces_are_gated_on_coverage():
     t = _read("routes", "topology.tsx")
     assert 'bbCoverage === "partial" && (\n          <p className="legend-coverage-note">' in t
     assert 'if (bbCoverage === "partial" && isBackboneOnly(c)) return null;' in t
-    assert "Press Enter for details.${bbPartial ? ` ${BB_EDGE_CAVEAT}` : \"\"}" in t
+    # BUG-DW-096: caveat precedes the instruction; describedby dropped on caveat edges
+    assert "aria-label={conduitEdgeName(" in t
+    assert "aria-describedby={conduitEdgeDescribedBy(c.conduit_id, bbPartial)}" in t
+    assert "Press Enter for details.${bbPartial" not in t
     assert "showBackboneUnverified(bbCoverage" in t
     assert t.count("bbCoverage={bbCoverage}") == 5  # banner, graph, mobile, legend, edge panel
     assert "const bbCoverage = useBbSrlgCoverage();" in t
@@ -189,6 +192,81 @@ def test_hook_returns_null_when_flag_off():
     assert "if (!v4Kpis) return null;" in body
     assert 'bb_srlg_coverage === "complete" ? "complete" : "partial"' in body
     assert '["getResilienceSummary", {}]' in body
+
+
+# --- BUG-DW-096: panel/map consistency + single caveat announcement --------
+
+import json  # noqa: E402
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+
+NODE = shutil.which("node")
+_LIB = os.path.join(UI, "lib", "bb-srlg-disclosure.ts")
+
+
+def _node(expr):
+    """Evaluate a JS expression against the real TS module (Node >= 22.18 strips types)."""
+    js = (f"import * as m from {json.dumps('file://' + _LIB)};"
+          f"process.stdout.write(JSON.stringify({expr}));")
+    out = subprocess.run([NODE, "--input-type=module", "-e", js],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+needs_node = pytest.mark.skipif(NODE is None, reason="node not installed")
+BB_ONLY = "{span_count: 3, backbone_span_count: 3}"
+MIXED = "{span_count: 3, backbone_span_count: 1}"
+METRO = "{span_count: 3, backbone_span_count: 0}"
+CAVEAT = "Backbone span: shared-risk data not available"
+
+
+@needs_node
+@pytest.mark.parametrize("cov,edge,expected", [
+    ("'partial'", BB_ONLY, "caveat-only"),
+    ("'partial'", MIXED, "qualified"),
+    ("'partial'", METRO, "list"),
+    ("'complete'", BB_ONLY, "list"),
+    ("null", BB_ONLY, "list"),  # flag off: v3
+    ("null", MIXED, "list"),
+])
+def test_panel_srlg_mode(cov, edge, expected):
+    assert _node(f"m.panelSrlgMode({cov}, {edge})") == expected
+
+
+def test_panel_hides_srlg_list_for_backbone_only_and_qualifies_mixed():
+    t = _read("routes", "topology.tsx")
+    assert "const srlgMode = panelSrlgMode(bbCoverage, conduit);" in t
+    assert '{srlgGroups.length > 0 && srlgMode !== "caveat-only" && (' in t
+    assert '{srlgMode === "qualified" && (' in t
+    assert '<span aria-hidden="true">{`\\u00A0${METRO_ACCESS}`}</span>' in t
+    assert '<span className="sr-only">{` ${METRO_ACCESS_SPOKEN}`}</span>' in t
+    # caveat paragraph still rendered for any backbone conduit while partial
+    assert 'bbCoverage === "partial" && hasBackboneSpans(conduit) && (' in t
+
+
+@needs_node
+def test_edge_name_caveat_before_instruction_with_period():
+    name = _node("m.conduitEdgeName('Conduit C1: aerial, 2 km, 3 spans', true)")
+    assert name == f"Conduit C1: aerial, 2 km, 3 spans. {CAVEAT}. Press Enter for details."
+
+
+@needs_node
+def test_edge_name_flag_off_is_v3_string():
+    base = "Conduit C1: aerial, 2 km, 3 spans (SRLG: Shared conduit - high)"
+    assert _node(f"m.conduitEdgeName({json.dumps(base)}, false)") == f"{base}. Press Enter for details."
+
+
+@needs_node
+def test_caveat_announced_exactly_once():
+    """Computed name + description: the <title> (which repeats the caveat) is not referenced."""
+    got = _node("[m.conduitEdgeName('Conduit C1', true), m.conduitEdgeDescribedBy('C1', true) ?? null,"
+                " m.conduitEdgeDescribedBy('C1', false)]")
+    name, described_partial, described_v3 = got
+    title_text = f"C1: aerial · 2 km · 3 spans · {CAVEAT}"  # mirrors <title> markup
+    description = title_text if described_partial else ""
+    assert (name + " " + description).count(CAVEAT) == 1
+    assert described_v3 == "conduit-desc-C1"  # flag off / no backbone: unchanged
 
 
 BANNED_BB = re.compile(r"no shared risk|0 SRLGs", re.IGNORECASE)
