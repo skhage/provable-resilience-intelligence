@@ -305,12 +305,16 @@ SELECT
   ROUND(c.length_km, 1) AS length_km,
   c.site_a_id,
   c.site_z_id,
-  CAST(COALESCE(sp_cnt.cnt, 0) AS INT) AS span_count
+  CAST(COALESCE(sp_cnt.cnt, 0) AS INT) AS span_count,
+  -- P36-APP-V4-BB-SRLG-DISCLOSURE: backbone spans by span_id (conduit prefixes do NOT identify
+  -- backbone: CDT-BB-* conduits carry SPAN-* spans). v3: 90 BB-only conduits, 2 mixed.
+  CAST(COALESCE(sp_cnt.bb_cnt, 0) AS INT) AS backbone_span_count
 FROM physical_resource_conduit c
 JOIN geographic_site sa ON c.site_a_id = sa.site_id
 JOIN geographic_site sz ON c.site_z_id = sz.site_id
 LEFT JOIN (
-  SELECT conduit_id, COUNT(*) AS cnt
+  SELECT conduit_id, COUNT(*) AS cnt,
+         SUM(CASE WHEN span_id LIKE 'BB%' THEN 1 ELSE 0 END) AS bb_cnt
   FROM physical_resource_span WHERE is_active = TRUE
   GROUP BY conduit_id
 ) sp_cnt ON sp_cnt.conduit_id = c.conduit_id
@@ -338,6 +342,14 @@ SELECT
   MEASURE(`Total MRC USD`)      AS total_mrc_usd,
   MEASURE(`Total Services`)     AS total_services
 FROM {_MRC_PROTECTED_VIEW}
+"""
+# P36-APP-V4-BB-SRLG-DISCLOSURE (V4-KPI-COPY-SPEC §2): coverage is 'complete' only when the SRLG
+# table this app reads has backbone span rows (BB-* v3 / BBS-* v4). v3 shared_risk_group: 0 rows
+# (2026-10-27), so the UI shows the 'partial' caveat until the cutover points at BB-covered SRLGs.
+_BB_SRLG_COVERAGE_SQL = """
+SELECT CAST(COUNT(*) AS BIGINT) AS bb_srlg_rows
+FROM shared_risk_group
+WHERE span_id LIKE 'BB%'
 """
 _CONDUIT_COVERAGE_CLASSES = ("REAL_SEGMENTED", "BB_SEGMENTED", "BB_ONLY", "INVENTORY_ONLY")
 
@@ -427,7 +439,9 @@ SELECT
       JOIN service_path sp3 ON srg2.span_id = sp3.span_id
       WHERE sp3.service_id = si.service_id AND sp3.path_type = 'protect'
     )
-  ) AS shared_srlg_count
+  ) AS shared_srlg_count,
+  -- P36-APP-V4-BB-SRLG-DISCLOSURE: backbone spans are BB-* (v3) / BBS-* (v4 segments)
+  MAX(CASE WHEN sp.span_id LIKE 'BB%' THEN 1 ELSE 0 END) AS crosses_backbone
 FROM service_inventory si
 LEFT JOIN service_path sp ON si.service_id = sp.service_id
 LEFT JOIN physical_resource_span prs ON sp.span_id = prs.span_id
@@ -882,6 +896,7 @@ class CatalogSqlService:
             return None
         for r in rows:
             r["span_count"] = int(r.get("span_count", 0))
+            r["backbone_span_count"] = int(r.get("backbone_span_count", 0) or 0)
             r["length_km"] = float(r.get("length_km", 0))
         return rows
 
@@ -976,6 +991,9 @@ class CatalogSqlService:
             "working_conduits": int(row.get("working_conduits", 0) or 0),
             "protect_conduits": int(row.get("protect_conduits", 0) or 0),
             "shared_srlg_count": int(row.get("shared_srlg_count", 0) or 0),
+            "crosses_backbone": (
+                None if row.get("crosses_backbone") is None else int(row["crosses_backbone"]) > 0
+            ),
         }
 
     def get_srlgs_by_region(self, region: str) -> list[dict] | None:
@@ -1024,6 +1042,13 @@ class CatalogSqlService:
             "cancelled_count": int(row.get("cancelled_count", 0)),
             "critical_pending": int(row.get("critical_pending", 0)),
         }
+
+    def get_bb_srlg_coverage(self) -> str | None:
+        """'complete' if the SRLG table has backbone span rows, else 'partial'. None = unknown."""
+        rows = self._execute(_BB_SRLG_COVERAGE_SQL)
+        if not rows or rows[0].get("bb_srlg_rows") is None:
+            return None
+        return "complete" if int(rows[0]["bb_srlg_rows"]) > 0 else "partial"
 
     def get_mrc_protected(self) -> dict | None:
         """MRC Protected KPI from the v4 metric view (P36-APP-V4-MRC-PROTECTED-KPI).

@@ -91,6 +91,7 @@ apps/resilience-scorecard/
 | `RESILIENCE_SCORECARD_SCHEMA` | `provable_resilience_intelligence` | Schema with gold tables |
 | `RESILIENCE_SCORECARD_WAREHOUSE_ID` | `9cd919d96b11bf1c` | SQL warehouse for live queries |
 | `PRI_V4_KPIS` | `false` | Gates all V4-KPI-COPY-SPEC UI changes. Keep `false` until the @pm v4 cutover; off = v3 freeze UI |
+| `PRI_BB_SRLG_COVERAGE` | `auto` | Backbone SRLG disclosure state (spec §2), used only when `PRI_V4_KPIS=true`. `auto` = `complete` only if `shared_risk_group` has backbone (BB-*/BBS-*) span rows, otherwise `partial`. Unknown/error = `partial`. `partial`/`complete` force the state |
 
 ### MRC Protected (v4, `PRI_V4_KPIS=true`)
 

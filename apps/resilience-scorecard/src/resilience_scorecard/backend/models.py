@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -78,6 +79,12 @@ class ResilienceSummaryOut(BaseModel):
     total_single_point_failures: int
     total_srlg_groups: int
     total_revenue_at_risk_usd: float | None = Field(default=None, description="Sum of monthly revenue at risk across all services (USD)")
+    # P36-APP-V4-BB-SRLG-DISCLOSURE (V4-KPI-COPY-SPEC §2). Set only when PRI_V4_KPIS=true; null = v3 UI.
+    bb_srlg_coverage: Literal["complete", "partial"] | None = Field(
+        default=None,
+        description="'partial' while the SRLG table the app reads has no backbone (BB-*/BBS-*) span rows; "
+                    "'complete' once backbone shared-risk groups are present",
+    )
 
 
 class RiskDistributionOut(BaseModel):
@@ -263,6 +270,7 @@ class TopologyConduitOut(BaseModel):
     site_a_id: str = Field(description="A-end site")
     site_z_id: str = Field(description="Z-end site")
     span_count: int = Field(ge=0, description="Number of active spans in conduit")
+    backbone_span_count: int = Field(default=0, ge=0, description="Active backbone (BB-*/BBS-*) spans in conduit")
 
 
 # ---------------------------------------------------------------------------
@@ -352,6 +360,8 @@ class ServiceDiversityOut(BaseModel):
     working_conduits: int = Field(ge=0)
     protect_conduits: int = Field(ge=0)
     shared_srlg_count: int = Field(ge=0)
+    # P36-APP-V4-BB-SRLG-DISCLOSURE: any working/protect hop on a backbone span (BB-*/BBS-*).
+    crosses_backbone: bool | None = Field(default=None, description="True if any path hop crosses a backbone span")
 
 
 class SrlgMemberOut(BaseModel):

@@ -7,7 +7,16 @@ import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { useGetResilienceSummarySuspense, useV4Kpis } from "@/lib/api";
+import {
+  BB_SRLG_PARTIAL_TOOLTIP,
+  METRO_ACCESS,
+  SRLG_DEFINITION,
+  SRLG_SUBLINE,
+  formatCount,
+  type BbSrlgCoverage,
+} from "@/lib/bb-srlg-disclosure";
 import selector from "@/lib/selector";
 
 function scoreClass(score: number): string {
@@ -15,6 +24,32 @@ function scoreClass(score: number): string {
   if (score >= 60) return "warning";
   if (score >= 40) return "high";
   return "critical";
+}
+
+/**
+ * P36-APP-V4-BB-SRLG-DISCLOSURE (V4-KPI-COPY-SPEC §2.1/§2.2, §6.3, §6.4). Rendered only when
+ * PRI_V4_KPIS=true. The v3 card below stays byte-identical for the freeze.
+ */
+function SrlgGroupsV4Card({ total, coverage }: { total: number; coverage: BbSrlgCoverage }) {
+  const n = formatCount(total);
+  const partial = coverage === "partial";
+  const aria = partial
+    ? `SRLG Groups: ${n}, metro and access spans only`
+    : `SRLG Groups: ${n}, metro, access and backbone spans`;
+  return (
+    <div className="kpi-card" role="group" aria-label={aria}>
+      <div className="kpi-label kpi-label-row">
+        <span>SRLG Groups</span>
+        <InfoTooltip label="About SRLG Groups" text={partial ? BB_SRLG_PARTIAL_TOOLTIP : SRLG_DEFINITION} />
+      </div>
+      <div className="kpi-value">
+        {n}
+        {/* §6.3: same line, joined with a non-breaking space; speech comes from the card aria-label */}
+        {partial && <span className="kpi-sub">{`\u00A0${METRO_ACCESS}`}</span>}
+      </div>
+      <div className="kpi-caption">{SRLG_SUBLINE[coverage]}</div>
+    </div>
+  );
 }
 
 function ScorecardHeaderContent() {
@@ -54,11 +89,18 @@ function ScorecardHeaderContent() {
         <div className="kpi-label">Single-Point Failures</div>
         <div className="kpi-value">{summary.total_single_point_failures}</div>
       </div>
-      <div className="kpi-card"
-           role="group" aria-label={`SRLG Groups: ${summary.total_srlg_groups}`}>
-        <div className="kpi-label">SRLG Groups</div>
-        <div className="kpi-value">{summary.total_srlg_groups}</div>
-      </div>
+      {v4Kpis ? (
+        <SrlgGroupsV4Card
+          total={summary.total_srlg_groups}
+          coverage={summary.bb_srlg_coverage === "complete" ? "complete" : "partial"}
+        />
+      ) : (
+        <div className="kpi-card"
+             role="group" aria-label={`SRLG Groups: ${summary.total_srlg_groups}`}>
+          <div className="kpi-label">SRLG Groups</div>
+          <div className="kpi-value">{summary.total_srlg_groups}</div>
+        </div>
+      )}
       <div className="kpi-card"
            role="group" aria-label={`Monitored Services: ${summary.total_services}`}>
         <div className="kpi-label">Monitored Services</div>

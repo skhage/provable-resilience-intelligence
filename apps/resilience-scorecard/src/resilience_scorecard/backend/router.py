@@ -125,18 +125,37 @@ def list_resilience_scores(
     response_model=ResilienceSummaryOut,
     operation_id="getResilienceSummary",
 )
-def get_resilience_summary(csql: Dependencies.CatalogSql):
+def get_resilience_summary(csql: Dependencies.CatalogSql, config: Dependencies.Config):
     """Aggregate resilience summary for the dashboard header."""
+    summary = None
     if hasattr(csql, "is_available") and csql.is_available:
         try:
             summary = csql.get_summary()
-            if summary is not None:
-                return summary
         except Exception:
             logger.warning("Live summary failed, falling back to mock", exc_info=True)
+    if summary is None:
+        summary = generate_mock_summary(generate_mock_scores())
+    if getattr(config, "v4_kpis", False):
+        summary = {**summary, "bb_srlg_coverage": _resolve_bb_srlg_coverage(config, csql)}
+    return summary
 
-    scores = generate_mock_scores()
-    return generate_mock_summary(scores)
+
+def _resolve_bb_srlg_coverage(config, csql) -> str:
+    """V4-KPI-COPY-SPEC §2 state. Env override wins; auto derives from data; unknown = partial.
+
+    Conservative by design: the UI only drops the backbone caveat when coverage is proven.
+    """
+    override = str(getattr(config, "bb_srlg_coverage", "auto") or "auto").strip().lower()
+    if override in ("partial", "complete"):
+        return override
+    if hasattr(csql, "is_available") and csql.is_available and hasattr(csql, "get_bb_srlg_coverage"):
+        try:
+            state = csql.get_bb_srlg_coverage()
+            if state in ("partial", "complete"):
+                return state
+        except Exception:
+            logger.warning("BB SRLG coverage query failed; reporting partial", exc_info=True)
+    return "partial"
 
 
 @router.get(

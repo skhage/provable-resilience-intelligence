@@ -2309,3 +2309,44 @@ select:focus-visible,
   .info-tooltip { background: Canvas; color: CanvasText; border-color: CanvasText; }
   .kpi-caption { color: CanvasText; }
 }
+
+/* ==========================================================================
+   P36-APP-V4-BB-SRLG-DISCLOSURE — V4-KPI-COPY-SPEC §2.1 (rendered only when PRI_V4_KPIS=true
+   and bb_srlg_coverage=partial). Caveats are text in solid iron #4D4D4D (8.45:1 on white),
+   never colour/icon alone (SC 1.4.1); they wrap at 320px (SC 1.4.10).
+   ========================================================================== */
+.topo-legend .legend-coverage-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #4D4D4D;
+  max-width: 220px;
+  white-space: normal;
+}
+
+/* Second line inside the diversity badge. Inherits the badge colours (no new colour). */
+.diversity-badge-line2 {
+  display: block;
+  font-weight: 500;
+  text-transform: none;
+  white-space: normal;
+}
+
+.panel-bb-caveat {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #4D4D4D;
+}
+
+.mobile-tree-bb-unverified {
+  font-size: 12px;
+  font-weight: 500;
+  color: #4D4D4D;
+}
+
+@media (forced-colors: active) {
+  .topo-legend .legend-coverage-note,
+  .panel-bb-caveat,
+  .mobile-tree-bb-unverified { color: CanvasText; }
+}

@@ -37,6 +37,12 @@ class AppConfig(BaseSettings):
         default=False,
         validation_alias=AliasChoices("PRI_V4_KPIS", "RESILIENCE_SCORECARD_V4_KPIS"),
     )
+    # P36-APP-V4-BB-SRLG-DISCLOSURE (V4-KPI-COPY-SPEC §2): auto = derive from the SRLG table
+    # the app reads (any BB-*/BBS-* span rows -> complete). partial/complete force the UI state.
+    bb_srlg_coverage: str = Field(
+        default="auto",
+        validation_alias=AliasChoices("PRI_BB_SRLG_COVERAGE", "RESILIENCE_SCORECARD_BB_SRLG_COVERAGE"),
+    )
 
 
 # ---------------------------------------------------------------------------

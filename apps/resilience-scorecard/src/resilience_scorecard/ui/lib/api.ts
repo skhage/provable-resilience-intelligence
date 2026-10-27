@@ -11,6 +11,7 @@ import {
   useSuspenseQuery,
   type UseMutationOptions,
 } from "@tanstack/react-query";
+import type { BbSrlgCoverage } from "./bb-srlg-disclosure";
 
 // ---------------------------------------------------------------------------
 // Types (loose mirrors of backend/models.py — the backend is the source of truth)
@@ -268,6 +269,26 @@ export function useV4Kpis(): boolean {
     retry: false,
   });
   return data?.v4_kpis === true;
+}
+
+/**
+ * P36-APP-V4-BB-SRLG-DISCLOSURE (V4-KPI-COPY-SPEC §2). Backbone SRLG coverage state from
+ * ResilienceSummaryOut.bb_srlg_coverage. Returns null when PRI_V4_KPIS is off (v3 UI, no BB copy).
+ * With the flag on, anything other than an explicit "complete" (loading, error, missing) is
+ * "partial": the caveat is only removed once coverage is proven.
+ * Query key matches useGetResilienceSummarySuspense(selector()), so the header and topology share
+ * one cached request.
+ */
+export function useBbSrlgCoverage(): BbSrlgCoverage | null {
+  const v4Kpis = useV4Kpis();
+  const { data } = useQuery<ResilienceSummary>({
+    queryKey: ["getResilienceSummary", {}],
+    queryFn: () => request<ResilienceSummary>("GET", "/api/scores/summary"),
+    enabled: v4Kpis,
+    staleTime: 30_000,
+  });
+  if (!v4Kpis) return null;
+  return data?.bb_srlg_coverage === "complete" ? "complete" : "partial";
 }
 
 /** MRC Protected KPI. No retries: on 404/503 the card is hidden (never $0). */

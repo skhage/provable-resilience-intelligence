@@ -1,0 +1,212 @@
+"""P36-APP-V4-BB-SRLG-DISCLOSURE: bb_srlg_coverage state, crosses_backbone, backbone edges, UI copy.
+
+Spec: apps/V4-KPI-COPY-SPEC.md §2, §6.3, §6.4. Gated by PRI_V4_KPIS (default false).
+Project: Lakelink Fiber — Provable Resilience Intelligence
+"""
+
+import os
+import re
+import sys
+
+import pytest
+
+APP_SRC = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), os.pardir, "apps", "resilience-scorecard", "src")
+)
+if APP_SRC not in sys.path:
+    sys.path.insert(0, APP_SRC)
+
+from resilience_scorecard.backend import router as r  # noqa: E402
+from resilience_scorecard.backend.core import AppConfig  # noqa: E402
+from resilience_scorecard.backend.models import (  # noqa: E402
+    ResilienceSummaryOut,
+    ServiceDiversityOut,
+    TopologyConduitOut,
+)
+from resilience_scorecard.backend.services import catalog_sql as cs  # noqa: E402
+
+UI = os.path.join(APP_SRC, "resilience_scorecard", "ui")
+
+
+class _Cfg:
+    def __init__(self, v4, bb="auto"):
+        self.v4_kpis = v4
+        self.bb_srlg_coverage = bb
+
+
+class _Unavailable:
+    is_available = False
+
+
+class _Live:
+    """Stub CatalogSqlService: summary row + BB SRLG row count."""
+    is_available = True
+
+    def __init__(self, bb_rows=0, fail_bb=False):
+        self.bb_rows = bb_rows
+        self.fail_bb = fail_bb
+        self.sql = []
+
+    def _execute(self, sql, row_limit=12000, params=None):
+        self.sql.append(sql)
+        if "bb_srlg_rows" in sql:
+            if self.fail_bb:
+                raise RuntimeError("warehouse down")
+            return [{"bb_srlg_rows": self.bb_rows}]
+        return []
+
+    def get_summary(self):
+        return {
+            "total_services": 8000, "avg_resilience_score": 61.6, "critical_count": 848,
+            "high_risk_count": 1, "medium_risk_count": 1, "low_risk_count": 1,
+            "total_single_point_failures": 0, "total_srlg_groups": 809,
+            "total_revenue_at_risk_usd": 48.4e6,
+        }
+
+    def get_bb_srlg_coverage(self):
+        return cs.CatalogSqlService.get_bb_srlg_coverage(self)
+
+
+# --- config ---------------------------------------------------------------
+
+def test_override_defaults_auto(monkeypatch):
+    monkeypatch.delenv("PRI_BB_SRLG_COVERAGE", raising=False)
+    monkeypatch.delenv("RESILIENCE_SCORECARD_BB_SRLG_COVERAGE", raising=False)
+    assert AppConfig().bb_srlg_coverage == "auto"
+
+
+def test_override_reads_env(monkeypatch):
+    monkeypatch.setenv("PRI_BB_SRLG_COVERAGE", "complete")
+    assert AppConfig().bb_srlg_coverage == "complete"
+
+
+# --- summary state ----------------------------------------------------------
+
+def test_flag_off_summary_has_no_coverage_field():
+    out = r.get_resilience_summary(csql=_Live(bb_rows=0), config=_Cfg(False))
+    assert "bb_srlg_coverage" not in out
+    assert ResilienceSummaryOut(**out).bb_srlg_coverage is None
+
+
+def test_v3_data_reports_partial():
+    # Live v3 shared_risk_group has 0 BB-* rows (2026-10-27)
+    out = r.get_resilience_summary(csql=_Live(bb_rows=0), config=_Cfg(True))
+    assert out["bb_srlg_coverage"] == "partial"
+
+
+def test_bb_rows_report_complete():
+    out = r.get_resilience_summary(csql=_Live(bb_rows=41989), config=_Cfg(True))
+    assert ResilienceSummaryOut(**out).bb_srlg_coverage == "complete"
+
+
+@pytest.mark.parametrize("csql", [_Unavailable(), _Live(fail_bb=True)])
+def test_unknown_is_partial_never_complete(csql):
+    out = r.get_resilience_summary(csql=csql, config=_Cfg(True))
+    assert out["bb_srlg_coverage"] == "partial"
+
+
+@pytest.mark.parametrize("override,bb_rows,expected", [
+    ("partial", 41989, "partial"),
+    ("complete", 0, "complete"),
+    ("AUTO", 5, "complete"),
+    ("bogus", 0, "partial"),
+])
+def test_env_override(override, bb_rows, expected):
+    out = r.get_resilience_summary(csql=_Live(bb_rows=bb_rows), config=_Cfg(True, override))
+    assert out["bb_srlg_coverage"] == expected
+
+
+def test_coverage_sql_counts_backbone_spans_in_app_srlg_table():
+    sql = cs._BB_SRLG_COVERAGE_SQL
+    assert "FROM shared_risk_group" in sql and "span_id LIKE 'BB%'" in sql
+
+
+# --- diversity + conduits ---------------------------------------------------
+
+def test_diversity_sql_and_model_carry_crosses_backbone():
+    assert "AS crosses_backbone" in cs._SERVICE_DIVERSITY_SQL
+    m = ServiceDiversityOut(service_id="S", diversity_status="fully_diverse", working_hops=3,
+                            protect_hops=4, working_conduits=2, protect_conduits=2,
+                            shared_srlg_count=0, crosses_backbone=True)
+    assert m.crosses_backbone is True
+    assert ServiceDiversityOut(**(m.model_dump() | {"crosses_backbone": None})).crosses_backbone is None
+
+
+def test_topology_conduits_identify_backbone_by_span_not_conduit_prefix():
+    sql = cs._TOPOLOGY_CONDUITS_SQL
+    assert "backbone_span_count" in sql and "span_id LIKE 'BB%'" in sql
+    assert "conduit_id LIKE" not in sql
+    c = TopologyConduitOut(conduit_id="CDT-MT-1", conduit_type="underground", length_km=1,
+                           site_a_id="A", site_z_id="Z", span_count=1)
+    assert c.backbone_span_count == 0  # backward compatible default
+
+
+# --- UI copy / gating -------------------------------------------------------
+
+def _read(*parts):
+    with open(os.path.join(UI, *parts), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_disclosure_copy_verbatim():
+    t = _read("lib", "bb-srlg-disclosure.ts")
+    for s in (
+        "Backbone (BB-*) routes are modeled at long-haul grain. Their shared-risk groups ship in a "
+        "later build, so diversity on backbone hops is not yet verified.",
+        "Groups of spans that share a physical risk, such as a conduit, bridge or central office.",
+        '"Metro/access spans only"', '"Metro, access and backbone"',
+        "Coverage: metro/access spans. Backbone not yet included.",
+        "Backbone span: shared-risk data not available", '"Backbone unverified"',
+        '"(metro/access)"', "\\u00A0",
+    ):
+        assert s in t, s
+
+
+def test_header_v3_card_preserved_and_v4_card_gated():
+    t = _read("components", "dashboard", "scorecard-header.tsx")
+    # v3 freeze markup is untouched in the flag-off branch
+    assert '<div className="kpi-label">SRLG Groups</div>' in t
+    assert 'aria-label={`SRLG Groups: ${summary.total_srlg_groups}`}' in t
+    assert "{v4Kpis ? (" in t and "<SrlgGroupsV4Card" in t
+    assert "SRLG Groups: ${n}, metro and access spans only" in t
+    assert 'label="About SRLG Groups"' in t
+
+
+def test_topology_surfaces_are_gated_on_coverage():
+    t = _read("routes", "topology.tsx")
+    assert 'bbCoverage === "partial" && (\n          <p className="legend-coverage-note">' in t
+    assert 'if (bbCoverage === "partial" && isBackboneOnly(c)) return null;' in t
+    assert "Press Enter for details.${bbPartial ? ` ${BB_EDGE_CAVEAT}` : \"\"}" in t
+    assert "showBackboneUnverified(bbCoverage" in t
+    assert t.count("bbCoverage={bbCoverage}") == 5  # banner, graph, mobile, legend, edge panel
+    assert "const bbCoverage = useBbSrlgCoverage();" in t
+
+
+def test_hook_returns_null_when_flag_off():
+    t = _read("lib", "api.ts")
+    body = t[t.index("export function useBbSrlgCoverage"):]
+    body = body[: body.index("\n}\n")]
+    assert "if (!v4Kpis) return null;" in body
+    assert 'bb_srlg_coverage === "complete" ? "complete" : "partial"' in body
+    assert '["getResilienceSummary", {}]' in body
+
+
+BANNED_BB = re.compile(r"no shared risk|0 SRLGs", re.IGNORECASE)
+
+
+def test_never_claims_no_shared_risk():
+    hits = []
+    for root, _d, files in os.walk(UI):
+        for name in files:
+            if name.endswith((".ts", ".tsx")):
+                with open(os.path.join(root, name), encoding="utf-8") as f:
+                    for i, line in enumerate(f, 1):
+                        if BANNED_BB.search(line) and "Never" not in line:
+                            hits.append(f"{name}:{i}")
+    assert hits == []
+
+
+def test_no_customer_real_name_in_new_files():
+    for parts in (("lib", "bb-srlg-disclosure.ts"), ("routes", "topology.tsx"),
+                  ("components", "dashboard", "scorecard-header.tsx")):
+        assert "lumen" not in _read(*parts).lower()

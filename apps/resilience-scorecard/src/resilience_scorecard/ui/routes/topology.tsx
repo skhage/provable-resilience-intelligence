@@ -10,6 +10,18 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
 import { LoadingRegion } from "@/components/ui/loading-region";
+import { useBbSrlgCoverage } from "@/lib/api";
+import {
+  BB_EDGE_CAVEAT,
+  BB_LEGEND_COVERAGE_LINE,
+  BB_UNVERIFIED,
+  METRO_ACCESS,
+  formatCount,
+  hasBackboneSpans,
+  isBackboneOnly,
+  showBackboneUnverified,
+  type BbSrlgCoverage,
+} from "@/lib/bb-srlg-disclosure";
 
 // ---------------------------------------------------------------------------
 // Viewport width hook (§6.2 — Mobile tree fallback below 768px)
@@ -142,6 +154,8 @@ interface ConduitEdge {
   site_a_id: string;
   site_z_id: string;
   span_count: number;
+  /** P36-APP-V4-BB-SRLG-DISCLOSURE: active backbone spans (BB- / BBS- ids) in this conduit */
+  backbone_span_count?: number;
 }
 
 interface Overlays {
@@ -174,6 +188,8 @@ interface ServiceDiversity {
   working_hops: number;
   protect_hops: number;
   shared_srlg_count: number;
+  /** P36-APP-V4-BB-SRLG-DISCLOSURE: any hop on a backbone span */
+  crosses_backbone?: boolean | null;
 }
 
 interface SrlgMember {
@@ -422,7 +438,16 @@ function Toolbar({
 // Legend component (§8)
 // ---------------------------------------------------------------------------
 
-function Legend({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+function Legend({
+  collapsed,
+  onToggle,
+  bbCoverage = null,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  /** P36-APP-V4-BB-SRLG-DISCLOSURE: null = PRI_V4_KPIS off (v3 legend) */
+  bbCoverage?: BbSrlgCoverage | null;
+}) {
   if (collapsed) {
     return (
       <div className="topo-legend" role="region" aria-label="Graph legend">
@@ -528,6 +553,10 @@ function Legend({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => v
           </svg>
           Double ring = critical severity
         </div>
+        {/* V4-KPI-COPY-SPEC §2.1: last line of the section, 12px solid iron */}
+        {bbCoverage === "partial" && (
+          <p className="legend-coverage-note">{BB_LEGEND_COVERAGE_LINE}</p>
+        )}
       </div>
 
       {/* BUG-DW-070: hazard severity — ring stroke pattern + width, grayscale-safe */}
@@ -652,11 +681,13 @@ function EdgeDetailPanel({
   srlgs,
   hazards,
   onClose,
+  bbCoverage = null,
 }: {
   conduit: ConduitEdge;
   srlgs: SrlgMember[];
   hazards: HazardOverlay[];
   onClose: () => void;
+  bbCoverage?: BbSrlgCoverage | null;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -705,6 +736,10 @@ function EdgeDetailPanel({
           <span className="detail-label">Spans</span>
           <span>{conduit.span_count}</span>
         </div>
+        {/* V4-KPI-COPY-SPEC §2.1: backbone spans state missing data, not absence of risk */}
+        {bbCoverage === "partial" && hasBackboneSpans(conduit) && (
+          <p className="panel-bb-caveat">{BB_EDGE_CAVEAT}</p>
+        )}
 
         {srlgGroups.length > 0 && (
           <>
@@ -777,12 +812,16 @@ function PathTraceBanner({
   diversity,
   hops,
   onClear,
+  bbCoverage = null,
 }: {
   serviceId: string;
   diversity: ServiceDiversity | null;
   hops: PathHop[];
   onClear: () => void;
+  bbCoverage?: BbSrlgCoverage | null;
 }) {
+  // V4-KPI-COPY-SPEC §2.1: diverse services crossing backbone get a text second line (no new color)
+  const bbUnverified = showBackboneUnverified(bbCoverage, diversity?.diversity_status, diversity?.crosses_backbone);
   const workingHops = hops.filter((h) => h.path_type === "working");
   const protectHops = hops.filter((h) => h.path_type === "protect");
   const divColor = diversity
@@ -801,8 +840,17 @@ function PathTraceBanner({
             const badge = DIVERSITY_BADGE_STYLES[diversity?.diversity_status ?? "unknown"] ?? DIVERSITY_BADGE_STYLES.unknown;
             return { background: badge.bg, color: badge.text, borderColor: badge.border };
           })()}
+          {...(bbUnverified
+            ? { role: "group", "aria-label": `Diversity: ${divLabel}, ${BB_UNVERIFIED}` }
+            : {})}
         >
           {divLabel}
+          {bbUnverified && (
+            <>
+              <span className="sr-only">, </span>
+              <span className="diversity-badge-line2">{BB_UNVERIFIED}</span>
+            </>
+          )}
         </span>
         <span className="mono" style={{ fontWeight: 600 }}>
           {serviceId}
@@ -811,7 +859,9 @@ function PathTraceBanner({
           {workingHops.length} working hops
           {protectHops.length > 0 ? ` · ${protectHops.length} protect hops` : " · no protect path"}
           {diversity && diversity.shared_srlg_count > 0
-            ? ` · ${diversity.shared_srlg_count} shared SRLGs`
+            ? bbCoverage
+              ? ` · ${formatCount(diversity.shared_srlg_count)} shared SRLGs${bbCoverage === "partial" ? `\u00A0${METRO_ACCESS}` : ""}`
+              : ` · ${diversity.shared_srlg_count} shared SRLGs`
             : ""}
         </span>
       </div>
@@ -1012,7 +1062,9 @@ function SiteGraph({
   hazards,
   overlays,
   diversity,
+  bbCoverage = null,
 }: {
+  bbCoverage?: BbSrlgCoverage | null;
   sites: SiteNode[];
   conduits: ConduitEdge[];
   onSelectSite: (site: SiteNode | null) => void;
@@ -1088,7 +1140,10 @@ function SiteGraph({
         if (!pa || !pz) return null;
 
         const isOnPath = hasPathTrace && pathConduitIds.has(c.conduit_id);
-        const hasSrlg = overlays.srlg && srlgByConduit.has(c.conduit_id);
+        // V4-KPI-COPY-SPEC §2.1: backbone-only edges never get an SRLG badge/colour while partial
+        const bbPartial = bbCoverage === "partial" && hasBackboneSpans(c);
+        const bbNoBadge = bbCoverage === "partial" && isBackboneOnly(c);
+        const hasSrlg = overlays.srlg && srlgByConduit.has(c.conduit_id) && !bbNoBadge;
         const isSelected = selectedConduitId === c.conduit_id;
 
         // Determine working vs protect for this conduit in the trace
@@ -1146,7 +1201,7 @@ function SiteGraph({
             style={hasSrlg ? { ["--srlg-color" as string]: edgeColor } : undefined}
             tabIndex={0}
             role="button"
-            aria-label={`Conduit ${c.conduit_id}: ${c.conduit_type}, ${c.length_km} km, ${c.span_count} spans${roleLabel}${srlgTypesHere.length ? ` (SRLG: ${srlgTypesHere.join(", ")}${srlgSevHere ? ` - ${srlgSevHere}` : ""})` : ""}. Press Enter for details.`}
+            aria-label={`Conduit ${c.conduit_id}: ${c.conduit_type}, ${c.length_km} km, ${c.span_count} spans${roleLabel}${srlgTypesHere.length ? ` (SRLG: ${srlgTypesHere.join(", ")}${srlgSevHere ? ` - ${srlgSevHere}` : ""})` : ""}. Press Enter for details.${bbPartial ? ` ${BB_EDGE_CAVEAT}` : ""}`}
             aria-describedby={`conduit-desc-${c.conduit_id}`}
             onClick={() => onSelectConduit(isSelected ? null : c)}
             onKeyDown={(e) => {
@@ -1158,6 +1213,7 @@ function SiteGraph({
           >
             <title id={`conduit-desc-${c.conduit_id}`}>
               {c.conduit_id}: {c.conduit_type} · {c.length_km} km · {c.span_count} spans
+              {bbPartial ? ` · ${BB_EDGE_CAVEAT}` : ""}
             </title>
           </line>
         );
@@ -1168,6 +1224,7 @@ function SiteGraph({
         <g className="srlg-badge-layer" aria-hidden="true">
           {conduits.map((c) => {
             if (!srlgByConduit.has(c.conduit_id)) return null;
+            if (bbCoverage === "partial" && isBackboneOnly(c)) return null; // §2.1: no BB badge
             const pa = positions.get(c.site_a_id);
             const pz = positions.get(c.site_z_id);
             if (!pa || !pz) return null;
@@ -1365,6 +1422,7 @@ interface MobileTreeProps {
   overlays: Overlays;
   diversity: ServiceDiversity | null;
   tracedServiceId: string | null;
+  bbCoverage?: BbSrlgCoverage | null;
 }
 
 function MobileTreeView({
@@ -1374,6 +1432,7 @@ function MobileTreeView({
   overlays,
   diversity,
   tracedServiceId,
+  bbCoverage = null,
 }: MobileTreeProps) {
   const [expandedRegions, setExpandedRegions] = useState<Set<string>>(
     new Set()
@@ -1735,6 +1794,12 @@ function MobileTreeView({
         <div className="mobile-tree-diversity-summary" role="status">
           <strong>Tracing:</strong> {tracedServiceId}
           {diversityBadge(diversity.diversity_status)}
+          {showBackboneUnverified(bbCoverage, diversity.diversity_status, diversity.crosses_backbone) && (
+            <span className="mobile-tree-bb-unverified">
+              <span className="sr-only">, </span>
+              {BB_UNVERIFIED}
+            </span>
+          )}
         </div>
       )}
 
@@ -1837,6 +1902,8 @@ function TopologyPage() {
     hazard: false,
   });
   const [legendCollapsed, setLegendCollapsed] = useState(false);
+  // P36-APP-V4-BB-SRLG-DISCLOSURE: null when PRI_V4_KPIS is off (v3 freeze UI)
+  const bbCoverage = useBbSrlgCoverage();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -2024,6 +2091,7 @@ function TopologyPage() {
           diversity={diversity}
           hops={pathHops}
           onClear={handleClearTrace}
+          bbCoverage={bbCoverage}
         />
       )}
 
@@ -2065,6 +2133,7 @@ function TopologyPage() {
               overlays={overlays}
               diversity={diversity}
               tracedServiceId={tracedServiceId}
+              bbCoverage={bbCoverage}
             />
           )}
           {!loading && regions.length === 0 && (
@@ -2110,6 +2179,7 @@ function TopologyPage() {
               hazards={hazards}
               overlays={overlays}
               diversity={diversity}
+              bbCoverage={bbCoverage}
             />
           )}
 
@@ -2136,6 +2206,7 @@ function TopologyPage() {
           <Legend
             collapsed={legendCollapsed}
             onToggle={() => setLegendCollapsed((c) => !c)}
+            bbCoverage={bbCoverage}
           />
 
           {/* Site detail panel (§5.1) */}
@@ -2154,6 +2225,7 @@ function TopologyPage() {
               srlgs={srlgs}
               hazards={hazards}
               onClose={() => setSelectedConduit(null)}
+              bbCoverage={bbCoverage}
             />
           )}
         </div>
