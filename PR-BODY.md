@@ -1,7 +1,32 @@
 # PR: devops/session-25-hygiene -> main (Lakelink Fiber Provable Resilience Intelligence)
 
 **Open in one click:** https://github.com/skhage/provable-resilience-intelligence/compare/main...devops/session-25-hygiene?expand=1
-Paste this file as the PR description. Prepared by @devops for P39-DEVOPS-V4-CANDIDATE-CODE-COVERAGE, refreshed for P41-DEVOPS-GUARD-COMMIT-AND-STRICT-CI (2026-10-26).
+Paste this file as the PR description. Prepared by @devops for P39-DEVOPS-V4-CANDIDATE-CODE-COVERAGE, refreshed for P41-DEVOPS-GUARD-COMMIT-AND-STRICT-CI (2026-10-26) and P55-DEVOPS-V4-CUTOVER-PR-PREP (2026-10-28).
+
+> **Open as a DRAFT PR.** Do not merge before the CEO-gated writes (BUG-QA-073, P36) land and step 16 below is done. Target: 2026-10-30 (DEC-PRI-V4-CUTOVER-TARGET-1030).
+
+## v4 cutover checklist (P55, ordered)
+
+This list is generated from `ops/v4_cutover_runbook.py` `CHECKLIST`. To see live status, run `rb.dry_run(spark, cur)`; it is read-only.
+
+| # | Phase | Owner | Action | Gate tasks | Status 2026-10-28 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | PRE | CEO | BUG-QA-073 HSI re-derive on BBS-* segments | BUG-QA-073 | OPEN (CEO esc #42) |
+| 2 | PRE | CEO | P36 v4 shadow rescore write | P36-ML-V4-RESCORE-CONDUIT-DIVERSITY | OPEN (blocked) |
+| 3 | PRE | @ml-engineer | span_risk_predictions_v4 at BBS grain | BUG-DP-073, P44-ML, BUG-QA-087 | OPEN |
+| 4 | PRE | @data-engineer | proactive_action_v4_candidate | P52-DE, P52-QA | OPEN |
+| 5 | PRE | @data-analyst | diversity_coverage_v4 MV, kpi_delta, HSI KPI audit | P51-DA, P39-DA, BUG-QA-082, P44-DA | OPEN |
+| 6 | PRE | @data-planner | Re-pin HSI-dependent objects (non-HSI re-pin done in P37) | P48-DP, BUG-DP-071 | OPEN |
+| 7-10 | PRE | @qa | Gates (a) manifest, (b) HSI/predictions, (c) SRLG, (d) bands | P37-QA, P51-QA-087/P38-QA/P36-QA, P51-QA, P50-QA | (c) DONE, others OPEN |
+| 11 | PRE | @pm | Record DEC-PRI-V4-CUTOVER-GO | decision | OPEN |
+| 12 | PROMOTE | @pm-assigned | Runbook items a..i | dry run all READY | 10/23 READY |
+| 13 | POST | @data-engineer | Informational PK/FK on v4 tables only | P43-DE | OPEN |
+| 14 | POST | @data-analyst | P30 Genie/dashboard repoint, P51 diversity repoint | P30-DA | OPEN |
+| 15 | POST | @app-developer | Flip `PRI_V4_KPIS=true`, designer re-smoke | P36-APP-CONDUIT, P37-DESIGN | OPEN |
+| 16 | POST | @devops | Bundle pipeline sync (BUG-QA-070 recipe), guard snapshot refresh, CI green, merge | P43-DEVOPS | OPEN (freeze-gated) |
+| 17 | POST | @data-planner | Capture PRI-DEMO-FREEZE-v4, supersede v3 + DRAFT | manual | OPEN |
+
+Runbook fixes in P55: `PIN_DRIFT` now fires only when a data-changing commit lands AFTER the pin. Pins at later comment-only versions (the P37 SRLG re-pin) no longer count as drift. BUG-QA-082 was moved off step (c), per the P51-QA matrix correction. Result: steps a, b, b2 and c (10 items) are READY, and the 11 blocking items sit in d-h.
 
 ## Summary
 

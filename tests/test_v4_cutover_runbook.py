@@ -59,6 +59,27 @@ def test_execute_refuses_by_default(monkeypatch):
         rb.execute(spark=None, cur=None, write_enabled=True)
 
 
+def test_cutover_checklist_order_p55():
+    """P55: CEO writes first, then QA gates + GO, promotion, then post steps; bundle sync last-but-one."""
+    orders = [c[0] for c in rb.CHECKLIST]
+    assert orders == sorted(orders) and len(set(orders)) == len(orders)
+    phases = [c[1] for c in rb.CHECKLIST]
+    assert phases == sorted(phases, key=["PRE", "PROMOTE", "POST"].index)
+    assert rb.CHECKLIST[0][1:3] == ("PRE", "CEO") and "BUG-QA-073" in rb.CHECKLIST[0][4]
+    gates = {g for c in rb.CHECKLIST for g in c[4]}
+    for code in ("P36-ML-V4-RESCORE-CONDUIT-DIVERSITY", "P43-DE-V4-PK-FK-CONSTRAINTS",
+                 "P30-DA-GENIE-MRC-PROTECTED-CUTOVER", "P51-DA-V4-DIVERSITY-COVERAGE-MV",
+                 "P43-DEVOPS-BUNDLE-PIPELINE-SYNC"):
+        assert code in gates, code
+    assert any("PRI_V4_KPIS" in c[3] for c in rb.CHECKLIST if c[1] == "POST")
+    assert all("Lumen" not in c[3] for c in rb.CHECKLIST)
+    assert rb.checklist_status(None)[0]["gates"] == {"BUG-QA-073": "UNKNOWN"}
+
+
+def test_bug_qa_082_not_gating_step_c():
+    assert all("BUG-QA-082" not in i.owner_gate for i in rb.RUNBOOK if i.step == "c")
+
+
 def test_data_change_rule():
     assert rb._is_data_change("WRITE") and rb._is_data_change("CREATE OR REPLACE TABLE AS SELECT")
     assert rb._is_data_change("MERGE") and rb._is_data_change("RESTORE")

@@ -74,7 +74,8 @@ RUNBOOK: list[Item] = [
     # DEC-PRI-V4-TELEMETRY-IN-CUTOVER: 63,196 BB->BBS span_id remaps; must follow (b).
     Item("b2", "resource_alarm", _c("resource_alarm"), "DEC-PRI-V4-TELEMETRY-IN-CUTOVER"),
     Item("b2", "resource_performance_measure", _c("resource_performance_measure"), "DEC-PRI-V4-TELEMETRY-IN-CUTOVER"),
-    Item("c", "derived_srlg_shared_conduit", _c("derived_srlg_shared_conduit"), "P43-QA-RECHECK-SRLG-V4-GATES-POST-073; BUG-QA-082"),
+    # P51-QA matrix correction: BUG-QA-082 (kpi_delta) gates step (h), not (c).
+    Item("c", "derived_srlg_shared_conduit", _c("derived_srlg_shared_conduit"), "P43-QA-RECHECK-SRLG-V4-GATES-POST-073"),
     Item("c", "derived_srlg_common_site", _c("derived_srlg_common_site"), "P43-QA-RECHECK-SRLG-V4-GATES-POST-073"),
     Item("c", "derived_srlg_shared_route", _c("derived_srlg_shared_route"), "P43-QA-RECHECK-SRLG-V4-GATES-POST-073"),
     Item("c", "derived_srlg_geo_proximity", _c("derived_srlg_geo_proximity"), "P43-QA-RECHECK-SRLG-V4-GATES-POST-073"),
@@ -94,6 +95,48 @@ RUNBOOK: list[Item] = [
     Item("h", "kpi_delta_attribution", _c("kpi_delta_attribution"), "P39-DA; BUG-QA-082", "report_only"),
     Item("i", "schema_health_scorecard", None, "post-cutover regenerate", "regenerate"),
 ]
+
+# P55-DEVOPS-V4-CUTOVER-PR-PREP: ordered end-to-end checklist (DEC-PRI-V4-CUTOVER-TARGET-1030).
+# (order, phase, owner, action, gate task codes that must be completed first).
+# PRE = before any promotion, PROMOTE = RUNBOOK items a..i above, POST = after promotion.
+CHECKLIST: list[tuple] = [
+    (1, "PRE", "CEO", "Run the BUG-QA-073 HSI re-derive on BBS-* segments (interactive, dry run PASS QA S40)", ("BUG-QA-073",)),
+    (2, "PRE", "CEO", "Run the P36 v4 shadow rescore write (dry run PASS P49-QA)", ("P36-ML-V4-RESCORE-CONDUIT-DIVERSITY",)),
+    (3, "PRE", "@ml-engineer", "Rebuild span_risk_predictions_v4 at BBS grain + HSI-grain features", ("BUG-DP-073", "P44-ML-HSI-BBS-GRAIN-FEATURES", "BUG-QA-087")),
+    (4, "PRE", "@data-engineer", "Build proactive_action_v4_candidate (ACT-RULE-v1)", ("P52-DE-V4-PROACTIVE-ACTION-CANDIDATE", "P52-QA-VERIFY-P52-DE-DRYRUN")),
+    (5, "PRE", "@data-analyst", "Build diversity_coverage_v4 MV; finalize kpi_delta; HSI-grain KPI audit", ("P51-DA-V4-DIVERSITY-COVERAGE-MV", "P39-DA-V4-KPI-DELTA-FINALIZE", "BUG-QA-082", "P44-DA-HSI-BBS-KPI-GRAIN-AUDIT")),
+    (6, "PRE", "@data-planner", "Re-pin HSI-dependent objects in PRI-DEMO-FREEZE-v4-DRAFT (non-HSI re-pin done in P37)", ("P48-DP-V4-REPIN-HSI-DEPENDENT", "BUG-DP-071")),
+    (7, "PRE", "@qa", "QA gate (a) draft manifest verify", ("P37-QA-VERIFY-V4-DRAFT-MANIFEST",)),
+    (8, "PRE", "@qa", "QA gate (b) HSI/prediction re-verify after the CEO writes", ("P51-QA-VERIFY-BUG-QA-087", "P38-QA-VERIFY-BUG-DP-071", "P36-QA-VERIFY-BUG-DP-070")),
+    (9, "PRE", "@qa", "QA gate (c) SRLG data gates (CONDITIONAL PASS, P51-QA)", ("P51-QA-VERIFY-CUTOVER-READINESS",)),
+    (10, "PRE", "@qa", "QA gate (d) band recalibration verify", ("P50-QA-VERIFY-V4-BAND-RECALIBRATION",)),
+    (11, "PRE", "@pm", "Record DEC-PRI-V4-CUTOVER-GO (decided) and assign the execution task", ()),
+    (12, "PROMOTE", "@pm-assigned", "Runbook items a..i in order (dry_run all READY, then execute)", ()),
+    (13, "POST", "@data-engineer", "Informational PK/FK constraints on promoted v4 tables (DEC-PRI-UC-CONSTRAINTS), never v3", ("P43-DE-V4-PK-FK-CONSTRAINTS",)),
+    (14, "POST", "@data-analyst", "P30 Genie + exec dashboard repoint to MRC Protected; P51 diversity coverage repoint", ("P30-DA-GENIE-MRC-PROTECTED-CUTOVER",)),
+    (15, "POST", "@app-developer", "Flip app flag PRI_V4_KPIS=true; @designer re-smoke", ("P36-APP-V4-CONDUIT-COVERAGE-FILTER", "P37-DESIGN-VERIFY-V4-KPI")),
+    (16, "POST", "@devops", "Bundle pipeline sync (BUG-QA-070 6-step recipe) + guard snapshot refresh; CI green; merge PR", ("P43-DEVOPS-BUNDLE-PIPELINE-SYNC",)),
+    (17, "POST", "@data-planner", "Capture PRI-DEMO-FREEZE-v4; mark v3 + v4-DRAFT rows SUPERSEDED", ()),
+]
+
+
+def checklist_status(cur) -> list:
+    """Read-only: status of every gate task in CHECKLIST from Lakebase agent_tasks."""
+    codes = sorted({c for row in CHECKLIST for c in row[4]})
+    status = {}
+    if cur is not None and codes:
+        cur.execute("SELECT task_code, status FROM agent_tasks WHERE task_code = ANY(%s)", (codes,))
+        status = dict(cur.fetchall())
+    out = []
+    for order, phase, owner, action, gates in CHECKLIST:
+        g = {c: status.get(c, "UNKNOWN") for c in gates}
+        if order == 11:  # GO is a Lakebase decision, not a task
+            done = _decided(cur, GO_DECISION)
+        else:  # no gate task = manual step, never auto-DONE
+            done = bool(g) and all(v == "completed" for v in g.values())
+        out.append({"order": order, "phase": phase, "owner": owner, "action": action, "gates": g, "done": done})
+    return out
+
 
 POST_STEPS = [
     "P1 Apply informational PK/FK constraints on promoted v4 core tables (DEC-PRI-UC-CONSTRAINTS, @data-engineer P43-DE-V4-PK-FK-CONSTRAINTS). NEVER on v3.",
@@ -224,7 +267,9 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
             verdict = "UNPINNED"
         elif d["draft_status"] == "V4_CANDIDATE_WIP":
             verdict = "WIP_PIN"
-        elif d.get("cand_data_ver") is not None and d["draft_pin"] is not None and d["cand_data_ver"] != d["draft_pin"]:
+        # Drift = a data-changing commit AFTER the pin. A pin above the latest data version is
+        # a comment/property-only commit (P37 pinned latest to capture BUG-QA-081 comments): same data.
+        elif d.get("cand_data_ver") is not None and d["draft_pin"] is not None and d["cand_data_ver"] > d["draft_pin"]:
             verdict = "PIN_DRIFT"
         elif gates_open:
             verdict = "GATE_OPEN"
@@ -265,6 +310,10 @@ def print_report(findings: list, cur=None) -> None:
             print("      ROLLBACK :", s)
     for p in POST_STEPS:
         print("   POST:", p)
+    for c in checklist_status(cur):
+        open_g = [k for k, v in c["gates"].items() if v != "completed"]
+        print(f"   CHECK {c['order']:>2} {c['phase']:<7} {c['owner']:<15} {'DONE' if c['done'] else 'OPEN'}  "
+              f"{c['action']}  open_gates={open_g}")
     print("SUMMARY:", summary(findings, cur))
 
 
