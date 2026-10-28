@@ -137,7 +137,8 @@ def test_nonlive_banner_has_no_badge_no_hop_stats_but_retry_and_clear():
     blk = _banner_nonlive_block(_read("routes", "topology.tsx"))
     assert "diversity-badge" not in blk
     assert "path-trace-stats" not in blk and "protect" not in blk.lower()
-    assert 'role="status"' in blk
+    # BUG-DW-105: role="status" moved to a persistent sr-only region outside PathTraceBanner
+    # The non-live block now uses aria-busy on the container instead
     assert "path-trace-retry" in blk and 'mode === "unavailable"' in blk
     assert "Clear trace" in blk
 

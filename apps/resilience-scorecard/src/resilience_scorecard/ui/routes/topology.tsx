@@ -29,9 +29,11 @@ import {
 // BUG-DW-098: live | unavailable | not_found per fetch (X-PRI-Data-Source / 503 / 404)
 import {
   RETRY_LABEL,
+  RETRYING_LABEL,
   fetchWithState,
   showSrlgUnavailable,
   srlgUnavailableMsg,
+  stillUnavailableMsg,
   traceBannerMessage,
   traceBannerMode,
   type DataState,
@@ -861,6 +863,9 @@ function PathTraceBanner({
   bbCoverage = null,
   mode = "live",
   onRetry,
+  busy = false,
+  retryFeedback = null,
+  bannerRef,
 }: {
   serviceId: string;
   diversity: ServiceDiversity | null;
@@ -870,25 +875,43 @@ function PathTraceBanner({
   /** BUG-DW-098: unavailable/not_found render neutral copy with NO badge and NO hop stats */
   mode?: TraceBannerMode;
   onRetry?: () => void;
+  /** BUG-DW-105: true while a Retry fetch is in flight */
+  busy?: boolean;
+  /** BUG-DW-105: "Still unavailable. Last checked HH:MM." after a repeat failure */
+  retryFeedback?: string | null;
+  /** BUG-DW-105: ref for focus management after a successful retry */
+  bannerRef?: React.RefObject<HTMLDivElement | null>;
 }) {
   const nonLiveMessage = traceBannerMessage(mode, serviceId);
   if (nonLiveMessage) {
+    // BUG-DW-105: show retryFeedback (repeat failure) instead of the static message
+    const displayMessage = retryFeedback ?? nonLiveMessage;
     return (
-      <div className="path-trace-banner path-trace-banner-nodata" role="status" aria-live="polite">
+      <div
+        className="path-trace-banner path-trace-banner-nodata"
+        ref={bannerRef}
+        tabIndex={-1}
+        aria-busy={busy || undefined}
+      >
         <div className="path-trace-info">
           <span className="mono" style={{ fontWeight: 600 }}>
             {serviceId}
           </span>
-          <span className="path-trace-unavailable">{nonLiveMessage}</span>
+          <span className="path-trace-unavailable">{displayMessage}</span>
         </div>
         <div className="path-trace-actions">
           {mode === "unavailable" && onRetry && (
-            <button type="button" className="path-trace-retry" onClick={onRetry}>
-              {RETRY_LABEL}
+            <button
+              type="button"
+              className="path-trace-retry"
+              onClick={busy ? undefined : onRetry}
+              aria-disabled={busy || undefined}
+            >
+              {busy ? RETRYING_LABEL : RETRY_LABEL}
             </button>
           )}
           <button className="path-trace-clear" onClick={onClear}>
-            ✕ Clear trace
+            \u2715 Clear trace
           </button>
         </div>
       </div>
@@ -905,7 +928,7 @@ function PathTraceBanner({
   const divLabel = diversityLabel(diversity?.diversity_status);
 
   return (
-    <div className="path-trace-banner" role="status" aria-live="polite">
+    <div className="path-trace-banner" ref={bannerRef} tabIndex={-1}>
       <div className="path-trace-info">
         {/* BUG-DW-099: badge + basis caption stacked so the caption sits under the badge */}
         <span className="diversity-badge-stack">
@@ -2001,6 +2024,12 @@ function TopologyPage() {
   const [divState, setDivState] = useState<DataState | null>(null);
   const [traceRetry, setTraceRetry] = useState(0);
   const traceMode = traceBannerMode(pathState, divState);
+  // BUG-DW-105: retry in-flight guard, focus management, feedback
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [retryFeedback, setRetryFeedback] = useState<string | null>(null);
+  const retryCountRef = useRef(0);
+  const bannerFocusRef = useRef<HTMLDivElement | null>(null);
+  const prevTraceModeRef = useRef<TraceBannerMode>("pending");
 
   // SRLG overlay state (§3)
   const [srlgs, setSrlgs] = useState<SrlgMember[]>([]);
@@ -2075,9 +2104,14 @@ function TopologyPage() {
   // Fetch path trace when a service is selected (§2, §10.2)
   // BUG-DW-098: a new service resets the 3-state result; a Retry keeps the current
   // banner mounted (no pending flash) until the new result arrives.
+  // BUG-DW-105: also reset retry tracking on new service
   useEffect(() => {
     setPathState(null);
     setDivState(null);
+    setRetryBusy(false);
+    setRetryFeedback(null);
+    retryCountRef.current = 0;
+    prevTraceModeRef.current = "pending";
   }, [tracedServiceId]);
 
   useEffect(() => {
@@ -2087,6 +2121,9 @@ function TopologyPage() {
       return;
     }
     let cancelled = false;
+    // BUG-DW-105: mark busy when this is a Retry (traceRetry > 0 for this service)
+    const isRetry = retryCountRef.current > 0;
+    if (isRetry) setRetryBusy(true);
     Promise.all([
       fetchWithState<PathHop[]>(`/api/topology/path-trace/${encodeURIComponent(tracedServiceId)}`),
       fetchWithState<ServiceDiversity>(`/api/topology/diversity/${encodeURIComponent(tracedServiceId)}`),
@@ -2097,6 +2134,14 @@ function TopologyPage() {
       setDiversity(div.data);
       setPathState(path.state);
       setDivState(div.state);
+      setRetryBusy(false);
+      // BUG-DW-105: after a Retry that fails again, show "Still unavailable" with timestamp
+      const newMode = traceBannerMode(path.state, div.state);
+      if (isRetry && (newMode === "unavailable")) {
+        setRetryFeedback(stillUnavailableMsg(new Date()));
+      } else {
+        setRetryFeedback(null);
+      }
       // Auto-navigate to first region on path if not already in one
       if (hops.length > 0 && !selectedRegion) {
         const firstRegion = hops[0].site_a_region;
@@ -2108,6 +2153,21 @@ function TopologyPage() {
     };
   }, [tracedServiceId, traceRetry]);
 
+
+  // BUG-DW-105: move focus to the banner container after a successful retry
+  // (mode changed from unavailable to live/not_found). Do NOT move focus on first load.
+  useEffect(() => {
+    const prev = prevTraceModeRef.current;
+    prevTraceModeRef.current = traceMode;
+    if (
+      prev === "unavailable" &&
+      (traceMode === "live" || traceMode === "not_found") &&
+      retryCountRef.current > 0
+    ) {
+      // Retry succeeded: banner changed shape, so focus the container
+      requestAnimationFrame(() => bannerFocusRef.current?.focus());
+    }
+  }, [traceMode]);
   // Fetch SRLGs when overlay toggled on and region selected (§3)
   useEffect(() => {
     if (!overlays.srlg || !selectedRegion) {
@@ -2195,6 +2255,18 @@ function TopologyPage() {
         onBack={() => setSelectedRegion(null)}
       />
 
+      {/* BUG-DW-105: persistent sr-only status region — mounted before content so AT registers it.
+           The LoadingRegion pattern: mount empty, then write text on a later render. */}
+      {tracedServiceId && (
+        <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {retryBusy
+            ? RETRYING_LABEL
+            : retryFeedback
+            ? retryFeedback
+            : traceBannerMessage(traceMode, tracedServiceId) ?? ""}
+        </div>
+      )}
+
       {/* Path trace banner (§2) */}
       {/* BUG-DW-098: live render unchanged (needs hops); outage/not-found always disclosed */}
       {tracedServiceId &&
@@ -2206,7 +2278,10 @@ function TopologyPage() {
           onClear={handleClearTrace}
           bbCoverage={bbCoverage}
           mode={traceMode}
-          onRetry={() => setTraceRetry((n) => n + 1)}
+          onRetry={() => { retryCountRef.current += 1; setTraceRetry((n) => n + 1); }}
+          busy={retryBusy}
+          retryFeedback={retryFeedback}
+          bannerRef={bannerFocusRef}
         />
       )}
 

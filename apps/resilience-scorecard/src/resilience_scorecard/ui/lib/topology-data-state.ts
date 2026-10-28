@@ -83,3 +83,20 @@ export function traceBannerMessage(mode: TraceBannerMode, serviceId: string): st
 export function showSrlgUnavailable(srlgOn: boolean, region: string | null, state: DataState | null): boolean {
   return srlgOn && !!region && state === "unavailable";
 }
+
+// ---------------------------------------------------------------------------
+// BUG-DW-105: Retry state labels and feedback copy
+// ---------------------------------------------------------------------------
+
+/** Retry button label while a request is in flight. */
+export const RETRYING_LABEL = "Retrying\u2026";
+
+/**
+ * Feedback message after a repeat Retry failure, with the local time.
+ * tabular-nums is applied in CSS so the clock digits don't reflow.
+ */
+export function stillUnavailableMsg(now: Date): string {
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  return `Still unavailable. Last checked ${hh}:${mm}.`;
+}
