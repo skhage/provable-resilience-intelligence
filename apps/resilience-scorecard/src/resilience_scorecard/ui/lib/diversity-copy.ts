@@ -63,7 +63,24 @@ export function sharedConduitStat(
   return ` \u00B7 ${fmt(count)} shared ${count === 1 ? "conduit" : "conduits"}`;
 }
 
-/** Service Table pill name: states the scored-snapshot basis. */
+/**
+ * Full sentence naming the scored-snapshot basis. Kept for non-table contexts
+ * (tooltips, exports). BUG-DW-107: the Service Table pill no longer uses it as
+ * an aria-label/title, because naming a generic span is not reliably announced.
+ */
 export function snapshotGradeLabel(grade: string | null | undefined): string {
   return `Path diversity grade (scored snapshot): ${grade ?? "not rated"}`;
+}
+
+/** BUG-DW-107: visible Service Table column header (sentence case) + qualifier line. */
+export const PATH_DIV_HEADER = "Path div.";
+export const PATH_DIV_HEADER_QUALIFIER = "(snapshot)";
+
+/**
+ * BUG-DW-107: sr-only text rendered inside the pill, before the visible letter,
+ * so each cell reads "Scored snapshot grade C". Missing grade: the pill has no
+ * visible letter, so the spoken text carries "not rated" on its own.
+ */
+export function snapshotGradeSrText(grade: string | null | undefined): string {
+  return grade ? "Scored snapshot grade " : "Scored snapshot grade: not rated";
 }

@@ -145,11 +145,60 @@ def test_interface_fields():
         assert f in iface
 
 
-def test_service_table_pill_names_basis():
+def _pill_src():
     src = _read("components", "dashboard", "service-table.tsx")
-    assert "aria-label={snapshotGradeLabel(s.path_diversity_rating)}" in src
-    assert "title={snapshotGradeLabel(s.path_diversity_rating)}" in src
+    start = src.index('<span className={`rating-pill ')
+    return src[start:src.index("</td>", start)]
+
+
+def test_service_table_pill_names_basis():
+    """BUG-DW-107: basis is real sr-only text inside the pill, before the visible letter."""
+    pill = _pill_src()
+    sr = '<span className="sr-only">{snapshotGradeSrText(s.path_diversity_rating)}</span>'
+    assert sr in pill
+    assert pill.index(sr) < pill.rindex("{s.path_diversity_rating}")
+    src = _read("components", "dashboard", "service-table.tsx")
     assert "Path diversity: grade" not in src
+
+
+def test_service_table_pill_has_no_generic_aria_label_or_title():
+    """BUG-DW-107: no aria-label/title on the generic pill span (ARIA 1.2; hover-only title)."""
+    pill = _pill_src()
+    opening = pill[:pill.index(">")]
+    assert "aria-label" not in opening and "title=" not in opening
+    assert "role=" not in opening
+    src = _read("components", "dashboard", "service-table.tsx")
+    assert "snapshotGradeLabel" not in src
+
+
+def test_service_table_header_shows_basis():
+    src = _read("components", "dashboard", "service-table.tsx")
+    assert "<th>Path Div.</th>" not in src
+    th = src[src.index('<th className="th-path-div">'):]
+    th = th[:th.index("</th>")]
+    assert "{PATH_DIV_HEADER}" in th
+    assert '<span className="th-qualifier">{` ${PATH_DIV_HEADER_QUALIFIER}`}</span>' in th
+    assert "aria-hidden" not in th  # basis must reach the accessibility tree via the header too
+
+
+@needs_node
+def test_header_copy_and_sr_text():
+    out = _node("out = [m.PATH_DIV_HEADER, m.PATH_DIV_HEADER_QUALIFIER,"
+                " m.snapshotGradeSrText('C') + 'C', m.snapshotGradeSrText(null),"
+                " m.snapshotGradeSrText(undefined), m.snapshotGradeSrText('')];")
+    assert out == ["Path div.", "(snapshot)", "Scored snapshot grade C",
+                   "Scored snapshot grade: not rated", "Scored snapshot grade: not rated",
+                   "Scored snapshot grade: not rated"]
+
+
+def test_css_header_qualifier_fits_mobile():
+    css = _read("styles", "lakelink-theme.css")
+    q = css[css.index(".data-table th .th-qualifier {"):]
+    q = q[:q.index("}")]
+    for decl in ("display: block", "text-transform: none", "letter-spacing: 0", "font-size: 11px"):
+        assert decl in q
+    assert ".data-table th.th-path-div { white-space: normal; }" in css
+    assert ".rating-pill { position: relative; }" in css
 
 
 def test_css_sentence_case_and_iron_caption():

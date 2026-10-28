@@ -10,7 +10,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import { useBbSrlgCoverage, useListResilienceScoresSuspense } from "@/lib/api";
 import { METRO_ACCESS, METRO_ACCESS_SPOKEN } from "@/lib/bb-srlg-disclosure";
-import { snapshotGradeLabel } from "@/lib/diversity-copy";
+import {
+  PATH_DIV_HEADER,
+  PATH_DIV_HEADER_QUALIFIER,
+  snapshotGradeSrText,
+} from "@/lib/diversity-copy";
 import selector from "@/lib/selector";
 
 function gaugeClass(score: number): string {
@@ -95,7 +99,11 @@ function ServiceTableContent() {
             <th>Physical</th>
             <th>Network</th>
             <th>Environ.</th>
-            <th>Path Div.</th>
+            {/* BUG-DW-107: basis is visible to sighted users; the qualifier wraps to its own line so the column stays near the 44px mobile pill width. */}
+            <th className="th-path-div">
+              {PATH_DIV_HEADER}
+              <span className="th-qualifier">{` ${PATH_DIV_HEADER_QUALIFIER}`}</span>
+            </th>
             <th>SPFs</th>
             <th>
               SRLGs
@@ -140,12 +148,9 @@ function ServiceTableContent() {
                 <ScoreGauge score={s.environmental_risk_score} label="Environmental risk" />
               </td>
               <td>
-                <span
-                  className={`rating-pill ${s.path_diversity_rating}`}
-                  // BUG-DW-099: name the basis (scored snapshot) so it is not read as the /topology derived badge
-                  aria-label={snapshotGradeLabel(s.path_diversity_rating)}
-                  title={snapshotGradeLabel(s.path_diversity_rating)}
-                >
+                {/* BUG-DW-099/107: basis (scored snapshot) is real text in the accessibility tree, not an aria-label on a generic span. */}
+                <span className={`rating-pill ${s.path_diversity_rating}`}>
+                  <span className="sr-only">{snapshotGradeSrText(s.path_diversity_rating)}</span>
                   {s.path_diversity_rating}
                 </span>
               </td>

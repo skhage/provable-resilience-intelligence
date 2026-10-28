@@ -2535,3 +2535,18 @@ select:focus-visible,
   }
   .v4-delta { color: CanvasText; }
 }
+
+/* BUG-DW-107: Service Table "Path div. (snapshot)" header. The qualifier sits on its own line in
+   sentence case at 11px with no letter-spacing, so "(snapshot)" (~56px) plus th padding keeps the
+   column close to the 44px mobile pill and the header never clips at 320px (WCAG 1.4.10; the table
+   already scrolls horizontally below 1024px). Header text stays white on dark teal (7.02:1). */
+.data-table th.th-path-div { white-space: normal; }
+.data-table th .th-qualifier {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+/* sr-only basis text lives inside the pill; anchor its absolute box to the pill. */
+.rating-pill { position: relative; }
