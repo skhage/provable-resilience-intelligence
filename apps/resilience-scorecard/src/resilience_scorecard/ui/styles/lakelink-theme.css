@@ -391,6 +391,19 @@ body {
   pointer-events: none;
 }
 
+/* BUG-DW-102: row-level busy state. aria-disabled (not disabled) keeps the
+   button focusable so keyboard focus is not dropped while the PATCH is in flight. */
+.btn[aria-disabled="true"] {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+/* BUG-DW-102: programmatic focus fallback target (tabIndex=-1) after a row leaves view. */
+.data-table[tabindex="-1"]:focus-visible {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: 2px;
+}
+
 .btn-primary {
   background: var(--lf-dark-teal);
   color: var(--lf-white);

@@ -3,7 +3,7 @@
  * Shows pending/in-progress actions with status update buttons.
  * State is persisted in Lakebase Postgres.
  */
-import { Suspense, useState, useCallback, useEffect, useRef, Fragment } from "react";
+import { Suspense, useState, useCallback, useEffect, useRef, useTransition, Fragment } from "react";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,6 +32,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { HazardTypeCell } from "@/components/hazards";
+import {
+  pageWindow,
+  queueResultMessage,
+  viewKey,
+  pickFocusTarget,
+  idsAfter,
+} from "@/lib/action-queue-focus";
 
 /** Lucide icon per action type — brand guide §6: 1.5px stroke, 16px inline */
 const ICON_PROPS = { size: 16, strokeWidth: 1.5, "aria-hidden": true as const } as const;
@@ -154,6 +161,54 @@ function ActionTableContent() {
   });
   const queryClient = useQueryClient();
 
+  // BUG-DW-102 (WCAG 2.4.3): filter/page changes run in a transition, so React keeps
+  // the current KPI cards, filter bar and table mounted (no Suspense fallback) while
+  // the new list loads. The focused filter button therefore keeps focus.
+  const [isFiltering, startFilterTransition] = useTransition();
+  const changeFilter = (s: string | undefined) => {
+    startFilterTransition(() => { setStatusFilter(s); setPage(1); });
+  };
+  const changePage = (next: number | ((p: number) => number)) => {
+    startFilterTransition(() => setPage(next));
+  };
+  const changePageSize = (n: number) => {
+    startFilterTransition(() => { setPageSize(n); setPage(1); });
+  };
+
+  const win = pageWindow(actions.length, page, pageSize);
+  const visibleActions = actions.slice((win.page - 1) * pageSize, win.page * pageSize);
+
+  // BUG-DW-102 (WCAG 2.4.3): focus management after Start/Complete.
+  const actionButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const tableRegionRef = useRef<HTMLDivElement | null>(null);
+  const clickContextRef = useRef<{ actionId: string; following: string[] } | null>(null);
+  const pendingFocusRef = useRef<{ actionId: string; following: string[] } | null>(null);
+  const setActionButtonRef = (actionId: string) => (el: HTMLButtonElement | null) => {
+    if (el) actionButtonRefs.current.set(actionId, el);
+    else actionButtonRefs.current.delete(actionId);
+  };
+
+  useEffect(() => {
+    const req = pendingFocusRef.current;
+    if (!req) return;
+    pendingFocusRef.current = null;
+    const target = pickFocusTarget(req.actionId, req.following,
+      (id) => actionButtonRefs.current.has(id));
+    if (target) actionButtonRefs.current.get(target)?.focus();
+    else tableRegionRef.current?.focus();
+  }, [actions]);
+
+  // BUG-DW-102 (WCAG 4.1.3): persistent status region. Mounted empty, then written only
+  // after a filter/page change has resolved (the transition commits state + data together).
+  const [resultMessage, setResultMessage] = useState("");
+  const announcedKeyRef = useRef(viewKey(statusFilter, win.page, pageSize));
+  useEffect(() => {
+    const key = viewKey(statusFilter, win.page, pageSize);
+    if (key === announcedKeyRef.current) return;
+    announcedKeyRef.current = key;
+    setResultMessage(queueResultMessage(actions.length, win.page, pageSize, statusFilter));
+  }, [actions.length, statusFilter, win.page, pageSize]);
+
   // BUG-DW-074: monotonic counter avoids Date.now() id collisions on rapid clicks
   const toastIdRef = useRef(0);
   const toastTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
@@ -191,22 +246,46 @@ function ActionTableContent() {
     };
   }, []);
 
-  const { mutate: updateStatus, isPending } = useUpdateActionStatus({
+  const { mutate: updateStatus, isPending, variables: mutatingVars } = useUpdateActionStatus({
     mutation: {
       onSuccess: (_data, variables) => {
-        queryClient.invalidateQueries({ queryKey: ["listActions"] });
+        // Focus moves once the refetched list renders (effect on [actions]).
+        const ctx = clickContextRef.current;
+        pendingFocusRef.current = ctx && ctx.actionId === variables.actionId
+          ? ctx
+          : { actionId: variables.actionId, following: [] };
+        clickContextRef.current = null;
+        const req = pendingFocusRef.current;
+        // If the refetch returns an identical list (no re-render), drop the stale request
+        // so it cannot steal focus on a later, unrelated refresh. Focus is still on the
+        // clicked button in that case because it was never disabled.
+        queryClient.invalidateQueries({ queryKey: ["listActions"] }).finally(() => {
+          setTimeout(() => {
+            if (pendingFocusRef.current === req) pendingFocusRef.current = null;
+          }, 250);
+        });
         queryClient.invalidateQueries({ queryKey: ["getActionSummary"] });
         queryClient.invalidateQueries({ queryKey: ["getMrcProtected"] });
         const label = variables.data.status.replace("_", " ");
         addToast(`Action updated to ${label}`);
       },
       onError: () => {
+        // Button was never disabled, so focus stays on it; nothing to restore.
+        clickContextRef.current = null;
         addToast("Failed to update action", "error");
       },
     },
   });
 
+  const isRowBusy = (actionId: string) => isPending && mutatingVars?.actionId === actionId;
+
   const handleStatusChange = (actionId: string, newStatus: string) => {
+    // Ignore repeat activation while this row's PATCH is in flight.
+    if (isRowBusy(actionId)) return;
+    clickContextRef.current = {
+      actionId,
+      following: idsAfter(visibleActions.map((v) => v.action_id), actionId),
+    };
     updateStatus({
       actionId,
       data: { status: newStatus },
@@ -221,7 +300,7 @@ function ActionTableContent() {
           <button
             key={s ?? "all"}
             className={`btn ${statusFilter === s ? "btn-primary" : "btn-outline"}`}
-            onClick={() => { setStatusFilter(s); setPage(1); }}
+            onClick={() => changeFilter(s)}
             aria-pressed={statusFilter === s}
           >
             {s ? s.replace("_", " ") : "All"}
@@ -229,9 +308,14 @@ function ActionTableContent() {
         ))}
       </div>
 
+      {/* BUG-DW-102 (WCAG 4.1.3): always mounted; text written only after data resolves. */}
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {resultMessage}
+      </p>
+
       {/* BUG-QA-020: Pagination state derived from filtered actions */}
       {actions.length === 0 ? (
-        <div className="data-table">
+        <div className="data-table" ref={tableRegionRef} tabIndex={-1} aria-busy={isFiltering || undefined}>
           <div className="empty-state">
             <div className="empty-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
             <p>No actions match this filter</p>
@@ -239,7 +323,7 @@ function ActionTableContent() {
           </div>
         </div>
       ) : (
-        <div className="data-table">
+        <div className="data-table" ref={tableRegionRef} tabIndex={-1} aria-busy={isFiltering || undefined}>
           <table aria-label="Proactive action queue">
             <thead>
               <tr>
@@ -253,14 +337,7 @@ function ActionTableContent() {
               </tr>
             </thead>
             <tbody>
-              {(() => {
-                const totalPages = Math.max(1, Math.ceil(actions.length / pageSize));
-                const safeCurrentPage = Math.min(page, totalPages);
-                return actions.slice(
-                  (safeCurrentPage - 1) * pageSize,
-                  safeCurrentPage * pageSize,
-                );
-              })().map((a) => {
+              {visibleActions.map((a) => {
                 const hasHazard = !!a.hazard_type;
                 const isExpanded = expandedActions.has(a.action_id);
                 return (
@@ -301,8 +378,9 @@ function ActionTableContent() {
                       <td>
                         {a.status === "pending" && (
                           <button
+                            ref={setActionButtonRef(a.action_id)}
                             className="btn btn-primary"
-                            disabled={isPending}
+                            aria-disabled={isRowBusy(a.action_id) || undefined}
                             onClick={() => handleStatusChange(a.action_id, "in_progress")}
                             aria-label={`Start action for ${a.service_name}`}
                           >
@@ -311,8 +389,9 @@ function ActionTableContent() {
                         )}
                         {a.status === "in_progress" && (
                           <button
+                            ref={setActionButtonRef(a.action_id)}
                             className="btn btn-primary"
-                            disabled={isPending}
+                            aria-disabled={isRowBusy(a.action_id) || undefined}
                             onClick={() => handleStatusChange(a.action_id, "completed")}
                             aria-label={`Complete action for ${a.service_name}`}
                           >
@@ -385,8 +464,7 @@ function ActionTableContent() {
 
           {/* BUG-QA-020: Pagination controls (ported from ServiceTable) */}
           {(() => {
-            const totalPages = Math.max(1, Math.ceil(actions.length / pageSize));
-            const safeCurrentPage = Math.min(page, totalPages);
+            const { totalPages, page: safeCurrentPage } = win;
             return (
               <nav className="pagination-bar" aria-label="Action queue pagination">
                 <span>
@@ -398,7 +476,7 @@ function ActionTableContent() {
                     Rows:
                     <select
                       value={pageSize}
-                      onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                      onChange={(e) => changePageSize(Number(e.target.value))}
                       aria-label="Rows per page"
                     >
                       {PAGE_SIZES.map((s) => (
@@ -407,7 +485,7 @@ function ActionTableContent() {
                     </select>
                   </label>
                   <button
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    onClick={() => changePage((p) => Math.max(1, p - 1))}
                     disabled={safeCurrentPage <= 1}
                     aria-label="Previous page"
                   >
@@ -415,7 +493,7 @@ function ActionTableContent() {
                   </button>
                   <span>Page {safeCurrentPage} of {totalPages}</span>
                   <button
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    onClick={() => changePage((p) => Math.min(totalPages, p + 1))}
                     disabled={safeCurrentPage >= totalPages}
                     aria-label="Next page"
                   >
