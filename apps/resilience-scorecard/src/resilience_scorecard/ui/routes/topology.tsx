@@ -37,6 +37,14 @@ import {
   type DataState,
   type TraceBannerMode,
 } from "@/lib/topology-data-state";
+// BUG-DW-099: one sentence-case label map for banner, legend and mobile badge
+import {
+  DIVERSITY_BASIS_CAPTION,
+  DIVERSITY_STATUS_ORDER,
+  diversityLabel,
+  diversityShortLabel,
+  sharedConduitStat,
+} from "@/lib/diversity-copy";
 
 // ---------------------------------------------------------------------------
 // Viewport width hook (§6.2 — Mobile tree fallback below 768px)
@@ -205,6 +213,11 @@ interface ServiceDiversity {
   shared_srlg_count: number;
   /** P36-APP-V4-BB-SRLG-DISCLOSURE: any hop on a backbone span */
   crosses_backbone?: boolean | null;
+  /** BUG-DW-099 / BUG-QA-080: working and protect share N conduits (drives partially_diverse) */
+  shared_conduit_count?: number | null;
+  sold_as_diverse?: boolean | null;
+  /** Scored-snapshot context only. Never render beside the derived badge (BUG-DW-099). */
+  path_diversity_score?: number | null;
 }
 
 interface SrlgMember {
@@ -541,12 +554,12 @@ function Legend({
       {/* BUG-DW-066: SVG line swatches with dash patterns for forced-colors (WCAG 1.4.1) */}
       <div className="legend-section">
         <div className="legend-section-title">Diversity</div>
-        {[
-          { key: "fully_diverse", color: DIVERSITY_COLORS.fully_diverse, dash: DIVERSITY_DASHES.fully_diverse, label: "Fully Diverse" },
-          { key: "partially_diverse", color: DIVERSITY_COLORS.partially_diverse, dash: DIVERSITY_DASHES.partially_diverse, label: "Partially Diverse" },
-          { key: "single_path", color: DIVERSITY_COLORS.single_path, dash: DIVERSITY_DASHES.single_path, label: "Single Path" },
-          { key: "unknown", color: DIVERSITY_COLORS.unknown, dash: DIVERSITY_DASHES.unknown, label: "Unknown" },
-        ].map((d) => (
+        {DIVERSITY_STATUS_ORDER.map((key) => ({
+          key,
+          color: DIVERSITY_COLORS[key],
+          dash: DIVERSITY_DASHES[key],
+          label: diversityLabel(key),
+        })).map((d) => (
           <div key={d.key} className="legend-item">
             <svg width="24" height="12" aria-hidden="true" className="legend-swatch" style={{ border: `1px solid ${d.color}`, borderRadius: 2 }}>
               <line x1="2" y1="6" x2="22" y2="6" stroke={d.color} strokeWidth="3" strokeDasharray={d.dash || undefined} />
@@ -888,13 +901,14 @@ function PathTraceBanner({
   const divColor = diversity
     ? DIVERSITY_COLORS[diversity.diversity_status] ?? DIVERSITY_COLORS.unknown
     : DIVERSITY_COLORS.unknown;
-  const divLabel = diversity
-    ? diversity.diversity_status.replace(/_/g, " ")
-    : "unknown";
+  // BUG-DW-099: sentence-case map ("No path data" for unknown), shared with mobile + legend
+  const divLabel = diversityLabel(diversity?.diversity_status);
 
   return (
     <div className="path-trace-banner" role="status" aria-live="polite">
       <div className="path-trace-info">
+        {/* BUG-DW-099: badge + basis caption stacked so the caption sits under the badge */}
+        <span className="diversity-badge-stack">
         <span
           className="diversity-badge"
           style={(() => {
@@ -913,6 +927,9 @@ function PathTraceBanner({
             </>
           )}
         </span>
+        {/* BUG-DW-099: name the basis so it is not read as the Service Table snapshot grade */}
+        <span className="diversity-basis-caption">{DIVERSITY_BASIS_CAPTION}</span>
+        </span>
         <span className="mono" style={{ fontWeight: 600 }}>
           {serviceId}
         </span>
@@ -924,6 +941,8 @@ function PathTraceBanner({
               ? ` · ${formatCount(diversity.shared_srlg_count)} shared SRLGs${bbCoverage === "partial" ? `\u00A0${METRO_ACCESS}` : ""}`
               : ` · ${diversity.shared_srlg_count} shared SRLGs`
             : ""}
+          {/* BUG-DW-099: partially_diverse can mean shared conduit; show the reason in text */}
+          {diversity ? sharedConduitStat(diversity.shared_conduit_count, formatCount) : ""}
         </span>
       </div>
       <div className="path-trace-actions">
@@ -1630,14 +1649,7 @@ function MobileTreeView({
     if (!status || !overlays.diversity) return null;
     const style = DIVERSITY_BADGE_STYLES[status];
     if (!style) return null;
-    const label =
-      status === "fully_diverse"
-        ? "Diverse"
-        : status === "partially_diverse"
-        ? "Partial"
-        : status === "single_path"
-        ? "Single"
-        : "Unknown";
+    const label = diversityShortLabel(status);
     return (
       <span
         className="mobile-tree-badge"

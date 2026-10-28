@@ -1622,8 +1622,23 @@ select:focus-visible,
   border: 1px solid;
   font-size: 11px;
   font-weight: 600;
-  text-transform: capitalize;
+  /* BUG-DW-099: labels arrive in sentence case from lib/diversity-copy.ts */
+  text-transform: none;
   white-space: nowrap;
+}
+
+/* BUG-DW-099: badge with its basis caption stacked underneath */
+.diversity-badge-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.diversity-basis-caption {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--lf-iron); /* #4D4D4D on white = 8.45:1 */
+  font-weight: 400;
 }
 
 /* SRLG severity badge in edge detail panel */

@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import { useBbSrlgCoverage, useListResilienceScoresSuspense } from "@/lib/api";
 import { METRO_ACCESS, METRO_ACCESS_SPOKEN } from "@/lib/bb-srlg-disclosure";
+import { snapshotGradeLabel } from "@/lib/diversity-copy";
 import selector from "@/lib/selector";
 
 function gaugeClass(score: number): string {
@@ -141,7 +142,9 @@ function ServiceTableContent() {
               <td>
                 <span
                   className={`rating-pill ${s.path_diversity_rating}`}
-                  aria-label={`Path diversity: grade ${s.path_diversity_rating}`}
+                  // BUG-DW-099: name the basis (scored snapshot) so it is not read as the /topology derived badge
+                  aria-label={snapshotGradeLabel(s.path_diversity_rating)}
+                  title={snapshotGradeLabel(s.path_diversity_rating)}
                 >
                   {s.path_diversity_rating}
                 </span>
