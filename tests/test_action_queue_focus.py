@@ -126,7 +126,8 @@ def test_action_buttons_row_scoped_and_focusable():
     assert "disabled={isPending}" not in s
     assert s.count("aria-disabled={isRowBusy(a.action_id) || undefined}") == 2
     assert s.count("ref={setActionButtonRef(a.action_id)}") == 2
-    assert "mutatingVars?.actionId === actionId" in s
+    # BUG-DW-109 item 4: per-row in-flight set replaced useMutation isPending/variables.
+    assert "inFlight.has(actionId)" in s
     assert "if (isRowBusy(actionId)) return;" in s
 
 

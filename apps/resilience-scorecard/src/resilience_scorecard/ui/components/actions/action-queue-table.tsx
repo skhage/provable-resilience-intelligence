@@ -38,6 +38,12 @@ import {
   viewKey,
   pickFocusTarget,
   idsAfter,
+  paginationSummary,
+  pageBoundary,
+  withInFlight,
+  withoutInFlight,
+  focusRequestFor,
+  type FocusContext,
 } from "@/lib/action-queue-focus";
 
 /** Lucide icon per action type — brand guide §6: 1.5px stroke, 16px inline */
@@ -165,7 +171,12 @@ function ActionTableContent() {
   // the current KPI cards, filter bar and table mounted (no Suspense fallback) while
   // the new list loads. The focused filter button therefore keeps focus.
   const [isFiltering, startFilterTransition] = useTransition();
+  // BUG-DW-109 item 2 (WCAG 4.1.2): the requested filter is set urgently (outside the
+  // transition) so aria-pressed / btn-primary reflect the click immediately, while the
+  // committed statusFilter still drives the query. They converge when the transition commits.
+  const [requestedFilter, setRequestedFilter] = useState<string | undefined>(undefined);
   const changeFilter = (s: string | undefined) => {
+    setRequestedFilter(s);
     startFilterTransition(() => { setStatusFilter(s); setPage(1); });
   };
   const changePage = (next: number | ((p: number) => number)) => {
@@ -181,8 +192,12 @@ function ActionTableContent() {
   // BUG-DW-102 (WCAG 2.4.3): focus management after Start/Complete.
   const actionButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const tableRegionRef = useRef<HTMLDivElement | null>(null);
-  const clickContextRef = useRef<{ actionId: string; following: string[] } | null>(null);
-  const pendingFocusRef = useRef<{ actionId: string; following: string[] } | null>(null);
+  // BUG-DW-109 item 4: per-row focus contexts + the most recent user-initiated row, so
+  // concurrent PATCHes on different rows never overwrite each other's context and an
+  // earlier row finishing late cannot pull focus back after the user has moved on.
+  const clickContextsRef = useRef<Map<string, FocusContext>>(new Map());
+  const latestClickRef = useRef<string | null>(null);
+  const pendingFocusRef = useRef<FocusContext | null>(null);
   const setActionButtonRef = (actionId: string) => (el: HTMLButtonElement | null) => {
     if (el) actionButtonRefs.current.set(actionId, el);
     else actionButtonRefs.current.delete(actionId);
@@ -246,22 +261,30 @@ function ActionTableContent() {
     };
   }, []);
 
-  const { mutate: updateStatus, isPending, variables: mutatingVars } = useUpdateActionStatus({
+  // BUG-DW-109 item 4: in-flight set (not useMutation isPending/variables, which only
+  // track the latest call) so every row keeps its own re-entry guard.
+  const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set());
+  const settle = (actionId: string) => {
+    setInFlight((prev) => withoutInFlight(prev, actionId));
+    clickContextsRef.current.delete(actionId);
+    if (latestClickRef.current === actionId) latestClickRef.current = null;
+  };
+
+  const { mutate: updateStatus } = useUpdateActionStatus({
     mutation: {
       onSuccess: (_data, variables) => {
-        // Focus moves once the refetched list renders (effect on [actions]).
-        const ctx = clickContextRef.current;
-        pendingFocusRef.current = ctx && ctx.actionId === variables.actionId
-          ? ctx
-          : { actionId: variables.actionId, following: [] };
-        clickContextRef.current = null;
-        const req = pendingFocusRef.current;
+        // Focus moves once the refetched list renders (effect on [actions]), and only
+        // for the most recent user-initiated row.
+        const req = focusRequestFor(variables.actionId, latestClickRef.current,
+          clickContextsRef.current);
+        settle(variables.actionId);
+        if (req) pendingFocusRef.current = req;
         // If the refetch returns an identical list (no re-render), drop the stale request
         // so it cannot steal focus on a later, unrelated refresh. Focus is still on the
         // clicked button in that case because it was never disabled.
         queryClient.invalidateQueries({ queryKey: ["listActions"] }).finally(() => {
           setTimeout(() => {
-            if (pendingFocusRef.current === req) pendingFocusRef.current = null;
+            if (req && pendingFocusRef.current === req) pendingFocusRef.current = null;
           }, 250);
         });
         queryClient.invalidateQueries({ queryKey: ["getActionSummary"] });
@@ -269,23 +292,25 @@ function ActionTableContent() {
         const label = variables.data.status.replace("_", " ");
         addToast(`Action updated to ${label}`);
       },
-      onError: () => {
+      onError: (_err, variables) => {
         // Button was never disabled, so focus stays on it; nothing to restore.
-        clickContextRef.current = null;
+        settle(variables.actionId);
         addToast("Failed to update action", "error");
       },
     },
   });
 
-  const isRowBusy = (actionId: string) => isPending && mutatingVars?.actionId === actionId;
+  const isRowBusy = (actionId: string) => inFlight.has(actionId);
 
   const handleStatusChange = (actionId: string, newStatus: string) => {
     // Ignore repeat activation while this row's PATCH is in flight.
     if (isRowBusy(actionId)) return;
-    clickContextRef.current = {
+    clickContextsRef.current.set(actionId, {
       actionId,
       following: idsAfter(visibleActions.map((v) => v.action_id), actionId),
-    };
+    });
+    latestClickRef.current = actionId;
+    setInFlight((prev) => withInFlight(prev, actionId));
     updateStatus({
       actionId,
       data: { status: newStatus },
@@ -299,9 +324,10 @@ function ActionTableContent() {
         {[undefined, "pending", "in_progress", "completed", "cancelled"].map((s) => (
           <button
             key={s ?? "all"}
-            className={`btn ${statusFilter === s ? "btn-primary" : "btn-outline"}`}
+            type="button"
+            className={`btn ${requestedFilter === s ? "btn-primary" : "btn-outline"}`}
             onClick={() => changeFilter(s)}
-            aria-pressed={statusFilter === s}
+            aria-pressed={requestedFilter === s}
           >
             {s ? s.replace("_", " ") : "All"}
           </button>
@@ -482,12 +508,13 @@ function ActionTableContent() {
               BUG-DW-103: sibling of the scroll region (not inside it); wraps at <=767px. */}
           {(() => {
             const { totalPages, page: safeCurrentPage } = win;
+            // BUG-DW-109 item 1 (WCAG 2.4.3): aria-disabled + onClick guard instead of native
+            // `disabled`, so reaching page 1 / the last page never drops focus to <body>.
+            const { atFirst, atLast } = pageBoundary(safeCurrentPage, totalPages);
             return (
               <nav className="pagination-bar pagination-bar-detached" aria-label="Action queue pagination">
-                <span>
-                  Showing {(safeCurrentPage - 1) * pageSize + 1}–
-                  {Math.min(safeCurrentPage * pageSize, actions.length)} of {actions.length}
-                </span>
+                {/* BUG-DW-109 item 3: grouped numbers, same window as the SR status line. */}
+                <span>{paginationSummary(actions.length, safeCurrentPage, pageSize)}</span>
                 <div className="page-controls">
                   <label>
                     Rows:
@@ -502,16 +529,18 @@ function ActionTableContent() {
                     </select>
                   </label>
                   <button
-                    onClick={() => changePage((p) => Math.max(1, p - 1))}
-                    disabled={safeCurrentPage <= 1}
+                    type="button"
+                    onClick={() => { if (!atFirst) changePage((p) => Math.max(1, p - 1)); }}
+                    aria-disabled={atFirst || undefined}
                     aria-label="Previous page"
                   >
                     ‹ Prev
                   </button>
                   <span>Page {safeCurrentPage} of {totalPages}</span>
                   <button
-                    onClick={() => changePage((p) => Math.min(totalPages, p + 1))}
-                    disabled={safeCurrentPage >= totalPages}
+                    type="button"
+                    onClick={() => { if (!atLast) changePage((p) => Math.min(totalPages, p + 1)); }}
+                    aria-disabled={atLast || undefined}
                     aria-label="Next page"
                   >
                     Next ›

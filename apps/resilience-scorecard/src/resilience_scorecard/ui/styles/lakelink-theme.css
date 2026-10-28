@@ -817,13 +817,30 @@ select:focus-visible,
   min-height: 32px;
 }
 
-.pagination-bar button:disabled {
+.pagination-bar button:disabled,
+.pagination-bar button[aria-disabled="true"] {
   opacity: 0.4;
   cursor: default;
 }
 
-.pagination-bar button:not(:disabled):hover {
+.pagination-bar button:not(:disabled):not([aria-disabled="true"]):hover {
   background: rgba(0, 98, 114, 0.06);
+}
+
+/* BUG-DW-109 item 1: boundary Prev/Next stay focusable (aria-disabled), so they keep a
+   visible focus ring even while dimmed. */
+.pagination-bar button:focus-visible {
+  outline: 2px solid var(--lf-dark-teal); /* 7.02:1 */
+  outline-offset: 2px;
+}
+
+/* BUG-DW-109 item 2: visible pending state while a filter/page transition loads. */
+.data-table[aria-busy="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .data-table { transition: opacity 120ms ease-out; }
 }
 
 /* BUG-DW-103 (WCAG 1.4.10): pagination rendered as a sibling of a .table-scroll region (not inside
@@ -851,6 +868,8 @@ select:focus-visible,
 @media (forced-colors: active) {
   .pagination-bar select,
   .pagination-bar button { border-color: ButtonText; }
+  .pagination-bar button[aria-disabled="true"] { color: GrayText; border-color: GrayText; }
+  .pagination-bar button:focus-visible { outline-color: Highlight; }
 }
 
 /* === Empty State (UX-REM-TABLE-UX) === */
