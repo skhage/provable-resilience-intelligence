@@ -323,7 +323,22 @@ function ActionTableContent() {
           </div>
         </div>
       ) : (
-        <div className="data-table" ref={tableRegionRef} tabIndex={-1} aria-busy={isFiltering || undefined}>
+        // BUG-DW-103 (WCAG 2.1.1 / 1.4.10): reuse the /conduits scroll-region pattern (BUG-DW-089/094).
+        // The wrapper is a named, keyboard-focusable region (tabIndex=0) so arrow keys scroll the
+        // 760px table; it stays the BUG-DW-102 programmatic focus fallback via tableRegionRef.
+        // Pagination lives OUTSIDE the scroll wrapper so it never scrolls off-screen with the table.
+        <>
+        <p className="text-caption table-scroll-hint" aria-hidden="true">
+          Scroll for more columns →
+        </p>
+        <div
+          className="data-table table-scroll"
+          ref={tableRegionRef}
+          role="region"
+          aria-label="Action queue table, scrolls horizontally"
+          tabIndex={0}
+          aria-busy={isFiltering || undefined}
+        >
           <table aria-label="Proactive action queue">
             <thead>
               <tr>
@@ -461,12 +476,14 @@ function ActionTableContent() {
               })}
             </tbody>
           </table>
+        </div>
 
-          {/* BUG-QA-020: Pagination controls (ported from ServiceTable) */}
+          {/* BUG-QA-020: Pagination controls (ported from ServiceTable).
+              BUG-DW-103: sibling of the scroll region (not inside it); wraps at <=767px. */}
           {(() => {
             const { totalPages, page: safeCurrentPage } = win;
             return (
-              <nav className="pagination-bar" aria-label="Action queue pagination">
+              <nav className="pagination-bar pagination-bar-detached" aria-label="Action queue pagination">
                 <span>
                   Showing {(safeCurrentPage - 1) * pageSize + 1}–
                   {Math.min(safeCurrentPage * pageSize, actions.length)} of {actions.length}
@@ -503,7 +520,7 @@ function ActionTableContent() {
               </nav>
             );
           })()}
-        </div>
+        </>
       )}
 
       {/* BUG-QA-021 + BUG-DW-074 (WCAG 4.1.3): live regions are ALWAYS mounted (empty when

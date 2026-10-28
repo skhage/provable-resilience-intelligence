@@ -134,7 +134,10 @@ def test_focus_effect_and_fallback():
     s = _src()
     assert re.search(r"pickFocusTarget\(req\.actionId, req\.following,", s)
     assert "tableRegionRef.current?.focus()" in s
-    assert s.count("ref={tableRegionRef} tabIndex={-1}") == 2
+    # Empty state: programmatic-only target. Populated table: BUG-DW-103 made it a focusable
+    # scroll region (tabIndex=0), which still accepts programmatic focus.
+    assert s.count("ref={tableRegionRef} tabIndex={-1}") == 1
+    assert s.count("ref={tableRegionRef}") == 2
     assert "}, [actions]);" in s
 
 

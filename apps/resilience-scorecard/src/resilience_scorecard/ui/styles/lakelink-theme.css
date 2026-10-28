@@ -797,9 +797,11 @@ select:focus-visible,
   gap: var(--space-sm);
 }
 
+/* BUG-DW-103 (WCAG 1.4.11): platinum border was 1.23:1 on white. Iron #4D4D4D = 8.45:1,
+   matching .filter-select (BUG-DW-089). Buttons use the same border for consistency. */
 .pagination-bar select {
   padding: 4px 8px;
-  border: 1px solid var(--lf-platinum);
+  border: 1px solid var(--lf-iron);
   border-radius: var(--radius-sm);
   font-size: 13px;
   background: var(--lf-white);
@@ -807,7 +809,7 @@ select:focus-visible,
 
 .pagination-bar button {
   padding: 4px 10px;
-  border: 1px solid var(--lf-platinum);
+  border: 1px solid var(--lf-iron);
   border-radius: var(--radius-sm);
   background: var(--lf-white);
   cursor: pointer;
@@ -822,6 +824,33 @@ select:focus-visible,
 
 .pagination-bar button:not(:disabled):hover {
   background: rgba(0, 98, 114, 0.06);
+}
+
+/* BUG-DW-103 (WCAG 1.4.10): pagination rendered as a sibling of a .table-scroll region (not inside
+   it) so it never scrolls off-screen with the 760px table. Card styling replaces the parent card. */
+.pagination-bar-detached {
+  background: var(--lf-white);
+  border-top: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  margin-top: var(--space-xs);
+}
+
+@media (max-width: 767px) {
+  .pagination-bar {
+    flex-wrap: wrap;
+    row-gap: var(--space-sm);
+    column-gap: var(--space-sm);
+  }
+  .pagination-bar .page-controls {
+    flex-wrap: wrap;
+    row-gap: var(--space-sm);
+  }
+}
+
+@media (forced-colors: active) {
+  .pagination-bar select,
+  .pagination-bar button { border-color: ButtonText; }
 }
 
 /* === Empty State (UX-REM-TABLE-UX) === */
@@ -2233,7 +2262,8 @@ select:focus-visible,
 /* BUG-DW-089 (WCAG 1.4.10 Reflow): data tables are exempt from single-axis reflow, but must not be
    clipped. .table-scroll overrides .data-table overflow:hidden at ALL widths (320px and 200% zoom fall
    into the mobile breakpoint, where the tablet-only overflow-x rule never applied). The region is
-   tabIndex=0 + role=region + aria-labelledby caption so keyboard users can scroll it. */
+   tabIndex=0 + role=region + a static aria-label (BUG-DW-094; also used by /actions, BUG-DW-103)
+   so keyboard users can scroll it. */
 .data-table.table-scroll {
   overflow-x: auto;
   overflow-y: hidden;
