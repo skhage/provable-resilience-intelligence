@@ -51,8 +51,8 @@ class _Live:
         self.status, self.fail, self.empty = status, fail, empty
 
     def _execute(self, sql, row_limit=12000, params=None):
-        if "bb_srlg_rows" in sql:
-            return [{"bb_srlg_rows": 0}]
+        if "bb_uncovered_spans" in sql:
+            return [{"bb_active_spans": 92, "bb_uncovered_spans": 92}]
         if "kpi_delta_attribution_v4_candidate" in sql:
             if self.fail:
                 raise RuntimeError("warehouse down")

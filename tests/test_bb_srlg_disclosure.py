@@ -39,20 +39,28 @@ class _Unavailable:
 
 
 class _Live:
-    """Stub CatalogSqlService: summary row + BB SRLG row count."""
+    """Stub CatalogSqlService: summary row + backbone span coverage counts (BUG-QA-083).
+
+    bb_spans = active BB-*/BBS-* spans; uncovered = those with no SRLG row. Defaults mirror
+    live v3 (2026-10-29): 92 active backbone spans, all 92 uncovered.
+    """
     is_available = True
 
-    def __init__(self, bb_rows=0, fail_bb=False):
-        self.bb_rows = bb_rows
+    def __init__(self, bb_spans=92, uncovered=92, fail_bb=False, null_row=False):
+        self.bb_spans = bb_spans
+        self.uncovered = uncovered
         self.fail_bb = fail_bb
+        self.null_row = null_row
         self.sql = []
 
     def _execute(self, sql, row_limit=12000, params=None):
         self.sql.append(sql)
-        if "bb_srlg_rows" in sql:
+        if "bb_uncovered_spans" in sql:
             if self.fail_bb:
                 raise RuntimeError("warehouse down")
-            return [{"bb_srlg_rows": self.bb_rows}]
+            if self.null_row:
+                return [{"bb_active_spans": None, "bb_uncovered_spans": None}]
+            return [{"bb_active_spans": self.bb_spans, "bb_uncovered_spans": self.uncovered}]
         return []
 
     def get_summary(self):
@@ -83,42 +91,75 @@ def test_override_reads_env(monkeypatch):
 # --- summary state ----------------------------------------------------------
 
 def test_flag_off_summary_has_no_coverage_field():
-    out = r.get_resilience_summary(csql=_Live(bb_rows=0), config=_Cfg(False))
+    out = r.get_resilience_summary(csql=_Live(), config=_Cfg(False))
     assert "bb_srlg_coverage" not in out
     assert ResilienceSummaryOut(**out).bb_srlg_coverage is None
 
 
 def test_v3_data_reports_partial():
-    # Live v3 shared_risk_group has 0 BB-* rows (2026-10-27)
-    out = r.get_resilience_summary(csql=_Live(bb_rows=0), config=_Cfg(True))
+    # Live v3: 92 active BB-* spans, 0 BB SRLG rows -> all 92 uncovered (2026-10-29)
+    out = r.get_resilience_summary(csql=_Live(bb_spans=92, uncovered=92), config=_Cfg(True))
     assert out["bb_srlg_coverage"] == "partial"
 
 
-def test_bb_rows_report_complete():
-    out = r.get_resilience_summary(csql=_Live(bb_rows=41989), config=_Cfg(True))
+def test_all_backbone_spans_covered_report_complete():
+    out = r.get_resilience_summary(csql=_Live(bb_spans=5325, uncovered=0), config=_Cfg(True))
     assert ResilienceSummaryOut(**out).bb_srlg_coverage == "complete"
 
 
-@pytest.mark.parametrize("csql", [_Unavailable(), _Live(fail_bb=True)])
+# BUG-QA-083: a partial backfill must never report 'complete' (would drop every caveat).
+@pytest.mark.parametrize("bb_spans,uncovered", [
+    (5325, 5324),   # 1 of 5,325 BBS spans covered (QA example)
+    (5325, 1),      # one straggler left uncovered
+    (92, 91),
+])
+def test_partial_backfill_reports_partial(bb_spans, uncovered):
+    out = r.get_resilience_summary(csql=_Live(bb_spans=bb_spans, uncovered=uncovered),
+                                   config=_Cfg(True))
+    assert out["bb_srlg_coverage"] == "partial"
+
+
+def test_no_backbone_spans_is_not_proof_of_coverage():
+    # 0 active BB spans -> nothing proven; stay conservative
+    out = r.get_resilience_summary(csql=_Live(bb_spans=0, uncovered=0), config=_Cfg(True))
+    assert out["bb_srlg_coverage"] == "partial"
+
+
+def test_service_method_states():
+    svc = cs.CatalogSqlService.get_bb_srlg_coverage
+    assert svc(_Live(bb_spans=10, uncovered=0)) == "complete"
+    assert svc(_Live(bb_spans=10, uncovered=3)) == "partial"
+    assert svc(_Live(bb_spans=0, uncovered=0)) == "partial"
+    assert svc(_Live(null_row=True)) is None
+
+
+@pytest.mark.parametrize("csql", [_Unavailable(), _Live(fail_bb=True), _Live(null_row=True)])
 def test_unknown_is_partial_never_complete(csql):
     out = r.get_resilience_summary(csql=csql, config=_Cfg(True))
     assert out["bb_srlg_coverage"] == "partial"
 
 
-@pytest.mark.parametrize("override,bb_rows,expected", [
-    ("partial", 41989, "partial"),
-    ("complete", 0, "complete"),
-    ("AUTO", 5, "complete"),
-    ("bogus", 0, "partial"),
+@pytest.mark.parametrize("override,uncovered,expected", [
+    ("partial", 0, "partial"),
+    ("complete", 92, "complete"),
+    ("AUTO", 0, "complete"),
+    ("AUTO", 1, "partial"),
+    ("bogus", 92, "partial"),
 ])
-def test_env_override(override, bb_rows, expected):
-    out = r.get_resilience_summary(csql=_Live(bb_rows=bb_rows), config=_Cfg(True, override))
+def test_env_override(override, uncovered, expected):
+    out = r.get_resilience_summary(csql=_Live(bb_spans=92, uncovered=uncovered),
+                                   config=_Cfg(True, override))
     assert out["bb_srlg_coverage"] == expected
 
 
 def test_coverage_sql_counts_backbone_spans_in_app_srlg_table():
     sql = cs._BB_SRLG_COVERAGE_SQL
     assert "FROM shared_risk_group" in sql and "span_id LIKE 'BB%'" in sql
+    # BUG-QA-083: anti-join from active backbone spans, not a bare SRLG row count
+    assert "FROM physical_resource_span" in sql and "is_active = TRUE" in sql
+    assert "LEFT JOIN" in sql and "cov.span_id IS NULL" in sql
+    assert "AS bb_active_spans" in sql and "AS bb_uncovered_spans" in sql
+    assert "bb_srlg_rows" not in sql
 
 
 # --- diversity + conduits ---------------------------------------------------

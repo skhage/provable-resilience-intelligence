@@ -352,13 +352,21 @@ SELECT
   MEASURE(`Total Services`)     AS total_services
 FROM {_MRC_PROTECTED_VIEW}
 """
-# P36-APP-V4-BB-SRLG-DISCLOSURE (V4-KPI-COPY-SPEC §2): coverage is 'complete' only when the SRLG
-# table this app reads has backbone span rows (BB-* v3 / BBS-* v4). v3 shared_risk_group: 0 rows
-# (2026-10-27), so the UI shows the 'partial' caveat until the cutover points at BB-covered SRLGs.
+# P36-APP-V4-BB-SRLG-DISCLOSURE (V4-KPI-COPY-SPEC §2) + BUG-QA-083: coverage is 'complete' only
+# when there is >= 1 active backbone span (span_id BB-* v3 / BBS-* v4) AND every one of them has
+# at least one row in the SRLG table this app reads (anti-join: uncovered = 0). A partial backfill
+# (e.g. 1 of 5,325 BBS spans covered) stays 'partial' so the backbone caveat is never dropped early.
+# Live v3 (2026-10-29): 92 active BB spans, 92 uncovered -> 'partial'.
 _BB_SRLG_COVERAGE_SQL = """
-SELECT CAST(COUNT(*) AS BIGINT) AS bb_srlg_rows
-FROM shared_risk_group
-WHERE span_id LIKE 'BB%'
+SELECT
+  CAST(COUNT(*) AS BIGINT)                    AS bb_active_spans,
+  CAST(COUNT_IF(cov.span_id IS NULL) AS BIGINT) AS bb_uncovered_spans
+FROM physical_resource_span sp
+LEFT JOIN (
+  SELECT DISTINCT span_id FROM shared_risk_group WHERE span_id LIKE 'BB%'
+) cov ON cov.span_id = sp.span_id
+WHERE sp.is_active = TRUE
+  AND sp.span_id LIKE 'BB%'
 """
 # P41-APP-V4-INTERIM-BADGE (V4-KPI-COPY-SPEC §6.2): FINAL only when every attribution row is FINAL;
 # any INTERIM/other row keeps the badge. Empty table -> NULL (router treats unknown as INTERIM).
@@ -1120,11 +1128,19 @@ class CatalogSqlService:
         }
 
     def get_bb_srlg_coverage(self) -> str | None:
-        """'complete' if the SRLG table has backbone span rows, else 'partial'. None = unknown."""
+        """'complete' only if >= 1 active backbone span exists and 0 are missing an SRLG row.
+
+        Any uncovered backbone span (partial backfill) or no backbone spans at all -> 'partial'.
+        None = unknown (query failed / null counts); the router then reports 'partial'.
+        """
         rows = self._execute(_BB_SRLG_COVERAGE_SQL)
-        if not rows or rows[0].get("bb_srlg_rows") is None:
+        if not rows:
             return None
-        return "complete" if int(rows[0]["bb_srlg_rows"]) > 0 else "partial"
+        active = rows[0].get("bb_active_spans")
+        uncovered = rows[0].get("bb_uncovered_spans")
+        if active is None or uncovered is None:
+            return None
+        return "complete" if int(active) > 0 and int(uncovered) == 0 else "partial"
 
     def get_v4_report_status(self) -> str | None:
         """'INTERIM' or 'FINAL' from the v4 delta attribution table. None = unknown."""
