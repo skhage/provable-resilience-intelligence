@@ -120,11 +120,11 @@ def test_p57_slip_contingency_paths():
     assert b["candidate_drop_earliest"] == b["target"] + dt.timedelta(days=rb.AUDIT_HOLD_DAYS)
 
 
-def test_p57_dated_checklist_covers_all_17_steps_in_order():
+def test_p57_dated_checklist_covers_all_steps_in_order():
     import datetime as dt
     t = dt.date(2026, 11, 2)
     rows = rb.dated_checklist(t)
-    assert [r["order"] for r in rows] == [c[0] for c in rb.CHECKLIST] and len(rows) == 17
+    assert [r["order"] for r in rows] == [c[0] for c in rb.CHECKLIST] and len(rows) == 19  # P60: +2 steps
     assert set(rb.STEP_OFFSET_DAYS) == {c[0] for c in rb.CHECKLIST}
     dues = [r["due"] for r in rows]
     assert dues == sorted(dues)
@@ -141,3 +141,88 @@ def test_p57_contingency_is_read_only():
     body = SRC[SRC.index("def contingency_plan"):SRC.index("POST_STEPS = [")]
     for kw in ("INSERT", "UPDATE ", "DELETE", "CREATE", "spark.sql"):
         assert kw not in body, kw
+
+
+# ---------------------------------------------------------------- P60 v4 comment snapshot + PK/FK placement
+def _step(text):
+    return next(c for c in rb.CHECKLIST if text in c[3])
+
+
+def test_p60_v4_comment_snapshot_step_right_after_swap():
+    promote = next(c for c in rb.CHECKLIST if c[1] == "PROMOTE")
+    snap = _step("freeze_v4_comment_snapshot")
+    assert snap[0] == promote[0] + 1 and snap[1] == "POST" and snap[2] == "@devops"
+    assert snap[4] == ()  # manual: never auto-DONE when P60 itself completes
+    # every other POST DDL step comes after the snapshot
+    assert all(c[0] > snap[0] for c in rb.CHECKLIST if c[1] == "POST" and c is not snap)
+    assert any("freeze_v4_comment_snapshot" in p for p in rb.POST_STEPS)
+
+
+def test_p60_pk_fk_after_swap_and_deferred_after_v4_capture():
+    snap = _step("freeze_v4_comment_snapshot")
+    after = _step("AFTER_SWAP")
+    deferred = _step("DEFERRED")
+    capture = _step("Capture PRI-DEMO-FREEZE-v4")
+    assert "P43-DE-V4-PK-FK-CONSTRAINTS" in after[4] and after[0] == snap[0] + 1
+    assert deferred[0] > capture[0]  # v3 must be SUPERSEDED before non-promoted tables are ALTERed
+
+
+@pytest.mark.parametrize("target", ["2026-10-30", "2026-11-02"])
+def test_p60_both_paths_schedule_snapshot_and_constraints(target):
+    import datetime as dt
+    t = dt.date.fromisoformat(target)
+    rows = {r["order"]: r["due"] for r in rb.dated_checklist(t)}
+    snap, after, deferred = (_step(s)[0] for s in ("freeze_v4_comment_snapshot", "AFTER_SWAP", "DEFERRED"))
+    swap = next(c for c in rb.CHECKLIST if c[1] == "PROMOTE")[0]
+    assert rows[swap] == rows[snap] == rows[after] == t  # same day as the swap
+    assert rows[deferred] == rows[_step("Capture PRI-DEMO-FREEZE-v4")[0]] == t + dt.timedelta(days=1)
+    plan = rb.contingency_plan(None, dt.date(2026, 10, 29))
+    key = "plan_a" if t == rb.BASE_TARGET else "plan_b"
+    assert next(r for r in plan[key] if r["order"] == snap)["due"] == t
+
+
+def test_p60_snapshot_sql_mirrors_v3_and_only_writes_v4_snapshot():
+    sql = rb.v4_comment_snapshot_sql()
+    writes = [s for s in sql if not s.startswith("--")]
+    tgt = f"{rb.FQ}.freeze_v4_comment_snapshot"
+    assert writes[0].startswith(f"CREATE TABLE IF NOT EXISTS {tgt} (")
+    for col in rb.COMMENT_SNAPSHOT_COLUMNS:
+        assert f"{col} " in writes[0], col
+    assert writes[1] == f"DELETE FROM {tgt} WHERE manifest_version = '{rb.V4}'"
+    assert writes[2].startswith(f"INSERT INTO {tgt} SELECT '{rb.V4}'")
+    for s in writes:
+        assert f"{rb.FQ}.freeze_v3_comment_snapshot" not in s and rb.SUFFIX not in s and "Lumen" not in s
+        assert not s.upper().startswith(("CREATE OR REPLACE", "DROP", "ALTER"))
+    for t in rb.promoted_tables():
+        assert f"'{t}'" in writes[2], t
+    assert "unified_shared_risk_group" not in writes[2]  # views are not snapshotted as promoted tables
+    assert writes[2].count("information_schema.") == 2  # TABLE + COLUMN rows
+
+
+_DDL = """
+USE SCHEMA provable_resilience_intelligence;
+SELECT 'x' AS fk, COUNT(*) FROM service_path; -- pre-flight
+ALTER TABLE physical_resource_span ALTER COLUMN span_id SET NOT NULL;
+ALTER TABLE geographic_site ALTER COLUMN site_id SET NOT NULL;
+ALTER TABLE physical_resource_span ADD CONSTRAINT pk_span PRIMARY KEY (span_id);
+ALTER TABLE resource_alarm ADD CONSTRAINT fk_alarm_span FOREIGN KEY (span_id) REFERENCES physical_resource_span (span_id);
+ALTER TABLE physical_resource_span ADD CONSTRAINT fk_span_site FOREIGN KEY (site_a_id) REFERENCES geographic_site (site_id);
+ALTER TABLE service_path ADD CONSTRAINT fk_path_span FOREIGN KEY (span_id) REFERENCES physical_resource_span (span_id);
+"""
+
+
+def test_p60_pk_fk_plan_never_alters_non_promoted_after_swap():
+    p = rb.pk_fk_plan(_DDL)
+    assert len(p["after_swap"]) == 3 and len(p["deferred"]) == 3
+    assert p["deferred_tables"] == ["geographic_site", "service_path"]
+    promoted = set(rb.promoted_tables())
+    for s in p["after_swap"]:
+        assert "geographic_site" not in s and "service_path" not in s
+        assert s.split()[2] in promoted
+    # an FK on a promoted child pointing at a v3 FROZEN parent is deferred too
+    assert any("fk_span_site" in s for s in p["deferred"])
+
+
+def test_p60_pk_fk_plan_missing_file_is_empty(tmp_path):
+    p = rb.pk_fk_plan(root=str(tmp_path))
+    assert p == {"source": None, "after_swap": [], "deferred": [], "deferred_tables": []}

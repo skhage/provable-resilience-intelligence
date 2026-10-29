@@ -112,11 +112,16 @@ CHECKLIST: list[tuple] = [
     (10, "PRE", "@qa", "QA gate (d) band recalibration verify", ("P50-QA-VERIFY-V4-BAND-RECALIBRATION",)),
     (11, "PRE", "@pm", "Record DEC-PRI-V4-CUTOVER-GO (decided) and assign the execution task", ()),
     (12, "PROMOTE", "@pm-assigned", "Runbook items a..i in order (dry_run all READY, then execute)", ()),
-    (13, "POST", "@data-engineer", "Informational PK/FK constraints on promoted v4 tables (DEC-PRI-UC-CONSTRAINTS), never v3", ("P43-DE-V4-PK-FK-CONSTRAINTS",)),
-    (14, "POST", "@data-analyst", "P30 Genie + exec dashboard repoint to MRC Protected; P51 diversity coverage repoint", ("P30-DA-GENIE-MRC-PROTECTED-CUTOVER",)),
-    (15, "POST", "@app-developer", "Flip app flag PRI_V4_KPIS=true; @designer re-smoke", ("P36-APP-V4-CONDUIT-COVERAGE-FILTER", "P37-DESIGN-VERIFY-V4-KPI")),
-    (16, "POST", "@devops", "Bundle pipeline sync (BUG-QA-070 6-step recipe) + guard snapshot refresh; CI green; merge PR", ("P43-DEVOPS-BUNDLE-PIPELINE-SYNC",)),
-    (17, "POST", "@data-planner", "Capture PRI-DEMO-FREEZE-v4; mark v3 + v4-DRAFT rows SUPERSEDED", ()),
+    # P60: capture the v4 column-comment snapshot IMMEDIATELY after the swap (mirrors freeze_v3_comment_snapshot),
+    # before any other POST DDL. Manual step (no gate task) so it is never auto-DONE.
+    (13, "POST", "@devops", "Capture freeze_v4_comment_snapshot for every promoted v4 table (v4_comment_snapshot_sql)", ()),
+    (14, "POST", "@data-engineer", "Informational PK/FK constraints, AFTER_SWAP subset only: promoted v4 tables (DEC-PRI-UC-CONSTRAINTS), never v3", ("P43-DE-V4-PK-FK-CONSTRAINTS",)),
+    (15, "POST", "@data-analyst", "P30 Genie + exec dashboard repoint to MRC Protected; P51 diversity coverage repoint", ("P30-DA-GENIE-MRC-PROTECTED-CUTOVER",)),
+    (16, "POST", "@app-developer", "Flip app flag PRI_V4_KPIS=true; @designer re-smoke", ("P36-APP-V4-CONDUIT-COVERAGE-FILTER", "P37-DESIGN-VERIFY-V4-KPI")),
+    (17, "POST", "@devops", "Bundle pipeline sync (BUG-QA-070 6-step recipe) + guard snapshot refresh; CI green; merge PR", ("P43-DEVOPS-BUNDLE-PIPELINE-SYNC",)),
+    (18, "POST", "@data-planner", "Capture PRI-DEMO-FREEZE-v4; mark v3 + v4-DRAFT rows SUPERSEDED", ()),
+    # P60: PK/FK statements that touch a table still FROZEN in v3 (not promoted) wait until v3 is SUPERSEDED.
+    (19, "POST", "@data-engineer", "Informational PK/FK constraints, DEFERRED subset (non-promoted tables) after v3 SUPERSEDED", ()),
 ]
 
 
@@ -152,7 +157,7 @@ PLAN_B_TARGET = _dt.date(2026, 11, 2)
 CEO_GATES = ("BUG-QA-073", "P36-ML-V4-RESCORE-CONDUIT-DIVERSITY")
 # Day offset of each CHECKLIST step relative to cutover day T (CEO writes due EOD T-1).
 STEP_OFFSET_DAYS = {1: -1, 2: -1, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0,
-                    11: 0, 12: 0, 13: 0, 14: 0, 15: 0, 16: 0, 17: 1}
+                    11: 0, 12: 0, 13: 0, 14: 0, 15: 0, 16: 0, 17: 0, 18: 1, 19: 1}
 AUDIT_HOLD_DAYS = 2  # POST P5: drop *_v4_candidate only after QA sign-off + 48h
 
 
@@ -192,7 +197,8 @@ def contingency_plan(cur, today: _dt.date | None = None) -> dict:
 
 
 POST_STEPS = [
-    "P1 Apply informational PK/FK constraints on promoted v4 core tables (DEC-PRI-UC-CONSTRAINTS, @data-engineer P43-DE-V4-PK-FK-CONSTRAINTS). NEVER on v3.",
+    "P0 @devops captures freeze_v4_comment_snapshot right after the swap (v4_comment_snapshot_sql; same 8 columns as freeze_v3_comment_snapshot).",
+    "P1 Apply informational PK/FK constraints: AFTER_SWAP subset on promoted v4 tables now, DEFERRED subset only after v3 SUPERSEDED (pk_fk_plan; DEC-PRI-UC-CONSTRAINTS, P43-DE-V4-PK-FK-CONSTRAINTS). NEVER on v3 FROZEN.",
     "P2 Verify fk_integrity_report = 0 orphans; KPI deltas vs v3 (61.55 / 848 / $48.45M) within the B9 tolerance (@data-analyst reconcile).",
     f"P3 @data-planner captures {V4} (data-changing rule); mark {V3} and {V4_DRAFT} rows SUPERSEDED.",
     "P4 @devops refreshes tests/frozen_v3_objects.json -> frozen_v4 snapshot and tests/v4_candidate_objects.json.",
@@ -281,6 +287,95 @@ def rollback_sql(item: Item, v3_pin) -> list:
     ]
 
 
+# P60-DEVOPS-RUNBOOK-V4-COMMENT-SNAPSHOT: v4 comment snapshot + PK/FK placement. Text builders only.
+V4_COMMENT_SNAPSHOT = "freeze_v4_comment_snapshot"
+V3_COMMENT_SNAPSHOT = "freeze_v3_comment_snapshot"
+COMMENT_SNAPSHOT_COLUMNS = ("manifest_version", "table_name", "column_name", "ordinal_position",
+                            "comment_level", "comment", "reapply_sql", "snapshot_ts")
+PK_FK_DDL_PATH = "runbooks/P43_v4_pk_fk_constraints.sql"  # @data-engineer P43-DE-V4-PK-FK-CONSTRAINTS
+
+
+def promoted_tables() -> list:
+    """Managed live tables replaced by the swap (views/regenerated/report objects excluded)."""
+    return [i.live for i in RUNBOOK if i.action == "promote"]
+
+
+def v4_comment_snapshot_sql(tables=None) -> list:
+    """SQL (NOT executed here) that captures freeze_v4_comment_snapshot right after the swap.
+
+    Same 8 columns as freeze_v3_comment_snapshot. Idempotent: CREATE IF NOT EXISTS, then
+    DELETE + INSERT for manifest_version = PRI-DEMO-FREEZE-v4 only. Never touches the v3 snapshot.
+    Unchanged v3 objects stay covered by freeze_v3_comment_snapshot.
+    """
+    tables = list(tables or promoted_tables())
+    tgt = f"{FQ}.{V4_COMMENT_SNAPSHOT}"
+    in_list = ", ".join(f"'{t}'" for t in tables)
+    esc = "replace(replace({x}, '\\\\', '\\\\\\\\'), '\\'', '\\\\\\'')"
+    return [
+        f"CREATE TABLE IF NOT EXISTS {tgt} ("
+        "manifest_version STRING COMMENT 'Freeze manifest this snapshot belongs to (PRI-DEMO-FREEZE-v4)', "
+        "table_name STRING COMMENT 'Promoted v4 managed table in cdm_tmforum.provable_resilience_intelligence', "
+        "column_name STRING COMMENT 'Column name; NULL for the table-level comment row', "
+        "ordinal_position INT COMMENT 'Column ordinal position; 0 for the table-level comment row. Use it to order reapply_sql', "
+        "comment_level STRING COMMENT 'TABLE or COLUMN', "
+        "comment STRING COMMENT 'Authoritative comment text at snapshot time (DEC-PRI-FREEZE-COMMENTS)', "
+        "reapply_sql STRING COMMENT 'Ready-to-run COMMENT ON TABLE / ALTER COLUMN COMMENT statement. Metadata-only', "
+        "snapshot_ts TIMESTAMP COMMENT 'UTC timestamp when the snapshot was captured') "
+        "COMMENT 'Lakelink Fiber PRI: column-comment snapshot of promoted v4 tables, captured right after the v4 swap. Mirrors freeze_v3_comment_snapshot.'",
+        f"DELETE FROM {tgt} WHERE manifest_version = '{V4}'",
+        f"INSERT INTO {tgt} "
+        f"SELECT '{V4}', t.table_name, NULL, 0, 'TABLE', t.comment, "
+        f"concat('COMMENT ON TABLE {FQ}.`', t.table_name, '` IS \\'', {esc.format(x='t.comment')}, '\\';'), current_timestamp() "
+        f"FROM {CATALOG}.information_schema.tables t "
+        f"WHERE t.table_schema = '{SCHEMA}' AND t.table_name IN ({in_list}) AND t.comment IS NOT NULL "
+        f"UNION ALL SELECT '{V4}', c.table_name, c.column_name, c.ordinal_position, 'COLUMN', c.comment, "
+        f"concat('ALTER TABLE {FQ}.`', c.table_name, '` ALTER COLUMN `', c.column_name, '` COMMENT \\'', "
+        f"{esc.format(x='c.comment')}, '\\';'), current_timestamp() "
+        f"FROM {CATALOG}.information_schema.columns c "
+        f"WHERE c.table_schema = '{SCHEMA}' AND c.table_name IN ({in_list}) AND c.comment IS NOT NULL",
+        f"-- verify: every promoted table has a TABLE row and COLUMN rows = commented columns in information_schema "
+        f"(SELECT table_name, count(*) FROM {tgt} WHERE manifest_version = '{V4}' GROUP BY table_name)",
+    ]
+
+
+def _ddl_statements(text: str) -> list:
+    body = "\n".join(ln.split("--", 1)[0] for ln in text.splitlines())
+    return [" ".join(s.split()) for s in body.split(";") if s.strip()]
+
+
+def pk_fk_plan(text: str | None = None, root: str | None = None) -> dict:
+    """Split the P43-DE constraint DDL into AFTER_SWAP (step 14) and DEFERRED (step 19).
+
+    A statement is AFTER_SWAP only if its ALTER target AND any REFERENCES parent are promoted
+    v4 tables. Anything touching a table that stays v3 FROZEN until PRI-DEMO-FREEZE-v4 is captured
+    is DEFERRED (DEC-PRI-UC-CONSTRAINTS: never ALTER v3 FROZEN). Reads a file only; executes nothing.
+    """
+    import re
+    if text is None:
+        base = root or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        path = os.path.join(base, PK_FK_DDL_PATH)
+        if not os.path.exists(path):
+            return {"source": None, "after_swap": [], "deferred": [], "deferred_tables": []}
+        with open(path) as fh:
+            text = fh.read()
+    promoted = set(promoted_tables())
+    after, deferred, dtables = [], [], set()
+    for s in _ddl_statements(text):
+        m = re.match(r"(?i)ALTER TABLE\s+`?([\w.]+?)`?\s", s + " ")
+        if not m:
+            continue  # USE / pre-flight SELECT / verify SELECT
+        tbl = m.group(1).split(".")[-1]
+        ref = re.search(r"(?i)REFERENCES\s+`?([\w.]+?)`?\s*\(", s)
+        touched = {tbl} | ({ref.group(1).split(".")[-1]} if ref else set())
+        if touched <= promoted:
+            after.append(s)
+        else:
+            deferred.append(s)
+            dtables |= touched - promoted
+    return {"source": PK_FK_DDL_PATH, "after_swap": after, "deferred": deferred,
+            "deferred_tables": sorted(dtables)}
+
+
 # ---------------------------------------------------------------- dry run
 def dry_run(spark, cur=None, verbose: bool = True) -> list:
     """Read-only evaluation of every runbook item. Executes NO plan SQL."""
@@ -363,6 +458,11 @@ def print_report(findings: list, cur=None) -> None:
             print("      ROLLBACK :", s)
     for p in POST_STEPS:
         print("   POST:", p)
+    for s in v4_comment_snapshot_sql():
+        print("   V4 COMMENT SNAPSHOT WOULD RUN:", s[:200] + ("..." if len(s) > 200 else ""))
+    pk = pk_fk_plan()
+    print(f"   PK/FK ({pk['source']}): after_swap={len(pk['after_swap'])} deferred={len(pk['deferred'])} "
+          f"deferred_tables={pk['deferred_tables']}")
     for c in checklist_status(cur):
         open_g = [k for k, v in c["gates"].items() if v != "completed"]
         print(f"   CHECK {c['order']:>2} {c['phase']:<7} {c['owner']:<15} {'DONE' if c['done'] else 'OPEN'}  "
