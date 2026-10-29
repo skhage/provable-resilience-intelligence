@@ -138,6 +138,59 @@ def checklist_status(cur) -> list:
     return out
 
 
+# P57-DEVOPS-CUTOVER-SLIP-CONTINGENCY: dated schedule for both paths (DEC-PRI-V4-CUTOVER-TARGET-1030, id 33).
+# Path A: the CEO runs both writers (CHECKLIST 1+2) by APPROVAL_DEADLINE EOD -> cutover on BASE_TARGET.
+# Path B: no approval by the deadline -> cutover slips to PLAN_B_TARGET (PM R57). DEC-33 rule is
+# +48h per missed day; PLAN_B_TARGET must never be earlier than the rule-derived date.
+# Read-only: nothing here writes to Lakebase, UC or any v4/v3 table. Freeze guards are unchanged.
+import datetime as _dt  # noqa: E402
+
+TARGET_DECISION = "DEC-PRI-V4-CUTOVER-TARGET-1030"
+APPROVAL_DEADLINE = _dt.date(2026, 10, 29)
+BASE_TARGET = _dt.date(2026, 10, 30)
+PLAN_B_TARGET = _dt.date(2026, 11, 2)
+CEO_GATES = ("BUG-QA-073", "P36-ML-V4-RESCORE-CONDUIT-DIVERSITY")
+# Day offset of each CHECKLIST step relative to cutover day T (CEO writes due EOD T-1).
+STEP_OFFSET_DAYS = {1: -1, 2: -1, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0,
+                    11: 0, 12: 0, 13: 0, 14: 0, 15: 0, 16: 0, 17: 1}
+AUDIT_HOLD_DAYS = 2  # POST P5: drop *_v4_candidate only after QA sign-off + 48h
+
+
+def rule_target(missed_days: int) -> _dt.date:
+    """DEC-33: the cutover target rolls +48h for every day the CEO approval is missed."""
+    return BASE_TARGET + _dt.timedelta(days=2 * max(0, missed_days))
+
+
+def dated_checklist(target: _dt.date) -> list:
+    """CHECKLIST rows with due dates for a given cutover day T."""
+    return [{"order": o, "phase": ph, "owner": ow, "action": a,
+             "due": target + _dt.timedelta(days=STEP_OFFSET_DAYS[o])}
+            for o, ph, ow, a, _g in CHECKLIST]
+
+
+def contingency_plan(cur, today: _dt.date | None = None) -> dict:
+    """Read-only: decide which path applies and return the dated checklist for it (and for the other path)."""
+    today = today or _dt.date.today()
+    status = {}
+    if cur is not None:
+        cur.execute("SELECT task_code, status FROM agent_tasks WHERE task_code = ANY(%s)", (list(CEO_GATES),))
+        status = dict(cur.fetchall())
+    ceo_done = all(status.get(c) == "completed" for c in CEO_GATES)
+    missed = max(0, (today - APPROVAL_DEADLINE).days)
+    if ceo_done and missed == 0:
+        path, target = "A", BASE_TARGET
+    elif missed == 0:
+        path, target = "PENDING", BASE_TARGET  # still inside the approval window; stage both
+    else:
+        path, target = "B", max(PLAN_B_TARGET, rule_target(missed))
+    return {
+        "path": path, "today": today, "ceo_gates": {c: status.get(c, "UNKNOWN") for c in CEO_GATES},
+        "missed_days": missed, "target": target,
+        "candidate_drop_earliest": target + _dt.timedelta(days=AUDIT_HOLD_DAYS),
+        "plan_a": dated_checklist(BASE_TARGET), "plan_b": dated_checklist(max(PLAN_B_TARGET, rule_target(1))),
+    }
+
+
 POST_STEPS = [
     "P1 Apply informational PK/FK constraints on promoted v4 core tables (DEC-PRI-UC-CONSTRAINTS, @data-engineer P43-DE-V4-PK-FK-CONSTRAINTS). NEVER on v3.",
     "P2 Verify fk_integrity_report = 0 orphans; KPI deltas vs v3 (61.55 / 848 / $48.45M) within the B9 tolerance (@data-analyst reconcile).",

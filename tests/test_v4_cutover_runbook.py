@@ -85,3 +85,59 @@ def test_data_change_rule():
     assert rb._is_data_change("MERGE") and rb._is_data_change("RESTORE")
     for op in ("OPTIMIZE", "VACUUM END", "SET TBLPROPERTIES", "CHANGE COLUMN", "ADD CONSTRAINT"):
         assert not rb._is_data_change(op), op
+
+
+class _GateCur:
+    """Fake Lakebase cursor: only answers the read-only CEO-gate SELECT."""
+
+    def __init__(self, status):
+        self.status, self.sql = status, []
+
+    def execute(self, sql, params=None):
+        self.sql.append(sql)
+        assert sql.lstrip().upper().startswith("SELECT"), sql
+
+    def fetchall(self):
+        return list(self.status.items())
+
+
+def test_p57_slip_contingency_paths():
+    """P57: path A keeps 10-30; no approval past 10-29 EOD slips to >= 11-02 and never earlier than DEC-33 (+48h/day)."""
+    import datetime as dt
+    done = {c: "completed" for c in rb.CEO_GATES}
+    notdone = {"BUG-QA-073": "in_progress", "P36-ML-V4-RESCORE-CONDUIT-DIVERSITY": "blocked"}
+    a = rb.contingency_plan(_GateCur(done), dt.date(2026, 10, 29))
+    assert a["path"] == "A" and a["target"] == dt.date(2026, 10, 30)
+    p = rb.contingency_plan(_GateCur(notdone), dt.date(2026, 10, 29))
+    assert p["path"] == "PENDING" and p["target"] == dt.date(2026, 10, 30)
+    b = rb.contingency_plan(_GateCur(notdone), dt.date(2026, 10, 30))
+    assert b["path"] == "B" and b["target"] == dt.date(2026, 11, 2) and b["missed_days"] == 1
+    assert b["target"] >= rb.rule_target(1) == dt.date(2026, 11, 1)
+    late = rb.contingency_plan(_GateCur(notdone), dt.date(2026, 11, 1))
+    assert late["target"] == rb.rule_target(3) == dt.date(2026, 11, 5)
+    # approval that lands after the deadline still follows the slipped date
+    assert rb.contingency_plan(_GateCur(done), dt.date(2026, 10, 30))["path"] == "B"
+    assert b["candidate_drop_earliest"] == b["target"] + dt.timedelta(days=rb.AUDIT_HOLD_DAYS)
+
+
+def test_p57_dated_checklist_covers_all_17_steps_in_order():
+    import datetime as dt
+    t = dt.date(2026, 11, 2)
+    rows = rb.dated_checklist(t)
+    assert [r["order"] for r in rows] == [c[0] for c in rb.CHECKLIST] and len(rows) == 17
+    assert set(rb.STEP_OFFSET_DAYS) == {c[0] for c in rb.CHECKLIST}
+    dues = [r["due"] for r in rows]
+    assert dues == sorted(dues)
+    assert rows[0]["due"] == rows[1]["due"] == dt.date(2026, 11, 1)  # CEO writes EOD T-1
+    assert next(r for r in rows if r["order"] == 12)["due"] == t
+    assert rb.contingency_plan(None, dt.date(2026, 10, 29))["plan_b"][11]["due"] == t
+
+
+def test_p57_contingency_is_read_only():
+    import datetime as dt
+    cur = _GateCur({})
+    rb.contingency_plan(cur, dt.date(2026, 10, 31))
+    assert len(cur.sql) == 1 and "agent_tasks" in cur.sql[0]
+    body = SRC[SRC.index("def contingency_plan"):SRC.index("POST_STEPS = [")]
+    for kw in ("INSERT", "UPDATE ", "DELETE", "CREATE", "spark.sql"):
+        assert kw not in body, kw
