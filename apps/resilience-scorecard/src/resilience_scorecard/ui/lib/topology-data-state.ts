@@ -11,13 +11,16 @@
  * empty SRLG overlay). These pure helpers keep that logic testable without a DOM.
  */
 
-export type DataState = "live" | "unavailable" | "not_found";
+// BUG-DW-106 item 4: 'auth_expired' = 401/403. A Retry cannot fix it, so it gets its own copy.
+export type DataState = "live" | "unavailable" | "not_found" | "auth_expired";
 
 export const DATA_SOURCE_HEADER = "X-PRI-Data-Source";
 
 /** Neutral outage copy (iron on white). Not a risk signal: never orange/red. */
 export const PATH_UNAVAILABLE_MSG = "Path data is temporarily unavailable.";
 export const RETRY_LABEL = "Retry";
+/** BUG-DW-106 item 4: 401/403 copy. Neutral iron, no Retry (reloading re-authenticates). */
+export const SESSION_EXPIRED_MSG = "Your session may have expired. Reload the page.";
 
 export function serviceNotFoundMsg(serviceId: string): string {
   return `Service ${serviceId} not found.`;
@@ -28,11 +31,13 @@ export function srlgUnavailableMsg(region: string): string {
 }
 
 /**
- * Classify a fetch result. The header 'unavailable' or any 5xx wins; 404 is
- * not_found; any other 2xx is live (a missing header on 2xx is treated as live
- * so older backends keep the v3 render). Any other status is unavailable.
+ * Classify a fetch result. 401/403 is auth_expired (BUG-DW-106). Otherwise the
+ * header 'unavailable' or any 5xx wins; 404 is not_found; any other 2xx is live
+ * (a missing header on 2xx is treated as live so older backends keep the v3
+ * render). Any other status is unavailable.
  */
 export function classifyResponse(status: number, dataSource: string | null | undefined): DataState {
+  if (status === 401 || status === 403) return "auth_expired";
   if ((dataSource ?? "").toLowerCase() === "unavailable" || status >= 500) return "unavailable";
   if (status === 404) return "not_found";
   if (status >= 200 && status < 300) return "live";
@@ -56,17 +61,19 @@ export async function fetchWithState<T>(url: string): Promise<StatefulResult<T>>
   }
 }
 
-export type TraceBannerMode = "pending" | "live" | "unavailable" | "not_found";
+export type TraceBannerMode = "pending" | "live" | "unavailable" | "not_found" | "auth_expired";
 
 /**
  * Combined mode for the path banner and mobile tree summary.
  * - either fetch still pending -> 'pending' (render nothing new)
+ * - either fetch 401/403 -> 'auth_expired' (BUG-DW-106: no other result can be trusted)
  * - diversity 404 -> 'not_found' (a successful live query proved the service is absent)
  * - path or diversity unavailable -> 'unavailable' (no badge, no hop stats)
  * - otherwise 'live' (v3 render unchanged)
  */
 export function traceBannerMode(path: DataState | null, diversity: DataState | null): TraceBannerMode {
   if (path === null || diversity === null) return "pending";
+  if (path === "auth_expired" || diversity === "auth_expired") return "auth_expired";
   if (diversity === "not_found" || path === "not_found") return "not_found";
   if (path === "unavailable" || diversity === "unavailable") return "unavailable";
   return "live";
@@ -76,12 +83,21 @@ export function traceBannerMode(path: DataState | null, diversity: DataState | n
 export function traceBannerMessage(mode: TraceBannerMode, serviceId: string): string | null {
   if (mode === "unavailable") return PATH_UNAVAILABLE_MSG;
   if (mode === "not_found") return serviceNotFoundMsg(serviceId);
+  if (mode === "auth_expired") return SESSION_EXPIRED_MSG;
   return null;
+}
+
+/**
+ * BUG-DW-106: Retry is offered only for a transient outage. not_found and
+ * auth_expired cannot be fixed by retrying. Shared by the banner and mobile summary.
+ */
+export function showTraceRetry(mode: TraceBannerMode): boolean {
+  return mode === "unavailable";
 }
 
 /** Whether the legend should show the SRLG-unavailable line (overlay on + region + outage). */
 export function showSrlgUnavailable(srlgOn: boolean, region: string | null, state: DataState | null): boolean {
-  return srlgOn && !!region && state === "unavailable";
+  return srlgOn && !!region && (state === "unavailable" || state === "auth_expired");
 }
 
 // ---------------------------------------------------------------------------

@@ -48,7 +48,9 @@ def _node(body):
     (503, None, "unavailable"),
     (500, None, "unavailable"),
     (404, None, "not_found"),            # diversity: service genuinely absent
-    (401, None, "unavailable"),
+    (401, None, "auth_expired"),          # BUG-DW-106 item 4
+    (403, "unavailable", "auth_expired"),  # auth wins over the outage header
+    (400, None, "unavailable"),
 ])
 def test_classify_response(status, header, expected):
     assert _node(f"out = m.classifyResponse({status}, {json.dumps(header)});") == expected
@@ -155,9 +157,9 @@ def test_fetches_read_header_not_raw_json():
 
 def test_live_render_condition_unchanged_and_outage_always_disclosed():
     src = _read("routes", "topology.tsx")
-    # BUG-DW-111 item 3: live with 0 hops now renders the neutral 'No traced path' banner
-    assert ('(traceMode === "unavailable" || traceMode === "not_found" || '
-            'traceMode === "live")') in src
+    # BUG-DW-111 item 3: live with 0 hops renders the neutral 'No traced path' banner.
+    # BUG-DW-106: every settled mode (incl. auth_expired) renders it; only pending does not.
+    assert 'tracedServiceId && traceMode !== "pending" && (' in src
     assert "traceMode={traceMode}" in src  # mobile tree uses the same states
     assert "srlgUnavailableRegion={" in src
 

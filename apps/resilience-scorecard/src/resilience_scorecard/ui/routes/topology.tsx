@@ -34,6 +34,7 @@ import {
   showSrlgUnavailable,
   srlgUnavailableMsg,
   noTracedPathMsg,
+  showTraceRetry,
   stillUnavailableMsg,
   traceBannerMessage,
   traceBannerMode,
@@ -1538,6 +1539,10 @@ interface MobileTreeProps {
   bbCoverage?: BbSrlgCoverage | null;
   /** BUG-DW-098: same 3-state handling as the desktop path banner */
   traceMode?: TraceBannerMode;
+  /** BUG-DW-106 item 2: same Retry as the banner, so sticky-summary users need not scroll up */
+  onRetry?: () => void;
+  retryBusy?: boolean;
+  retryFeedback?: string | null;
 }
 
 function MobileTreeView({
@@ -1549,6 +1554,9 @@ function MobileTreeView({
   tracedServiceId,
   bbCoverage = null,
   traceMode = "live",
+  onRetry,
+  retryBusy = false,
+  retryFeedback = null,
 }: MobileTreeProps) {
   const [expandedRegions, setExpandedRegions] = useState<Set<string>>(
     new Set()
@@ -1903,7 +1911,21 @@ function MobileTreeView({
         // BUG-DW-111 item 4: not a live region; the page-level persistent region announces
         <div className="mobile-tree-diversity-summary">
           <strong>Tracing:</strong> {tracedServiceId}
-          <span className="path-trace-unavailable">{traceBannerMessage(traceMode, tracedServiceId)}</span>
+          <span className="path-trace-unavailable">
+            {(showTraceRetry(traceMode) && retryFeedback) || traceBannerMessage(traceMode, tracedServiceId)}
+          </span>
+          {/* BUG-DW-106 item 2: Retry in the sticky summary (44px at <=768px via .path-trace-retry).
+               Not offered for not_found / auth_expired (BUG-DW-106 item 4). */}
+          {showTraceRetry(traceMode) && onRetry && (
+            <button
+              type="button"
+              className="path-trace-retry mobile-tree-retry"
+              onClick={retryBusy ? undefined : onRetry}
+              aria-disabled={retryBusy || undefined}
+            >
+              {retryBusy ? RETRYING_LABEL : RETRY_LABEL}
+            </button>
+          )}
         </div>
       )}
       {tracedServiceId && diversity && overlays.diversity && !traceBannerMessage(traceMode, tracedServiceId) && (
@@ -2164,12 +2186,13 @@ function TopologyPage() {
 
   // BUG-DW-105: move focus to the banner container after a successful retry
   // (mode changed from unavailable to live/not_found). Do NOT move focus on first load.
+  // BUG-DW-106: auth_expired also removes the Retry button, so focus must move then too.
   useEffect(() => {
     const prev = prevTraceModeRef.current;
     prevTraceModeRef.current = traceMode;
     if (
       prev === "unavailable" &&
-      (traceMode === "live" || traceMode === "not_found") &&
+      (traceMode === "live" || traceMode === "not_found" || traceMode === "auth_expired") &&
       retryCountRef.current > 0
     ) {
       // Retry succeeded: banner changed shape, so focus the container
@@ -2287,8 +2310,8 @@ function TopologyPage() {
       {/* Path trace banner (§2) */}
       {/* BUG-DW-098: outage/not-found always disclosed. BUG-DW-111: live with 0 hops renders the
            neutral 'No traced path' banner so focus has a target after Retry->live. */}
-      {tracedServiceId &&
-        (traceMode === "unavailable" || traceMode === "not_found" || traceMode === "live") && (
+      {/* BUG-DW-106: every settled mode (incl. auth_expired) renders the banner; only pending does not */}
+      {tracedServiceId && traceMode !== "pending" && (
         <PathTraceBanner
           serviceId={tracedServiceId}
           diversity={diversity}
@@ -2343,6 +2366,9 @@ function TopologyPage() {
               tracedServiceId={tracedServiceId}
               bbCoverage={bbCoverage}
               traceMode={traceMode}
+              onRetry={() => { retryCountRef.current += 1; setTraceRetry((n) => n + 1); }}
+              retryBusy={retryBusy}
+              retryFeedback={retryFeedback}
             />
           )}
           {!loading && regions.length === 0 && (

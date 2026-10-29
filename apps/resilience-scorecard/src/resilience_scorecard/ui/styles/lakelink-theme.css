@@ -1965,6 +1965,12 @@ select:focus-visible,
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  /* BUG-DW-106 item 2: message + Retry wrap at 320px instead of overflowing */
+  flex-wrap: wrap;
+}
+/* BUG-DW-106 item 2: Retry sits at the trailing edge; 44px target comes from .path-trace-retry <=768px */
+.mobile-tree-retry {
+  margin-left: auto;
 }
 
 /* Full-screen detail modal (§6.2) */

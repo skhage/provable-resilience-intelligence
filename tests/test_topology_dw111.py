@@ -171,8 +171,8 @@ def test_persistent_region_writes_live_summary():
 def test_banner_rendered_for_live_with_zero_hops():
     src = _read("routes", "topology.tsx")
     assert "pathHops.length > 0))" not in src
-    assert ('(traceMode === "unavailable" || traceMode === "not_found" || '
-            'traceMode === "live")') in src
+    # BUG-DW-106 widened the guard to every settled mode (live included)
+    assert 'tracedServiceId && traceMode !== "pending" && (' in src
     assert ('(mode === "live" && hops.length === 0 ? noTracedPathMsg(serviceId) : null)') in src
 
 
