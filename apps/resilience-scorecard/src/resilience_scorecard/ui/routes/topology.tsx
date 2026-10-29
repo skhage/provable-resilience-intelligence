@@ -33,9 +33,11 @@ import {
   fetchWithState,
   showSrlgUnavailable,
   srlgUnavailableMsg,
+  noTracedPathMsg,
   stillUnavailableMsg,
   traceBannerMessage,
   traceBannerMode,
+  traceStatusText,
   type DataState,
   type TraceBannerMode,
 } from "@/lib/topology-data-state";
@@ -882,7 +884,11 @@ function PathTraceBanner({
   /** BUG-DW-105: ref for focus management after a successful retry */
   bannerRef?: React.RefObject<HTMLDivElement | null>;
 }) {
-  const nonLiveMessage = traceBannerMessage(mode, serviceId);
+  // BUG-DW-111 item 3: a live result with 0 hops still renders a (neutral) banner so the
+  // Retry->live focus target exists and the user is told why nothing is drawn.
+  const nonLiveMessage =
+    traceBannerMessage(mode, serviceId) ??
+    (mode === "live" && hops.length === 0 ? noTracedPathMsg(serviceId) : null);
   if (nonLiveMessage) {
     // BUG-DW-105: show retryFeedback (repeat failure) instead of the static message
     const displayMessage = retryFeedback ?? nonLiveMessage;
@@ -910,8 +916,9 @@ function PathTraceBanner({
               {busy ? RETRYING_LABEL : RETRY_LABEL}
             </button>
           )}
-          <button className="path-trace-clear" onClick={onClear}>
-            \u2715 Clear trace
+          {/* BUG-DW-111 item 1: real glyph (JSX text does not process \u escapes), hidden from AT */}
+          <button type="button" className="path-trace-clear" onClick={onClear}>
+            <span aria-hidden="true">✕</span> Clear trace
           </button>
         </div>
       </div>
@@ -976,8 +983,8 @@ function PathTraceBanner({
         >
           View in Service Table →
         </Link>
-        <button className="path-trace-clear" onClick={onClear}>
-          ✕ Clear trace
+        <button type="button" className="path-trace-clear" onClick={onClear}>
+          <span aria-hidden="true">✕</span> Clear trace
         </button>
       </div>
     </div>
@@ -1893,13 +1900,14 @@ function MobileTreeView({
 
       {/* Diversity summary when tracing */}
       {tracedServiceId && overlays.diversity && traceBannerMessage(traceMode, tracedServiceId) && (
-        <div className="mobile-tree-diversity-summary" role="status">
+        // BUG-DW-111 item 4: not a live region; the page-level persistent region announces
+        <div className="mobile-tree-diversity-summary">
           <strong>Tracing:</strong> {tracedServiceId}
           <span className="path-trace-unavailable">{traceBannerMessage(traceMode, tracedServiceId)}</span>
         </div>
       )}
       {tracedServiceId && diversity && overlays.diversity && !traceBannerMessage(traceMode, tracedServiceId) && (
-        <div className="mobile-tree-diversity-summary" role="status">
+        <div className="mobile-tree-diversity-summary">
           <strong>Tracing:</strong> {tracedServiceId}
           {diversityBadge(diversity.diversity_status)}
           {showBackboneUnverified(bbCoverage, diversity.diversity_status, diversity.crosses_backbone) && (
@@ -2263,14 +2271,24 @@ function TopologyPage() {
             ? RETRYING_LABEL
             : retryFeedback
             ? retryFeedback
-            : traceBannerMessage(traceMode, tracedServiceId) ?? ""}
+            : traceStatusText({
+                // BUG-DW-111 item 2: live mode writes a concise summary (no basis caption)
+                mode: traceMode,
+                serviceId: tracedServiceId,
+                busy: false,
+                retryFeedback: null,
+                diversityLabel: diversityLabel(diversity?.diversity_status),
+                workingHops: pathHops.filter((h) => h.path_type === "working").length,
+                protectHops: pathHops.filter((h) => h.path_type === "protect").length,
+              })}
         </div>
       )}
 
       {/* Path trace banner (§2) */}
-      {/* BUG-DW-098: live render unchanged (needs hops); outage/not-found always disclosed */}
+      {/* BUG-DW-098: outage/not-found always disclosed. BUG-DW-111: live with 0 hops renders the
+           neutral 'No traced path' banner so focus has a target after Retry->live. */}
       {tracedServiceId &&
-        (traceMode === "unavailable" || traceMode === "not_found" || (traceMode === "live" && pathHops.length > 0)) && (
+        (traceMode === "unavailable" || traceMode === "not_found" || traceMode === "live") && (
         <PathTraceBanner
           serviceId={tracedServiceId}
           diversity={diversity}

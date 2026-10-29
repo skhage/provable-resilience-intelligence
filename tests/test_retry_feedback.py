@@ -7,6 +7,7 @@ Project: Lakelink Fiber - Provable Resilience Intelligence
 
 import json
 import os
+import re
 import shutil
 import subprocess
 
@@ -41,19 +42,19 @@ def _node(body):
 def test_still_unavailable_msg_format():
     """The message includes HH:MM in 24h format."""
     out = _node("out = m.stillUnavailableMsg(new Date(2026, 9, 28, 14, 5));")
-    assert out == "Still unavailable. Last checked 14:05."
+    assert out == "Path data is still unavailable. Last checked 14:05."  # BUG-DW-111 item 5
 
 
 @needs_node
 def test_still_unavailable_msg_midnight():
     out = _node("out = m.stillUnavailableMsg(new Date(2026, 0, 1, 0, 0));")
-    assert out == "Still unavailable. Last checked 00:00."
+    assert out == "Path data is still unavailable. Last checked 00:00."
 
 
 @needs_node
 def test_still_unavailable_msg_single_digit_hour():
     out = _node("out = m.stillUnavailableMsg(new Date(2026, 0, 1, 9, 7));")
-    assert out == "Still unavailable. Last checked 09:07."
+    assert out == "Path data is still unavailable. Last checked 09:07."
 
 
 # --- RETRYING_LABEL exported ----------------------------------------------
@@ -279,15 +280,19 @@ def test_css_retry_aria_disabled():
 
 
 def test_css_banner_nodata_focus_visible():
+    # BUG-DW-111 item 6: the duplicate hardcoded rule is gone; the global
+    # [tabindex]:focus-visible ring (var(--lf-dark-teal)) covers the banner.
     css = open(os.path.join(UI, "styles", "lakelink-theme.css"), encoding="utf-8").read()
-    assert ".path-trace-banner-nodata:focus-visible" in css
-    assert "outline: 2px solid #006272" in css
+    assert re.search(r"\[tabindex\]:focus-visible\s*\{\s*outline: 2px solid var\(--lf-dark-teal\)", css)
+    assert not re.search(r"(?m)^\.path-trace-banner-nodata:focus-visible\s*\{", css)
 
 
 def test_css_tabular_nums_on_busy():
+    # BUG-DW-111 item 6: tabular-nums applies unconditionally (timestamp shows while NOT busy)
     css = open(os.path.join(UI, "styles", "lakelink-theme.css"), encoding="utf-8").read()
-    assert ".path-trace-banner-nodata[aria-busy" in css
-    assert "tabular-nums" in css
+    m = re.search(r"(?m)^\.path-trace-unavailable\s*\{([^}]*)\}", css)
+    assert m and "font-variant-numeric: tabular-nums" in m.group(1)
+    assert ".path-trace-banner-nodata[aria-busy" not in css
 
 
 def test_css_forced_colors_disabled():

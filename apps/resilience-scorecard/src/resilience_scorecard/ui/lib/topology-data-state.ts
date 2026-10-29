@@ -98,5 +98,59 @@ export const RETRYING_LABEL = "Retrying\u2026";
 export function stillUnavailableMsg(now: Date): string {
   const hh = String(now.getHours()).padStart(2, "0");
   const mm = String(now.getMinutes()).padStart(2, "0");
-  return `Still unavailable. Last checked ${hh}:${mm}.`;
+  // BUG-DW-111 item 5: keep the subject so the repeat-failure line stands on its own
+  return `Path data is still unavailable. Last checked ${hh}:${mm}.`;
+}
+
+// ---------------------------------------------------------------------------
+// BUG-DW-111: live trace announcement + 0-hop live banner copy
+// ---------------------------------------------------------------------------
+
+/** Banner/status copy when the live query succeeded but returned no path hops. */
+export function noTracedPathMsg(serviceId: string): string {
+  return `No traced path for ${serviceId}.`;
+}
+
+function hopCount(n: number, kind: string): string {
+  return `${n.toLocaleString("en-US")} ${kind} hop${n === 1 ? "" : "s"}`;
+}
+
+/**
+ * Concise summary written to the persistent sr-only status region in live mode
+ * (WCAG 4.1.3). The static basis caption is deliberately NOT included.
+ * 0 hops in total -> the "No traced path" copy.
+ */
+export function traceLiveSummary(
+  serviceId: string,
+  diversityLabel: string,
+  workingHops: number,
+  protectHops: number,
+): string {
+  if (workingHops + protectHops === 0) return noTracedPathMsg(serviceId);
+  const protect = protectHops > 0 ? hopCount(protectHops, "protect") : "no protect path";
+  return `${serviceId} traced: ${diversityLabel}, ${hopCount(workingHops, "working")}, ${protect}.`;
+}
+
+/**
+ * Single source of text for the persistent trace status region.
+ * Priority: Retrying… > repeat-failure feedback > non-live message > live summary.
+ * Pending -> "" (region stays mounted and empty).
+ */
+export function traceStatusText(opts: {
+  mode: TraceBannerMode;
+  serviceId: string;
+  busy: boolean;
+  retryFeedback: string | null;
+  diversityLabel: string;
+  workingHops: number;
+  protectHops: number;
+}): string {
+  if (opts.busy) return RETRYING_LABEL;
+  if (opts.retryFeedback) return opts.retryFeedback;
+  const nonLive = traceBannerMessage(opts.mode, opts.serviceId);
+  if (nonLive) return nonLive;
+  if (opts.mode === "live") {
+    return traceLiveSummary(opts.serviceId, opts.diversityLabel, opts.workingHops, opts.protectHops);
+  }
+  return "";
 }

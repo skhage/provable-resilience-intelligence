@@ -1606,6 +1606,8 @@ select:focus-visible,
    Not a risk signal, so no orange or red, and no diversity badge or hop stats. */
 .path-trace-unavailable {
   color: #4D4D4D;
+  /* BUG-DW-111 item 6: the HH:MM timestamp shows while NOT busy, so apply unconditionally */
+  font-variant-numeric: tabular-nums;
 }
 .path-trace-retry {
   background: #FFFFFF;
@@ -1658,15 +1660,9 @@ select:focus-visible,
   cursor: default;
   pointer-events: none;
 }
-.path-trace-banner-nodata:focus-visible {
-  outline: 2px solid #006272;
-  outline-offset: 2px;
-}
+/* BUG-DW-111 item 6: focus ring comes from the global [tabindex]:focus-visible rule */
 .path-trace-banner-nodata:focus:not(:focus-visible) {
   outline: none;
-}
-.path-trace-banner-nodata[aria-busy="true"] .path-trace-unavailable {
-  font-variant-numeric: tabular-nums;
 }
 @media (forced-colors: active) {
   .path-trace-retry[aria-disabled] {

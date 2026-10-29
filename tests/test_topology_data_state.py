@@ -155,8 +155,9 @@ def test_fetches_read_header_not_raw_json():
 
 def test_live_render_condition_unchanged_and_outage_always_disclosed():
     src = _read("routes", "topology.tsx")
+    # BUG-DW-111 item 3: live with 0 hops now renders the neutral 'No traced path' banner
     assert ('(traceMode === "unavailable" || traceMode === "not_found" || '
-            '(traceMode === "live" && pathHops.length > 0))') in src
+            'traceMode === "live")') in src
     assert "traceMode={traceMode}" in src  # mobile tree uses the same states
     assert "srlgUnavailableRegion={" in src
 
