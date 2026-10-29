@@ -298,16 +298,60 @@ def test_edge_name_flag_off_is_v3_string():
     assert _node(f"m.conduitEdgeName({json.dumps(base)}, false)") == f"{base}. Press Enter for details."
 
 
+def _conduit_edge_block():
+    """Source of the clickable conduit-edge render (detail graph), up to the SRLG badge layer."""
+    t = _read("routes", "topology.tsx")
+    start = t.index("const bbPartial = bbCoverage === \"partial\" && hasBackboneSpans(c);")
+    end = t.index("{/* BUG-DW-077: SRLG badge layer", start)
+    # drop // comment lines so prose like "the <title>" cannot satisfy markup checks
+    return "\n".join(ln for ln in t[start:end].splitlines() if not ln.lstrip().startswith("//"))
+
+
+def _focusable_line_has_title_child(block):
+    """True when the role=button <line> wraps a <title> (i.e. it is not self-closing)."""
+    line_at = block.index("<line")
+    return "</line>" in block[line_at:] and "<title" in block[line_at:]
+
+
+def _computed_description(described_by, title_text, line_has_title_child):
+    """SVG-AAM 1.0: aria-describedby wins; else a child <title> becomes the description."""
+    if described_by:
+        return title_text
+    return title_text if line_has_title_child else ""
+
+
 @needs_node
 def test_caveat_announced_exactly_once():
-    """Computed name + description: the <title> (which repeats the caveat) is not referenced."""
+    """Computed name + description, modelling the SVG-AAM child-<title> fallback (BUG-DW-100)."""
     got = _node("[m.conduitEdgeName('Conduit C1', true), m.conduitEdgeDescribedBy('C1', true) ?? null,"
-                " m.conduitEdgeDescribedBy('C1', false)]")
-    name, described_partial, described_v3 = got
-    title_text = f"C1: aerial · 2 km · 3 spans · {CAVEAT}"  # mirrors <title> markup
-    description = title_text if described_partial else ""
-    assert (name + " " + description).count(CAVEAT) == 1
-    assert described_v3 == "conduit-desc-C1"  # flag off / no backbone: unchanged
+                " m.conduitEdgeName('Conduit C1', false), m.conduitEdgeDescribedBy('C1', false)]")
+    name_partial, described_partial, name_v3, described_v3 = got
+    has_child = _focusable_line_has_title_child(_conduit_edge_block())
+    title_partial = f"C1: aerial · 2 km · 3 spans · {CAVEAT}"  # mirrors <title> markup
+    title_v3 = "C1: aerial · 2 km · 3 spans"
+    desc_partial = _computed_description(described_partial, title_partial, has_child)
+    assert (name_partial + " " + desc_partial).count(CAVEAT) == 1
+    assert CAVEAT in name_partial and CAVEAT not in desc_partial
+    # flag off / no backbone: v3 name + description unchanged (description = title via describedby)
+    assert described_v3 == "conduit-desc-C1"
+    assert name_v3 == "Conduit C1. Press Enter for details."
+    assert _computed_description(described_v3, title_v3, has_child) == title_v3
+
+
+def test_bb_edge_title_not_child_of_focusable_line():
+    """BUG-DW-100 (a): <g role=none><title/><line .../></g> keeps the tooltip, drops the fallback."""
+    block = _conduit_edge_block()
+    assert '<g key={c.conduit_id} role="none">' in block
+    title_at = block.index("<title id={`conduit-desc-${c.conduit_id}`}>")
+    line_at = block.index("<line")
+    assert title_at < line_at  # title is a sibling before the line, inside the <g>
+    assert block.count("<title") == 1
+    assert "</line>" not in block  # focusable line is self-closing: no child <title>
+    assert not _focusable_line_has_title_child(block)
+    assert "{bbPartial ? ` · ${BB_EDGE_CAVEAT}` : \"\"}" in block[title_at:line_at]  # hover keeps caveat
+    assert block.index("</g>") > line_at
+    # describedby still targets the (now sibling) title id on non-caveat edges
+    assert "aria-describedby={conduitEdgeDescribedBy(c.conduit_id, bbPartial)}" in block[line_at:]
 
 
 BANNED_BB = re.compile(r"no shared risk|0 SRLGs", re.IGNORECASE)

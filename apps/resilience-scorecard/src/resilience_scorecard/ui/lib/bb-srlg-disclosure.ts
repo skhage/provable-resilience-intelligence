@@ -87,6 +87,8 @@ export function conduitEdgeName(base: string, bbPartial: boolean): string {
 /**
  * BUG-DW-096 (3): the <title> repeats the caveat for the hover tooltip, so edges that carry it
  * drop aria-describedby (otherwise screen readers announce it twice).
+ * BUG-DW-100: the <title> must sit on the wrapping role="none" <g>, never as a child of the
+ * focusable <line>; SVG-AAM would otherwise use the child <title> as the description.
  */
 export function conduitEdgeDescribedBy(conduitId: string, bbPartial: boolean): string | undefined {
   return bbPartial ? undefined : `conduit-desc-${conduitId}`;

@@ -1317,9 +1317,17 @@ function SiteGraph({
         const srlgSevHere = hasSrlg ? srlgSevByConduit.get(c.conduit_id) ?? null : null;
         const roleLabel = isOnPath ? (hasWorking && hasProtect ? ", working and protect path" : hasProtect ? ", protect path" : ", working path") : "";
 
+        // BUG-DW-100: the <title> is a child of a role="none" <g>, not of the focusable <line>.
+        // Under SVG-AAM a child <title> becomes the description when aria-describedby is absent,
+        // so on caveat edges it would announce the caveat a second time. The hover tooltip still
+        // shows (ancestor <title>); non-caveat edges keep aria-describedby -> same id (v3 unchanged).
         return (
+          <g key={c.conduit_id} role="none">
+            <title id={`conduit-desc-${c.conduit_id}`}>
+              {c.conduit_id}: {c.conduit_type} · {c.length_km} km · {c.span_count} spans
+              {bbPartial ? ` · ${BB_EDGE_CAVEAT}` : ""}
+            </title>
           <line
-            key={c.conduit_id}
             x1={pa.x}
             y1={pa.y}
             x2={pz.x}
@@ -1344,12 +1352,8 @@ function SiteGraph({
                 onSelectConduit(isSelected ? null : c);
               }
             }}
-          >
-            <title id={`conduit-desc-${c.conduit_id}`}>
-              {c.conduit_id}: {c.conduit_type} · {c.length_km} km · {c.span_count} spans
-              {bbPartial ? ` · ${BB_EDGE_CAVEAT}` : ""}
-            </title>
-          </line>
+          />
+          </g>
         );
       })}
 
