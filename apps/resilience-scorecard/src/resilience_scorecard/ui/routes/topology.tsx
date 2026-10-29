@@ -310,6 +310,13 @@ function maxSrlgSeverity(members: { severity: string | null }[]): string | null 
   return best;
 }
 
+// BUG-DW-088: '+N' extra-SRLG label anchor (start/alphabetic baseline). The old (9,-7) put the glyph
+// box corner ~11.4px from badge centre, i.e. on the critical r=11 ring (stroke 10.25-11.75px).
+// (13,-10) puts the nearest glyph-box corner ~16.4px out; minus the 1.5px halo that is ~14.9px,
+// clear of both rings at any zoom (geometry scales uniformly). Applied to every badge for consistency.
+const SRLG_EXTRA_LABEL_X = 13;
+const SRLG_EXTRA_LABEL_Y = -10;
+
 // BUG-DW-070: hazard severity encoded by color AND stroke pattern/width so it
 // survives grayscale and forced-colors (WCAG 1.4.1, 1.4.11). All colors >=3:1 vs #E8E8E8.
 const HAZARD_SEVERITY_STYLES: Record<string, { color: string; dash: string; width: number; label: string }> = {
@@ -1218,6 +1225,19 @@ function SiteGraph({
     return map;
   }, [srlgs]);
 
+  // BUG-DW-088: max SRLG severity computed once per conduit (was recomputed 3x per conduit per render)
+  const srlgSevByConduit = useMemo(() => {
+    const groups = new Map<string, { severity: string | null }[]>();
+    srlgs.forEach((s) => {
+      if (!s.conduit_id) return;
+      if (!groups.has(s.conduit_id)) groups.set(s.conduit_id, []);
+      groups.get(s.conduit_id)!.push(s);
+    });
+    const sev = new Map<string, string | null>();
+    groups.forEach((members, id) => sev.set(id, maxSrlgSeverity(members)));
+    return sev;
+  }, [srlgs]);
+
   const hasPathTrace = pathHops.length > 0;
   const divColor = diversity
     ? DIVERSITY_COLORS[diversity.diversity_status] ?? BRAND.darkTeal
@@ -1282,7 +1302,7 @@ function SiteGraph({
             edgeColor = SRLG_COLORS[firstSrlg.srlg_type] ?? BRAND.iron;
             // BUG-DW-077: SRLG type is shown by the midpoint badge layer, not by the dash
             glowClass =
-              maxSrlgSeverity(srlgs.filter((s) => s.conduit_id === c.conduit_id)) === "critical"
+              srlgSevByConduit.get(c.conduit_id) === "critical"
                 ? "srlg-highlight srlg-critical"
                 : "srlg-highlight";
           }
@@ -1294,7 +1314,7 @@ function SiteGraph({
         const srlgTypesHere = hasSrlg
           ? Array.from(new Set(srlgs.filter((s) => s.conduit_id === c.conduit_id).map((s) => SRLG_LABELS[s.srlg_type] ?? s.srlg_type)))
           : [];
-        const srlgSevHere = hasSrlg ? maxSrlgSeverity(srlgs.filter((s) => s.conduit_id === c.conduit_id)) : null;
+        const srlgSevHere = hasSrlg ? srlgSevByConduit.get(c.conduit_id) ?? null : null;
         const roleLabel = isOnPath ? (hasWorking && hasProtect ? ", working and protect path" : hasProtect ? ", protect path" : ", working path") : "";
 
         return (
@@ -1350,16 +1370,17 @@ function SiteGraph({
             const mx = (pa.x + pz.x) / 2;
             const my = (pa.y + pz.y) / 2;
             const dimmed = hasPathTrace && !pathConduitIds.has(c.conduit_id);
+            const isCritical = srlgSevByConduit.get(c.conduit_id) === "critical";
             return (
               <g key={`srlg-badge-${c.conduit_id}`} className="srlg-badge" transform={`translate(${mx},${my})`} opacity={dimmed ? 0.35 : 1}>
                 {/* BUG-DW-087: static second cue for critical (outer concentric ring), survives reduced-motion, grayscale, forced-colors */}
-                {maxSrlgSeverity(srlgs.filter((s) => s.conduit_id === c.conduit_id)) === "critical" && (
+                {isCritical && (
                   <circle r={11} className="srlg-badge-critical-ring" stroke={color} strokeWidth={1.5} fill="none" />
                 )}
-                <circle r={8} className="srlg-badge-ring" stroke={color} strokeWidth={maxSrlgSeverity(srlgs.filter((s) => s.conduit_id === c.conduit_id)) === "critical" ? 3 : 2} />
+                <circle r={8} className="srlg-badge-ring" stroke={color} strokeWidth={isCritical ? 3 : 2} />
                 <text className="srlg-badge-code" fill={color}>{code}</text>
                 {extra > 0 && (
-                  <text x={9} y={-7} className="srlg-badge-extra">{`+${extra}`}</text>
+                  <text x={SRLG_EXTRA_LABEL_X} y={SRLG_EXTRA_LABEL_Y} className="srlg-badge-extra">{`+${extra}`}</text>
                 )}
               </g>
             );

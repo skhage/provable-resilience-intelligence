@@ -1509,6 +1509,14 @@ select:focus-visible,
   font: 600 10px 'Inter', sans-serif;
   fill: var(--lf-iron);
   pointer-events: none;
+  /* BUG-DW-088: white halo keeps '+N' legible over edges and rings (WCAG 1.4.11) */
+  paint-order: stroke;
+  stroke: #FFFFFF;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+@media (forced-colors: active) {
+  .srlg-badge-extra { stroke: Canvas; fill: CanvasText; }
 }
 .srlg-badge-layer {
   pointer-events: none;
