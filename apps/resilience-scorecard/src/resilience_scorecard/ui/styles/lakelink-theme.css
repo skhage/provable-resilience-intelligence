@@ -640,15 +640,8 @@ select:focus-visible,
     line-height: 44px;
   }
 
-  /* BUG-QA-019: Pagination buttons must meet 44x44px touch target on mobile */
-  .pagination-bar button {
-    min-height: 44px;
-    min-width: 44px;
-  }
-
-  .pagination-bar select {
-    min-height: 44px;
-  }
+  /* BUG-QA-019 pagination 44x44px targets moved below the base .pagination-bar rules
+     (BUG-DW-110): at equal specificity the later base rule won here at every width. */
 }
 
 /* === Utility Classes (UX-REM-CSS-HYGIENE) === */
@@ -862,6 +855,15 @@ select:focus-visible,
   .pagination-bar .page-controls {
     flex-wrap: wrap;
     row-gap: var(--space-sm);
+  }
+  /* BUG-QA-019 / BUG-DW-110: 44x44px touch targets on mobile. Must stay AFTER the base
+     .pagination-bar button { min-height: 32px } rule (same specificity, source order wins). */
+  .pagination-bar button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .pagination-bar select {
+    min-height: 44px;
   }
 }
 
@@ -2338,6 +2340,12 @@ select:focus-visible,
 @media (max-width: 767px) {
   .coverage-legend-count { min-width: 0; }
   .filter-bar { flex-wrap: wrap; }
+}
+
+/* BUG-DW-110 item 2: the 760px-min /actions and /conduits tables can still overflow between 768px
+   and ~1023px (page + card padding, 200% zoom), so the aria-hidden cue is shown through the tablet
+   breakpoint (CSS-only option from the binding spec; no ResizeObserver). */
+@media (max-width: 1023px) {
   .table-scroll-hint { display: block; }
 }
 
