@@ -82,3 +82,54 @@ Source: `physical_resource_conduit_v4_candidate.span_coverage_class` (REAL_SEGME
 4. With `bb_srlg_coverage=partial`, all four §2.1 surfaces show the caveat. Switching to `complete` removes it.
 5. Topology defaults to 145 conduits (55+90). Chip counts come from the API.
 6. The tooltip passes keyboard + Esc + hover tests. Contrast is as in §4.
+
+## 6. v3 to v4 delta: presenter copy and INTERIM badge (P40-DESIGN-V4-DELTA-PRESENTER-COPY, 2026-10-26)
+
+Source: `kpi_delta_attribution_v4_candidate` (report_status = INTERIM, interim-1). Decision record: DEC-PRI-V4-DELTA-PRESENTER-COPY. The same gating as §0 applies. Before cutover this section is a speaker note only.
+
+### 6.1 Narrative frame (binding wording)
+
+* Headline: **Same network, more honest measurement.**
+* Rule: the score went down because measurement got better, not because the network got worse. Never say `worse`, `declined`, `dropped`, `deteriorated` or `regression` about the v4 score. Use `recalibrated`, `now accounts for`, `newly visible`.
+* Three beats:
+  1. **What changed.** Hazard proximity is now measured along each span's full route instead of only at its midpoint. Lakelink Fiber now sees about 1.23M hazard-to-service links, up from about 613K.
+  2. **What moved.** Average resilience score went from 61.6 to 56.8. 239 more services are now critical (1,087 total), and MRC at risk went from $48.4M/mo to $54.4M/mo. No service left the critical tier. The change only adds visibility.
+  3. **Why it matters.** These exposures were real in v3 and simply not visible. Finding them before a cut is the product's job.
+* Diversity: `74.2% (metro/access), unchanged in this interim build. Backbone shared-risk scoring has not landed yet.`
+* MRC Protected ($72.8M/mo, 4,625 services) is a **new definition** (each service counted once). Do not present it as a delta against any earlier Revenue Protected figure. That figure is banned (§1) and could not be compared anyway because it was a fan-out.
+
+### 6.2 INTERIM badge (UI, behind PRI_V4_KPIS, shown only while report_status = INTERIM)
+
+| Element | Spec |
+| --- | --- |
+| Where | The Avg Score, Critical and Revenue at Risk cards on the scorecard header, plus any v3-to-v4 delta view. Not on MRC Protected, which has no v3 counterpart. |
+| Visible text | `Interim` (12px, 600 weight, CSS uppercase) |
+| Style | Platinum #E8E8E8 fill, iron #4D4D4D text (6.9:1 PASS), 1px iron border, 4px radius, plus a 3px lumen-orange #F26522 left accent that is decorative only. **Never** use orange text on white (3.15:1 FAIL) or iron on orange (2.68:1 FAIL). |
+| Tooltip (Info pattern from §1) | `Preliminary v4 figures. Only the hazard-distance fix is included so far. Backbone segmentation and shared-risk updates are still being scored, so these numbers will change.` |
+| aria-label | `Interim figure, v4 candidate, subject to change` |
+| Removal | Driven by the API (`report_status`). When it is FINAL the badge is gone, with no code change. Never hard-code it. |
+
+### 6.3 `(metro/access)` qualifier
+
+* Attach it to every diversity % and SRLG count while `bb_srlg_coverage = partial`. Place it on the same line right after the number, joined with a non-breaking space: `74.2%\u00A0(metro/access)`.
+* aria and speech: say `metro and access`, never the slash form.
+* When the field is `complete`, remove it (see §2.2).
+
+### 6.4 Number formatting
+
+| KPI | Display | Delta |
+| --- | --- | --- |
+| Avg score | 1 dp: `61.6 → 56.8` | `−4.8` (U+2212 minus sign) |
+| Critical services | thousands separator: `848 → 1,087` | `+239` |
+| MRC at risk | `$48.4M/mo → $54.4M/mo` | `+$6.0M/mo` |
+| Diversity | `74.2% (metro/access)` | `no change` (words, not `0.0`) |
+
+* Round half up from the raw values, and check that display arithmetic reconciles (61.6 − 56.8 = 4.8, 54.4 − 48.4 = 6.0). Never show 2 dp (61.55) in the UI.
+* Arrows: use `→` with an aria-label of `to`, for example `Average score 61.6 to 56.8, interim`.
+* Delta color: neutral iron #4D4D4D for every direction. No red/green for direction, because a lower score is not a failure here and color alone cannot carry meaning (1.4.1).
+
+### 6.5 Prepared Q&A (presenter)
+
+* *Did resilience get worse?* No. The network is identical. The measurement now sees hazard exposure along the full route, so risk that was always there is now on the board.
+* *Will the numbers move again?* Yes. The final v4 adds backbone segmentation and the shared-risk re-derive. We publish final numbers only after QA gates. Backstage only, do not put on slides: the sensitivity range for critical services is 789 to 1,680.
+* *Why trust a lower number?* Because each driver is attributed. 100% of this interim delta traces to one documented fix (the hazard-span rebuild).
