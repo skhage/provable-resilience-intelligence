@@ -74,6 +74,11 @@ RUNBOOK: list[Item] = [
     # DEC-PRI-V4-TELEMETRY-IN-CUTOVER: 63,196 BB->BBS span_id remaps; must follow (b).
     Item("b2", "resource_alarm", _c("resource_alarm"), "DEC-PRI-V4-TELEMETRY-IN-CUTOVER"),
     Item("b2", "resource_performance_measure", _c("resource_performance_measure"), "DEC-PRI-V4-TELEMETRY-IN-CUTOVER"),
+    # P63 / DEC-PRI-V4-SERVICE-PATH-PROMOTE-CONDITIONAL (id 39): runs ONLY if service_path_v4_candidate has
+    # landed in UC and the P54-DE writer + P54-QA spec gates are completed. Default = SKIPPED_CONDITIONAL
+    # (non-blocking, not a cutover gate per DEC-37 cond 4) and fk_path_span is skipped in pk_fk_plan().
+    Item("b3", "service_path", _c("service_path"), "P54-DE-SERVICE-PATH-V4-WRITER; P54-QA-VERIFY-SERVICE-PATH-V4-SPEC",
+         "conditional_promote"),
     # P51-QA matrix correction: BUG-QA-082 (kpi_delta) gates step (h), not (c).
     Item("c", "derived_srlg_shared_conduit", _c("derived_srlg_shared_conduit"), "P43-QA-RECHECK-SRLG-V4-GATES-POST-073"),
     Item("c", "derived_srlg_common_site", _c("derived_srlg_common_site"), "P43-QA-RECHECK-SRLG-V4-GATES-POST-073"),
@@ -115,30 +120,33 @@ CHECKLIST: list[tuple] = [
     # P60: capture the v4 column-comment snapshot IMMEDIATELY after the swap (mirrors freeze_v3_comment_snapshot),
     # before any other POST DDL. Manual step (no gate task) so it is never auto-DONE.
     (13, "POST", "@devops", "Capture freeze_v4_comment_snapshot for every promoted v4 table (v4_comment_snapshot_sql)", ()),
-    (14, "POST", "@data-engineer", "Informational PK/FK constraints, AFTER_SWAP subset only: promoted v4 tables (DEC-PRI-UC-CONSTRAINTS), never v3", ("P43-DE-V4-PK-FK-CONSTRAINTS",)),
+    (14, "POST", "@data-engineer", "Informational PK/FK constraints, AFTER_SWAP subset only: promoted v4 tables (DEC-PRI-UC-CONSTRAINTS), never v3; fk_path_span only if the service_path_v4 conditional promote ran, else SKIPPED", ("P43-DE-V4-PK-FK-CONSTRAINTS", "DEC-PRI-V4-SERVICE-PATH-PROMOTE-CONDITIONAL")),
     (15, "POST", "@data-analyst", "P30 Genie + exec dashboard repoint to MRC Protected; P51 diversity coverage repoint", ("P30-DA-GENIE-MRC-PROTECTED-CUTOVER",)),
     (16, "POST", "@app-developer", "Flip app flag PRI_V4_KPIS=true; @designer re-smoke", ("P36-APP-V4-CONDUIT-COVERAGE-FILTER", "P37-DESIGN-VERIFY-V4-KPI")),
     (17, "POST", "@devops", "Bundle pipeline sync (BUG-QA-070 6-step recipe) + guard snapshot refresh; CI green; merge PR", ("P43-DEVOPS-BUNDLE-PIPELINE-SYNC",)),
     (18, "POST", "@data-planner", "Capture PRI-DEMO-FREEZE-v4; mark v3 + v4-DRAFT rows SUPERSEDED", ()),
     # P60: PK/FK statements that touch a table still FROZEN in v3 (not promoted) wait until v3 is SUPERSEDED.
-    (19, "POST", "@data-engineer", "Informational PK/FK constraints, DEFERRED subset (non-promoted tables) after v3 SUPERSEDED", ()),
+    (19, "POST", "@data-engineer", "Informational PK/FK constraints, DEFERRED subset (non-promoted tables) after v3 SUPERSEDED; fk_path_span stays SKIPPED if service_path_v4 was not promoted", ("DEC-PRI-V4-SERVICE-PATH-PROMOTE-CONDITIONAL",)),
 ]
 
 
 def checklist_status(cur) -> list:
     """Read-only: status of every gate task in CHECKLIST from Lakebase agent_tasks."""
-    codes = sorted({c for row in CHECKLIST for c in row[4]})
+    codes = sorted({c for row in CHECKLIST for c in row[4] if not c.startswith("DEC-")})
     status = {}
     if cur is not None and codes:
         cur.execute("SELECT task_code, status FROM agent_tasks WHERE task_code = ANY(%s)", (codes,))
         status = dict(cur.fetchall())
+    # P63: DEC-* gates are Lakebase decisions; 'completed' when decided.
+    for d in sorted({c for row in CHECKLIST for c in row[4] if c.startswith("DEC-")}):
+        status[d] = "completed" if _decided(cur, d) else "UNKNOWN"
     out = []
     for order, phase, owner, action, gates in CHECKLIST:
         g = {c: status.get(c, "UNKNOWN") for c in gates}
         if order == 11:  # GO is a Lakebase decision, not a task
             done = _decided(cur, GO_DECISION)
-        else:  # no gate task = manual step, never auto-DONE
-            done = bool(g) and all(v == "completed" for v in g.values())
+        else:  # no gate task = manual step, never auto-DONE (DEC-* gates alone do not count as a task)
+            done = any(not c.startswith("DEC-") for c in g) and all(v == "completed" for v in g.values())
         out.append({"order": order, "phase": phase, "owner": owner, "action": action, "gates": g, "done": done})
     return out
 
@@ -150,10 +158,17 @@ def checklist_status(cur) -> list:
 # Read-only: nothing here writes to Lakebase, UC or any v4/v3 table. Freeze guards are unchanged.
 import datetime as _dt  # noqa: E402
 
-TARGET_DECISION = "DEC-PRI-V4-CUTOVER-TARGET-1030"
+TARGET_DECISION = "DEC-PRI-V4-CUTOVER-TARGET-1030"  # SUPERSEDED by DEC id 38 (PM R63)
 APPROVAL_DEADLINE = _dt.date(2026, 10, 29)
 BASE_TARGET = _dt.date(2026, 10, 30)
 PLAN_B_TARGET = _dt.date(2026, 11, 2)
+# P63-DEVOPS-RUNBOOK-RETARGET-1102: DEC-PRI-V4-CUTOVER-SLIP-1102 (id 38) DECIDED at PM R63 2026-10-30 01:05Z.
+# Path B is now the ACTIVE plan: target fixed at 2026-11-02 and the new CEO deadline for the BUG-QA-073 +
+# P36 writes is 2026-11-01 23:59Z. Missing it again does NOT auto-slip: path B_MISSED proposes a date
+# (DEC-33 +48h/day rule from the new deadline) and needs a new @pm decision.
+SLIP_DECISION = "DEC-PRI-V4-CUTOVER-SLIP-1102"
+SLIP_APPROVAL_DEADLINE = _dt.date(2026, 11, 1)
+ACTIVE_TARGET = PLAN_B_TARGET
 CEO_GATES = ("BUG-QA-073", "P36-ML-V4-RESCORE-CONDUIT-DIVERSITY")
 # Day offset of each CHECKLIST step relative to cutover day T (CEO writes due EOD T-1).
 STEP_OFFSET_DAYS = {1: -1, 2: -1, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0,
@@ -173,16 +188,29 @@ def dated_checklist(target: _dt.date) -> list:
             for o, ph, ow, a, _g in CHECKLIST]
 
 
-def contingency_plan(cur, today: _dt.date | None = None) -> dict:
-    """Read-only: decide which path applies and return the dated checklist for it (and for the other path)."""
+def contingency_plan(cur, today: _dt.date | None = None, slip_decided: bool | None = None) -> dict:
+    """Read-only: decide which path applies and return the dated checklist for it (and for the other path).
+
+    slip_decided=None reads DEC-PRI-V4-CUTOVER-SLIP-1102 from Lakebase decisions (P63). Once it is decided,
+    path B is locked to 2026-11-02 with the 2026-11-01 CEO deadline.
+    """
     today = today or _dt.date.today()
     status = {}
     if cur is not None:
         cur.execute("SELECT task_code, status FROM agent_tasks WHERE task_code = ANY(%s)", (list(CEO_GATES),))
         status = dict(cur.fetchall())
+    if slip_decided is None:
+        slip_decided = _decided(cur, SLIP_DECISION)
     ceo_done = all(status.get(c) == "completed" for c in CEO_GATES)
     missed = max(0, (today - APPROVAL_DEADLINE).days)
-    if ceo_done and missed == 0:
+    needs_pm_decision = False
+    if slip_decided:
+        missed2 = max(0, (today - SLIP_APPROVAL_DEADLINE).days)
+        if ceo_done or missed2 == 0:
+            path, target = "B", ACTIVE_TARGET
+        else:  # new deadline missed: propose (never auto-apply) the next date per the DEC-33 rule
+            path, target, needs_pm_decision = "B_MISSED", ACTIVE_TARGET + _dt.timedelta(days=2 * missed2), True
+    elif ceo_done and missed == 0:
         path, target = "A", BASE_TARGET
     elif missed == 0:
         path, target = "PENDING", BASE_TARGET  # still inside the approval window; stage both
@@ -190,6 +218,8 @@ def contingency_plan(cur, today: _dt.date | None = None) -> dict:
         path, target = "B", max(PLAN_B_TARGET, rule_target(missed))
     return {
         "path": path, "today": today, "ceo_gates": {c: status.get(c, "UNKNOWN") for c in CEO_GATES},
+        "slip_decided": bool(slip_decided), "needs_pm_decision": needs_pm_decision,
+        "ceo_deadline": SLIP_APPROVAL_DEADLINE if slip_decided else APPROVAL_DEADLINE,
         "missed_days": missed, "target": target,
         "candidate_drop_earliest": target + _dt.timedelta(days=AUDIT_HOLD_DAYS),
         "plan_a": dated_checklist(BASE_TARGET), "plan_b": dated_checklist(max(PLAN_B_TARGET, rule_target(1))),
@@ -260,8 +290,10 @@ def _open_tasks(cur) -> set:
 # ---------------------------------------------------------------- plan builders
 def promote_sql(item: Item, pin) -> list:
     live, cand = f"{FQ}.`{item.live}`", f"{FQ}.`{item.candidate}`"
-    if item.action == "promote":
-        return [
+    if item.action in ("promote", "conditional_promote"):
+        pre = ([f"-- CONDITIONAL ({SERVICE_PATH_DECISION}): run only if service_path_condition() is met; "
+                f"else log SKIPPED and skip {SERVICE_PATH_FK}"] if item.action == "conditional_promote" else [])
+        return pre + [
             f"CREATE OR REPLACE TABLE {live} AS SELECT * FROM {cand} VERSION AS OF {pin}",
             f"-- re-apply v3 comments: SELECT reapply_sql FROM {FQ}.freeze_v3_comment_snapshot "
             f"WHERE manifest_version='{V3}' AND table_name='{item.live}' ORDER BY ordinal_position",
@@ -278,7 +310,7 @@ def promote_sql(item: Item, pin) -> list:
 def rollback_sql(item: Item, v3_pin) -> list:
     live = f"{FQ}.`{item.live}`"
     if v3_pin is None:
-        if item.action == "promote":
+        if item.action in ("promote", "conditional_promote"):
             return [f"DROP TABLE IF EXISTS {live}  -- new in v4, no v3 pin"]
         return [f"-- {live}: restore previous view definition from v3 (no data pin)"]
     return [
@@ -295,9 +327,30 @@ COMMENT_SNAPSHOT_COLUMNS = ("manifest_version", "table_name", "column_name", "or
 PK_FK_DDL_PATH = "runbooks/P43_v4_pk_fk_constraints.sql"  # @data-engineer P43-DE-V4-PK-FK-CONSTRAINTS
 
 
-def promoted_tables() -> list:
-    """Managed live tables replaced by the swap (views/regenerated/report objects excluded)."""
-    return [i.live for i in RUNBOOK if i.action == "promote"]
+def promoted_tables(include_conditional: bool = False) -> list:
+    """Managed live tables replaced by the swap (views/regenerated/report objects excluded).
+
+    Conditional promotes (service_path, P63) count only when include_conditional=True, i.e. when
+    service_path_condition() is met at cutover time.
+    """
+    acts = ("promote", "conditional_promote") if include_conditional else ("promote",)
+    return [i.live for i in RUNBOOK if i.action in acts]
+
+
+# P63: DEC-PRI-V4-SERVICE-PATH-PROMOTE-CONDITIONAL inputs.
+SERVICE_PATH_DECISION = "DEC-PRI-V4-SERVICE-PATH-PROMOTE-CONDITIONAL"
+SERVICE_PATH_GATES = ("P54-DE-SERVICE-PATH-V4-WRITER", "P54-QA-VERIFY-SERVICE-PATH-V4-SPEC")
+SERVICE_PATH_FK = "fk_path_span"
+
+
+def service_path_condition(objs: dict, task_status: dict) -> dict:
+    """Pure check: met only if service_path_v4_candidate is a MANAGED table in UC AND both P54 gates are completed."""
+    landed = objs.get(_c("service_path")) == "MANAGED"
+    gates = {c: task_status.get(c, "UNKNOWN") for c in SERVICE_PATH_GATES}
+    met = landed and all(v == "completed" for v in gates.values())
+    return {"met": met, "candidate_landed": landed, "gates": gates,
+            "log": None if met else (f"SKIPPED service_path_v4 promote + {SERVICE_PATH_FK} "
+                                     f"({SERVICE_PATH_DECISION}): candidate_landed={landed} gates={gates}")}
 
 
 def v4_comment_snapshot_sql(tables=None) -> list:
@@ -343,27 +396,31 @@ def _ddl_statements(text: str) -> list:
     return [" ".join(s.split()) for s in body.split(";") if s.strip()]
 
 
-def pk_fk_plan(text: str | None = None, root: str | None = None) -> dict:
+def pk_fk_plan(text: str | None = None, root: str | None = None, service_path_promoted: bool = False) -> dict:
     """Split the P43-DE constraint DDL into AFTER_SWAP (step 14) and DEFERRED (step 19).
 
     A statement is AFTER_SWAP only if its ALTER target AND any REFERENCES parent are promoted
     v4 tables. Anything touching a table that stays v3 FROZEN until PRI-DEMO-FREEZE-v4 is captured
     is DEFERRED (DEC-PRI-UC-CONSTRAINTS: never ALTER v3 FROZEN). Reads a file only; executes nothing.
+    P63: fk_path_span is SKIPPED (own bucket, never run) unless the service_path_v4 conditional promote ran.
     """
     import re
     if text is None:
         base = root or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
         path = os.path.join(base, PK_FK_DDL_PATH)
         if not os.path.exists(path):
-            return {"source": None, "after_swap": [], "deferred": [], "deferred_tables": []}
+            return {"source": None, "after_swap": [], "deferred": [], "deferred_tables": [], "skipped": []}
         with open(path) as fh:
             text = fh.read()
-    promoted = set(promoted_tables())
-    after, deferred, dtables = [], [], set()
+    promoted = set(promoted_tables(include_conditional=service_path_promoted))
+    after, deferred, dtables, skipped = [], [], set(), []
     for s in _ddl_statements(text):
         m = re.match(r"(?i)ALTER TABLE\s+`?([\w.]+?)`?\s", s + " ")
         if not m:
             continue  # USE / pre-flight SELECT / verify SELECT
+        if not service_path_promoted and re.search(rf"(?i)CONSTRAINT\s+`?{SERVICE_PATH_FK}`?\s", s):
+            skipped.append(s)
+            continue
         tbl = m.group(1).split(".")[-1]
         ref = re.search(r"(?i)REFERENCES\s+`?([\w.]+?)`?\s*\(", s)
         touched = {tbl} | ({ref.group(1).split(".")[-1]} if ref else set())
@@ -373,7 +430,7 @@ def pk_fk_plan(text: str | None = None, root: str | None = None) -> dict:
             deferred.append(s)
             dtables |= touched - promoted
     return {"source": PK_FK_DDL_PATH, "after_swap": after, "deferred": deferred,
-            "deferred_tables": sorted(dtables)}
+            "deferred_tables": sorted(dtables), "skipped": skipped}
 
 
 # ---------------------------------------------------------------- dry run
@@ -381,6 +438,11 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
     """Read-only evaluation of every runbook item. Executes NO plan SQL."""
     objs, v3, draft, ccount = _objects(spark), _manifest(spark, V3), _manifest(spark, V4_DRAFT), _comment_counts(spark)
     open_tasks = _open_tasks(cur)
+    sp_status = {}
+    if cur is not None:
+        cur.execute("SELECT task_code, status FROM agent_tasks WHERE task_code = ANY(%s)", (list(SERVICE_PATH_GATES),))
+        sp_status = dict(cur.fetchall())
+    sp_cond = service_path_condition(objs, sp_status)
     out = []
     upstream_ok = True  # every promote item so far is READY
     for it in RUNBOOK:
@@ -399,7 +461,11 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
             d["cand_data_ver"] = latest_data_version(spark, it.candidate)
         gates_open = sorted(t for t in open_tasks if t in it.owner_gate)
         d["open_gate_tasks"] = gates_open
-        if it.action == "regenerate":
+        if it.action == "conditional_promote":
+            d["condition"] = sp_cond
+        if it.action == "conditional_promote" and not sp_cond["met"]:
+            verdict = "SKIPPED_CONDITIONAL"  # non-blocking; upstream_ok unchanged
+        elif it.action == "regenerate":
             verdict = "POST_CUTOVER"
         elif it.action == "report_only":
             verdict = "REPORT_ONLY"
@@ -423,7 +489,7 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
             verdict = "GATE_OPEN"
         else:
             verdict = "READY"
-        if it.action == "promote" and verdict != "READY":
+        if it.action in ("promote", "conditional_promote") and verdict not in ("READY", "SKIPPED_CONDITIONAL"):
             upstream_ok = False
         f = Finding(it, verdict, d, promote_sql(it, d["draft_pin"] if d["draft_pin"] is not None else "<pin>"),
                     rollback_sql(it, d["v3_pin"]))
@@ -434,9 +500,10 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
 
 
 def summary(findings: list, cur=None) -> dict:
-    blocking = [f for f in findings if f.verdict not in ("READY", "POST_CUTOVER", "REPORT_ONLY")]
+    blocking = [f for f in findings if f.verdict not in ("READY", "POST_CUTOVER", "REPORT_ONLY", "SKIPPED_CONDITIONAL")]
     return {
         "items": len(findings),
+        "conditional_skips": [f.item.live for f in findings if f.verdict == "SKIPPED_CONDITIONAL"],
         "ready": sum(f.verdict == "READY" for f in findings),
         "blocking": len(blocking),
         "go_decision": _decided(cur, GO_DECISION),
@@ -458,11 +525,15 @@ def print_report(findings: list, cur=None) -> None:
             print("      ROLLBACK :", s)
     for p in POST_STEPS:
         print("   POST:", p)
-    for s in v4_comment_snapshot_sql():
+    sp = next((f for f in findings if f.item.action == "conditional_promote"), None)
+    sp_met = bool(sp and sp.verdict != "SKIPPED_CONDITIONAL")
+    for s in v4_comment_snapshot_sql(promoted_tables(include_conditional=sp_met)):
         print("   V4 COMMENT SNAPSHOT WOULD RUN:", s[:200] + ("..." if len(s) > 200 else ""))
-    pk = pk_fk_plan()
+    if sp is not None and not sp_met:
+        print("   LOG:", sp.details.get("condition", {}).get("log"))
+    pk = pk_fk_plan(service_path_promoted=sp_met)
     print(f"   PK/FK ({pk['source']}): after_swap={len(pk['after_swap'])} deferred={len(pk['deferred'])} "
-          f"deferred_tables={pk['deferred_tables']}")
+          f"skipped={len(pk['skipped'])} deferred_tables={pk['deferred_tables']}")
     for c in checklist_status(cur):
         open_g = [k for k, v in c["gates"].items() if v != "completed"]
         print(f"   CHECK {c['order']:>2} {c['phase']:<7} {c['owner']:<15} {'DONE' if c['done'] else 'OPEN'}  "

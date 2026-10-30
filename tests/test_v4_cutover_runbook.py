@@ -88,17 +88,21 @@ def test_data_change_rule():
 
 
 class _GateCur:
-    """Fake Lakebase cursor: only answers the read-only CEO-gate SELECT."""
+    """Fake Lakebase cursor: answers the read-only CEO-gate SELECT and decisions lookups (P63)."""
 
-    def __init__(self, status):
-        self.status, self.sql = status, []
+    def __init__(self, status, decided=()):
+        self.status, self.sql, self.decided, self._last = status, [], set(decided), None
 
     def execute(self, sql, params=None):
         self.sql.append(sql)
+        self._last = params
         assert sql.lstrip().upper().startswith("SELECT"), sql
 
     def fetchall(self):
         return list(self.status.items())
+
+    def fetchone(self):
+        return (1,) if self._last and self._last[0] in self.decided else None
 
 
 def test_p57_slip_contingency_paths():
@@ -137,7 +141,7 @@ def test_p57_contingency_is_read_only():
     import datetime as dt
     cur = _GateCur({})
     rb.contingency_plan(cur, dt.date(2026, 10, 31))
-    assert len(cur.sql) == 1 and "agent_tasks" in cur.sql[0]
+    assert len(cur.sql) == 2 and "agent_tasks" in cur.sql[0] and "decisions" in cur.sql[1]  # P63: + slip lookup
     body = SRC[SRC.index("def contingency_plan"):SRC.index("POST_STEPS = [")]
     for kw in ("INSERT", "UPDATE ", "DELETE", "CREATE", "spark.sql"):
         assert kw not in body, kw
@@ -212,9 +216,11 @@ ALTER TABLE service_path ADD CONSTRAINT fk_path_span FOREIGN KEY (span_id) REFER
 
 
 def test_p60_pk_fk_plan_never_alters_non_promoted_after_swap():
+    # P63 default: service_path_v4 not promoted -> fk_path_span SKIPPED, never deferred
     p = rb.pk_fk_plan(_DDL)
-    assert len(p["after_swap"]) == 3 and len(p["deferred"]) == 3
-    assert p["deferred_tables"] == ["geographic_site", "service_path"]
+    assert len(p["after_swap"]) == 3 and len(p["deferred"]) == 2 and len(p["skipped"]) == 1
+    assert "fk_path_span" in p["skipped"][0]
+    assert p["deferred_tables"] == ["geographic_site"]
     promoted = set(rb.promoted_tables())
     for s in p["after_swap"]:
         assert "geographic_site" not in s and "service_path" not in s
@@ -225,4 +231,74 @@ def test_p60_pk_fk_plan_never_alters_non_promoted_after_swap():
 
 def test_p60_pk_fk_plan_missing_file_is_empty(tmp_path):
     p = rb.pk_fk_plan(root=str(tmp_path))
-    assert p == {"source": None, "after_swap": [], "deferred": [], "deferred_tables": []}
+    assert p == {"source": None, "after_swap": [], "deferred": [], "deferred_tables": [], "skipped": []}
+
+
+# ---------------------------------------------------------------- P63 retarget 11-02 + conditional service_path
+def test_p63_slip_decided_locks_target_1102():
+    import datetime as dt
+    notdone = {"BUG-QA-073": "in_progress", "P36-ML-V4-RESCORE-CONDUIT-DIVERSITY": "blocked"}
+    slip = {rb.SLIP_DECISION}
+    for day in (dt.date(2026, 10, 30), dt.date(2026, 10, 31), dt.date(2026, 11, 1)):
+        p = rb.contingency_plan(_GateCur(notdone, slip), day)
+        assert p["path"] == "B" and p["target"] == dt.date(2026, 11, 2), (day, p["target"])
+        assert p["slip_decided"] and p["ceo_deadline"] == dt.date(2026, 11, 1) and not p["needs_pm_decision"]
+    # without DEC-38 decided, 10-31 would have rolled to 11-03 under DEC-33
+    assert rb.contingency_plan(_GateCur(notdone), dt.date(2026, 10, 31))["target"] == dt.date(2026, 11, 3)
+    # CEO writes land in time -> still 11-02
+    done = {c: "completed" for c in rb.CEO_GATES}
+    assert rb.contingency_plan(_GateCur(done, slip), dt.date(2026, 11, 2))["target"] == dt.date(2026, 11, 2)
+    # new deadline missed -> proposal only, flagged for @pm (no silent auto-slip)
+    m = rb.contingency_plan(_GateCur(notdone, slip), dt.date(2026, 11, 2))
+    assert m["path"] == "B_MISSED" and m["needs_pm_decision"] and m["target"] == dt.date(2026, 11, 4)
+    assert rb.ACTIVE_TARGET == dt.date(2026, 11, 2) and rb.SLIP_DECISION == "DEC-PRI-V4-CUTOVER-SLIP-1102"
+
+
+def test_p63_1102_dated_checklist_ceo_writes_due_1101():
+    import datetime as dt
+    rows = {r["order"]: r["due"] for r in rb.dated_checklist(rb.ACTIVE_TARGET)}
+    assert rows[1] == rows[2] == rb.SLIP_APPROVAL_DEADLINE == dt.date(2026, 11, 1)
+    assert rows[12] == dt.date(2026, 11, 2) and rows[18] == rows[19] == dt.date(2026, 11, 3)
+
+
+def test_p63_service_path_conditional_item_after_span():
+    it = next(i for i in rb.RUNBOOK if i.live == "service_path")
+    assert it.action == "conditional_promote" and it.candidate == "service_path_v4_candidate"
+    assert _pos("physical_resource_span") < _pos("service_path") < _pos("path_diversity_conduit")
+    for g in rb.SERVICE_PATH_GATES:
+        assert g in it.owner_gate
+    assert "service_path" not in rb.promoted_tables()
+    assert "service_path" in rb.promoted_tables(include_conditional=True)
+    sql = rb.promote_sql(it, 3)
+    assert sql[0].startswith("-- CONDITIONAL") and rb.SERVICE_PATH_DECISION in sql[0]
+
+
+def test_p63_service_path_condition_default_skip():
+    done = {g: "completed" for g in rb.SERVICE_PATH_GATES}
+    c = rb.service_path_condition({}, done)  # candidate not landed in UC
+    assert not c["met"] and "SKIPPED" in c["log"] and "fk_path_span" in c["log"]
+    assert not rb.service_path_condition({"service_path_v4_candidate": "MANAGED"}, {})["met"]
+    assert not rb.service_path_condition({"service_path_v4_candidate": "VIEW"}, done)["met"]
+    ok = rb.service_path_condition({"service_path_v4_candidate": "MANAGED"}, done)
+    assert ok["met"] and ok["log"] is None
+
+
+def test_p63_pk_fk_with_service_path_promoted():
+    p = rb.pk_fk_plan(_DDL, service_path_promoted=True)
+    assert p["skipped"] == [] and any("fk_path_span" in s for s in p["after_swap"])
+    assert p["deferred_tables"] == ["geographic_site"]
+
+
+def test_p63_steps_14_19_gated_on_service_path_decision():
+    for order in (14, 19):
+        row = next(c for c in rb.CHECKLIST if c[0] == order)
+        assert rb.SERVICE_PATH_DECISION in row[4] and "fk_path_span" in row[3]
+    st = {c["order"]: c for c in rb.checklist_status(_GateCur({}, {rb.SERVICE_PATH_DECISION}))}
+    assert st[19]["gates"] == {rb.SERVICE_PATH_DECISION: "completed"} and not st[19]["done"]  # still manual
+    assert st[14]["gates"]["P43-DE-V4-PK-FK-CONSTRAINTS"] == "UNKNOWN" and not st[14]["done"]
+
+
+def test_p63_skip_is_non_blocking_in_summary():
+    it = next(i for i in rb.RUNBOOK if i.live == "service_path")
+    s = rb.summary([rb.Finding(it, "SKIPPED_CONDITIONAL")])
+    assert s["blocking"] == 0 and s["conditional_skips"] == ["service_path"]
