@@ -334,6 +334,39 @@ WHERE c.is_active = TRUE
 ORDER BY c.length_km DESC
 """
 
+# P36-APP-V4-CONDUIT-COVERAGE-FILTER (V4-KPI-COPY-SPEC §3): PRI_V4_KPIS=true topology edges.
+# Same columns + filters as _TOPOLOGY_CONDUITS_SQL, plus span_coverage_class, read from the v4
+# shadow conduit/span tables (READ-ONLY). v4 conduits are a superset of v3 (all 1,969 v3 ids +
+# 92 CDT-BBR-* BB_SEGMENTED routes, which exist only in v4), so v3 path-trace conduit ids still
+# resolve. The v3 constant above stays byte-identical for the flag-off (freeze) UI.
+_TOPOLOGY_CONDUITS_V4_SQL = """
+SELECT
+  c.conduit_id,
+  c.conduit_name,
+  c.corridor,
+  c.conduit_type,
+  ROUND(c.length_km, 1) AS length_km,
+  c.site_a_id,
+  c.site_z_id,
+  CAST(COALESCE(sp_cnt.cnt, 0) AS INT) AS span_count,
+  CAST(COALESCE(sp_cnt.bb_cnt, 0) AS INT) AS backbone_span_count,
+  c.span_coverage_class
+FROM physical_resource_conduit_v4_candidate c
+JOIN geographic_site sa ON c.site_a_id = sa.site_id
+JOIN geographic_site sz ON c.site_z_id = sz.site_id
+LEFT JOIN (
+  SELECT conduit_id, COUNT(*) AS cnt,
+         SUM(CASE WHEN span_id LIKE 'BB%' THEN 1 ELSE 0 END) AS bb_cnt
+  FROM physical_resource_span_v4_candidate WHERE is_active = TRUE
+  GROUP BY conduit_id
+) sp_cnt ON sp_cnt.conduit_id = c.conduit_id
+WHERE c.is_active = TRUE
+  AND (sa.region = :region OR sz.region = :region)
+  AND sa.tier IN ('tier_1', 'tier_2')
+  AND sz.tier IN ('tier_1', 'tier_2')
+ORDER BY c.length_km DESC
+"""
+
 # P35-APP-CONDUIT-COVERAGE-BADGE: v4 shadow conduit table (READ-ONLY).
 # span_coverage_class / segmented_km / coverage_pct landed in DE S35 (v21); B2 (v29) replaced
 # BB_ONLY with BB_SEGMENTED (92 CDT-BBR-* conduits). BB_ONLY kept in the allow-list for compat.
@@ -957,9 +990,14 @@ class CatalogSqlService:
             r["longitude"] = float(r.get("longitude", 0))
         return rows
 
-    def get_topology_conduits(self, region: str) -> list[dict] | None:
-        """Return conduits between tier_1+tier_2 sites in a region."""
-        rows = self._execute(_TOPOLOGY_CONDUITS_SQL, params={"region": region})
+    def get_topology_conduits(self, region: str, v4: bool = False) -> list[dict] | None:
+        """Return conduits between tier_1+tier_2 sites in a region.
+
+        v4=True (PRI_V4_KPIS) reads the v4 shadow tables and adds span_coverage_class
+        (P36-APP-V4-CONDUIT-COVERAGE-FILTER). v4=False is the unchanged v3 freeze query.
+        """
+        sql = _TOPOLOGY_CONDUITS_V4_SQL if v4 else _TOPOLOGY_CONDUITS_SQL
+        rows = self._execute(sql, params={"region": region})
         if rows is None:
             return None
         for r in rows:

@@ -50,6 +50,23 @@ import {
   diversityShortLabel,
   sharedConduitStat,
 } from "@/lib/diversity-copy";
+// P36-APP-V4-CONDUIT-COVERAGE-FILTER (V4-KPI-COPY-SPEC §3): Conduits chips, v4 flag only
+import {
+  COVERAGE_CHIPS,
+  COVERAGE_GROUP_LABEL,
+  DEFAULT_COVERAGE_SELECTION,
+  INVENTORY_ONLY_DASH,
+  INVENTORY_ONLY_TEXT,
+  chipLabel,
+  countByChip,
+  coverageFilterStatus,
+  filterConduits,
+  hasCoverageClasses,
+  isInventoryOnly,
+  toggleChip,
+  type CoverageChip,
+  type CoverageSelection,
+} from "@/lib/conduit-coverage-filter";
 
 // ---------------------------------------------------------------------------
 // Viewport width hook (§6.2 — Mobile tree fallback below 768px)
@@ -184,6 +201,15 @@ interface ConduitEdge {
   span_count: number;
   /** P36-APP-V4-BB-SRLG-DISCLOSURE: active backbone spans (BB- / BBS- ids) in this conduit */
   backbone_span_count?: number;
+  /** P36-APP-V4-CONDUIT-COVERAGE-FILTER: v4 span coverage class; null/absent with PRI_V4_KPIS off */
+  span_coverage_class?: string | null;
+}
+
+/** P36-APP-V4-CONDUIT-COVERAGE-FILTER: chip group state (null = flag off / v3, not rendered) */
+interface CoverageChipsProps {
+  counts: Record<CoverageChip, number>;
+  selection: CoverageSelection;
+  onToggle: (chip: CoverageChip) => void;
 }
 
 interface Overlays {
@@ -406,6 +432,7 @@ function Toolbar({
   onZoomOut,
   selectedRegion,
   onBack,
+  coverage = null,
 }: {
   overlays: Overlays;
   onToggle: (key: keyof Overlays) => void;
@@ -414,6 +441,8 @@ function Toolbar({
   onZoomOut: () => void;
   selectedRegion: string | null;
   onBack: () => void;
+  /** P36-APP-V4-CONDUIT-COVERAGE-FILTER: null = PRI_V4_KPIS off (v3 toolbar, no chips) */
+  coverage?: CoverageChipsProps | null;
 }) {
   return (
     <div className="topo-toolbar" role="toolbar" aria-label="Graph controls">
@@ -470,6 +499,32 @@ function Toolbar({
         <span className="toggle-dot" aria-hidden="true" />
         Hazards
       </button>
+      {/* V4-KPI-COPY-SPEC §3: role=checkbox chips (multi-select), same pattern as the overlay toggles */}
+      {coverage && (
+        <>
+          <div className="topo-divider" aria-hidden="true" />
+          <div className="topo-coverage-chips" role="group" aria-labelledby="topo-coverage-label">
+            <span id="topo-coverage-label" className="topo-coverage-label">
+              {COVERAGE_GROUP_LABEL}
+            </span>
+            {COVERAGE_CHIPS.map((chip) => (
+              <button
+                key={chip}
+                type="button"
+                className="topo-chip"
+                role="checkbox"
+                aria-checked={coverage.selection[chip]}
+                onClick={() => coverage.onToggle(chip)}
+              >
+                <span className="topo-chip-check" aria-hidden="true">
+                  {coverage.selection[chip] ? "✓" : ""}
+                </span>
+                {chipLabel(chip, coverage.counts[chip])}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -483,9 +538,12 @@ function Legend({
   onToggle,
   bbCoverage = null,
   srlgUnavailableRegion = null,
+  showInventoryOnly = false,
 }: {
   collapsed: boolean;
   onToggle: () => void;
+  /** P36-APP-V4-CONDUIT-COVERAGE-FILTER: legend item for dotted inventory-only edges (v4 only) */
+  showInventoryOnly?: boolean;
   /** P36-APP-V4-BB-SRLG-DISCLOSURE: null = PRI_V4_KPIS off (v3 legend) */
   bbCoverage?: BbSrlgCoverage | null;
   /** BUG-DW-098: region whose SRLG overlay fetch is unavailable (never an empty overlay silently) */
@@ -540,6 +598,14 @@ function Legend({
           <div className="legend-line" style={{ background: BRAND.darkTeal }} />
           Conduit
         </div>
+        {showInventoryOnly && (
+          <div className="legend-item">
+            <svg width="24" height="12" aria-hidden="true" className="legend-swatch">
+              <line x1="2" y1="6" x2="22" y2="6" stroke={BRAND.iron} strokeWidth="2" strokeDasharray={INVENTORY_ONLY_DASH} />
+            </svg>
+            {INVENTORY_ONLY_TEXT}
+          </div>
+        )}
       </div>
 
       {/* BUG-DW-077: path role is the primary edge dash */}
@@ -1311,6 +1377,12 @@ function SiteGraph({
         if (isOnPath && hasProtect && !hasWorking) {
           dashArray = PROTECT_DASH;
         }
+        // V4-KPI-COPY-SPEC §3: inventory-only = dotted iron (2,4). Path role / SRLG cues keep precedence.
+        const invOnly = isInventoryOnly(c);
+        if (invOnly) {
+          if (!hasSrlg && !(isOnPath && overlays.diversity)) edgeColor = BRAND.iron;
+          if (!dashArray) dashArray = INVENTORY_ONLY_DASH;
+        }
         const srlgTypesHere = hasSrlg
           ? Array.from(new Set(srlgs.filter((s) => s.conduit_id === c.conduit_id).map((s) => SRLG_LABELS[s.srlg_type] ?? s.srlg_type)))
           : [];
@@ -1325,6 +1397,7 @@ function SiteGraph({
           <g key={c.conduit_id} role="none">
             <title id={`conduit-desc-${c.conduit_id}`}>
               {c.conduit_id}: {c.conduit_type} · {c.length_km} km · {c.span_count} spans
+              {invOnly ? ` · ${INVENTORY_ONLY_TEXT}` : ""}
               {bbPartial ? ` · ${BB_EDGE_CAVEAT}` : ""}
             </title>
           <line
@@ -1341,7 +1414,7 @@ function SiteGraph({
             tabIndex={0}
             role="button"
             aria-label={conduitEdgeName(
-              `Conduit ${c.conduit_id}: ${c.conduit_type}, ${c.length_km} km, ${c.span_count} spans${roleLabel}${srlgTypesHere.length ? ` (SRLG: ${srlgTypesHere.join(", ")}${srlgSevHere ? ` - ${srlgSevHere}` : ""})` : ""}`,
+              `Conduit ${c.conduit_id}: ${c.conduit_type}, ${c.length_km} km, ${c.span_count} spans${invOnly ? ` (${INVENTORY_ONLY_TEXT})` : ""}${roleLabel}${srlgTypesHere.length ? ` (SRLG: ${srlgTypesHere.join(", ")}${srlgSevHere ? ` - ${srlgSevHere}` : ""})` : ""}`,
               bbPartial,
             )}
             aria-describedby={conduitEdgeDescribedBy(c.conduit_id, bbPartial)}
@@ -2067,6 +2140,8 @@ function TopologyPage() {
   const [legendCollapsed, setLegendCollapsed] = useState(false);
   // P36-APP-V4-BB-SRLG-DISCLOSURE: null when PRI_V4_KPIS is off (v3 freeze UI)
   const bbCoverage = useBbSrlgCoverage();
+  // P36-APP-V4-CONDUIT-COVERAGE-FILTER: default Segmented + Backbone only (conduits with span geometry)
+  const [coverageSel, setCoverageSel] = useState<CoverageSelection>(DEFAULT_COVERAGE_SELECTION);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -2289,6 +2364,26 @@ function TopologyPage() {
     setOverlays((o) => ({ ...o, [key]: !o[key] }));
   }, []);
 
+  // P36-APP-V4-CONDUIT-COVERAGE-FILTER: chips render only when the API sent coverage classes
+  // (PRI_V4_KPIS on). Flag off = classes null = no chips, every conduit shown (v3 freeze).
+  const showCoverage = hasCoverageClasses(conduits);
+  const coverageCounts = useMemo(() => countByChip(conduits), [conduits]);
+  // Never hide a traced-path hop or the selected conduit behind the filter
+  const pinnedConduitIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const h of pathHops) if (h.conduit_id) ids.add(h.conduit_id);
+    if (selectedConduit) ids.add(selectedConduit.conduit_id);
+    return ids;
+  }, [pathHops, selectedConduit]);
+  const visibleConduits = useMemo(
+    () => (showCoverage ? filterConduits(conduits, coverageSel, pinnedConduitIds) : conduits),
+    [showCoverage, conduits, coverageSel, pinnedConduitIds],
+  );
+  const handleToggleChip = useCallback(
+    (chip: CoverageChip) => setCoverageSel((s) => toggleChip(s, chip)),
+    [],
+  );
+
   const handleClearTrace = useCallback(() => {
     setTracedServiceId(null);
     setPathHops([]);
@@ -2309,7 +2404,19 @@ function TopologyPage() {
         onZoomOut={() => {}}
         selectedRegion={selectedRegion}
         onBack={() => setSelectedRegion(null)}
+        coverage={
+          showCoverage && selectedRegion
+            ? { counts: coverageCounts, selection: coverageSel, onToggle: handleToggleChip }
+            : null
+        }
       />
+
+      {/* P36-APP-V4-CONDUIT-COVERAGE-FILTER: persistent result count (mounted with the chips) */}
+      {showCoverage && selectedRegion && (
+        <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {coverageFilterStatus(visibleConduits.length, conduits.length)}
+        </div>
+      )}
 
       {/* BUG-DW-105: persistent sr-only status region — mounted before content so AT registers it.
            The LoadingRegion pattern: mount empty, then write text on a later render. */}
@@ -2429,7 +2536,7 @@ function TopologyPage() {
           {!loading && selectedRegion && sites.length > 0 && (
             <SiteGraph
               sites={sites}
-              conduits={conduits}
+              conduits={visibleConduits}
               onSelectSite={setSelectedSite}
               selectedSiteId={selectedSite?.site_id ?? null}
               onSelectConduit={setSelectedConduit}
@@ -2467,6 +2574,7 @@ function TopologyPage() {
             collapsed={legendCollapsed}
             onToggle={() => setLegendCollapsed((c) => !c)}
             bbCoverage={bbCoverage}
+            showInventoryOnly={showCoverage && coverageSel.inventory}
             srlgUnavailableRegion={
               showSrlgUnavailable(overlays.srlg, selectedRegion, srlgState) ? selectedRegion : null
             }

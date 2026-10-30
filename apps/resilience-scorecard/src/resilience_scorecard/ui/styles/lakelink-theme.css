@@ -1080,6 +1080,59 @@ select:focus-visible,
   background: var(--lf-dark-teal);
 }
 
+/* P36-APP-V4-CONDUIT-COVERAGE-FILTER (V4-KPI-COPY-SPEC §3): Conduits coverage chips (PRI_V4_KPIS only).
+   Unselected = white, teal border + teal text (7.02:1). Selected = teal fill, white text (7.02:1).
+   The check glyph is the non-color selected cue (1.4.1); forced-colors maps to Highlight. */
+.topo-coverage-chips {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.topo-coverage-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lf-iron);
+  margin-right: 2px;
+}
+
+.topo-toolbar .topo-chip {
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--lf-dark-teal);
+  border-radius: 999px;
+  background: var(--lf-white);
+  color: var(--lf-dark-teal);
+  font-variant-numeric: tabular-nums;
+}
+
+.topo-toolbar .topo-chip[aria-checked="true"] {
+  background: var(--lf-dark-teal);
+  border-color: var(--lf-dark-teal);
+  color: var(--lf-white);
+  font-weight: 600;
+}
+
+.topo-chip-check {
+  display: inline-block;
+  width: 1em;
+  text-align: center;
+}
+
+@media (forced-colors: active) {
+  .topo-toolbar .topo-chip {
+    border-color: ButtonText;
+    color: ButtonText;
+    background: ButtonFace;
+  }
+  .topo-toolbar .topo-chip[aria-checked="true"] {
+    background: Highlight;
+    color: HighlightText;
+    border-color: Highlight;
+  }
+}
+
 /* Topology canvas container */
 .topo-canvas-wrap {
   position: relative;

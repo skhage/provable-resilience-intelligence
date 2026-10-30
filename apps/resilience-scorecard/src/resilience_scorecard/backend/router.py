@@ -426,15 +426,19 @@ def list_topology_sites(
 )
 def list_topology_conduits(
     csql: Dependencies.CatalogSql,
+    config: Dependencies.Config,
     region: str = Query(..., description="Region name"),
 ):
     """Conduits between tier-1/tier-2 sites in a region.
 
     TOPOLOGY-VIS-SPEC §10.2 — lazy-loaded on region drill-in.
+    P36-APP-V4-CONDUIT-COVERAGE-FILTER: with PRI_V4_KPIS=true, rows come from the v4 shadow
+    tables and carry span_coverage_class (drives the Conduits filter chips). Flag off = v3.
     """
+    v4 = bool(getattr(config, "v4_kpis", False))
     if hasattr(csql, "is_available") and csql.is_available:
         try:
-            conduits = csql.get_topology_conduits(region)
+            conduits = csql.get_topology_conduits(region, v4=v4) if v4 else csql.get_topology_conduits(region)
             if conduits is not None:
                 return conduits
         except Exception:

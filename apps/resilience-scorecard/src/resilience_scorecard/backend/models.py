@@ -277,6 +277,10 @@ class TopologyConduitOut(BaseModel):
     site_z_id: str = Field(description="Z-end site")
     span_count: int = Field(ge=0, description="Number of active spans in conduit")
     backbone_span_count: int = Field(default=0, ge=0, description="Active backbone (BB-*/BBS-*) spans in conduit")
+    # P36-APP-V4-CONDUIT-COVERAGE-FILTER: set only when PRI_V4_KPIS=true (v4 shadow source); None in v3.
+    span_coverage_class: str | None = Field(
+        default=None, description="v4 span coverage class (see SpanCoverageClass); None with the flag off"
+    )
 
 
 # ---------------------------------------------------------------------------
