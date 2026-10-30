@@ -16,6 +16,14 @@ statement from the plan. `execute()` refuses unless ALL of these hold:
   * the dry-run report shows every promotable step READY (no BLOCKED / MISSING / DRIFT).
 Until @pm records the GO decision, nothing in this file can write to a v3 FROZEN object.
 
+P65-DEVOPS-RUNBOOK-PIN-GATES (DEC-PRI-V4-PIN-FINGERPRINT-GATES, id 40): Delta 7-day retention expires
+the freeze VERSION AS OF pins before the 11-02 cutover, so NO freeze check in this runbook uses time
+travel any more. Every v3 FROZEN live table and every v4-DRAFT candidate is gated by recomputing all 3
+fingerprint components (fp_row_count, fp_sha2_v1_null_skip, fp_sha2_v2_null_token) plus the column
+count against cdm_tmforum.provable_resilience_intelligence.freeze_pin_fingerprint_gate (@data-planner
+P58). Any mismatch, missing baseline or PROVISIONAL baseline fails closed. Delta versions are printed
+for information only.
+
 Usage (notebook, read-only):
     import sys; sys.path.append('<project root>/ops')
     import v4_cutover_runbook as rb
@@ -34,6 +42,11 @@ V3 = "PRI-DEMO-FREEZE-v3"
 V4_DRAFT = "PRI-DEMO-FREEZE-v4-DRAFT"
 V4 = "PRI-DEMO-FREEZE-v4"
 GO_DECISION = "DEC-PRI-V4-CUTOVER-GO"
+# P65: pin-free equivalence gates (replace every VERSION AS OF freeze pin check).
+FP_DECISION = "DEC-PRI-V4-PIN-FINGERPRINT-GATES"
+FP_GATE_TABLE = "freeze_pin_fingerprint_gate"
+FP_COMPONENTS = ("fp_row_count", "fp_sha2_v1_null_skip", "fp_sha2_v2_null_token", "fp_column_count")
+FP_NULL_TOKEN = "<NULL>"
 
 # Operations that do NOT change data (manifest delta_version rule since v3).
 _NON_DATA_PREFIXES = (
@@ -110,13 +123,14 @@ CHECKLIST: list[tuple] = [
     (3, "PRE", "@ml-engineer", "Rebuild span_risk_predictions_v4 at BBS grain + HSI-grain features", ("BUG-DP-073", "P44-ML-HSI-BBS-GRAIN-FEATURES", "BUG-QA-087")),
     (4, "PRE", "@data-engineer", "Build proactive_action_v4_candidate (ACT-RULE-v1)", ("P52-DE-V4-PROACTIVE-ACTION-CANDIDATE", "P52-QA-VERIFY-P52-DE-DRYRUN")),
     (5, "PRE", "@data-analyst", "Build diversity_coverage_v4 MV; finalize kpi_delta; HSI-grain KPI audit", ("P51-DA-V4-DIVERSITY-COVERAGE-MV", "P39-DA-V4-KPI-DELTA-FINALIZE", "BUG-QA-082", "P44-DA-HSI-BBS-KPI-GRAIN-AUDIT")),
-    (6, "PRE", "@data-planner", "Re-pin HSI-dependent objects in PRI-DEMO-FREEZE-v4-DRAFT (non-HSI re-pin done in P37)", ("P48-DP-V4-REPIN-HSI-DEPENDENT", "BUG-DP-071")),
-    (7, "PRE", "@qa", "QA gate (a) draft manifest verify", ("P37-QA-VERIFY-V4-DRAFT-MANIFEST",)),
+    # P65: "re-pin" now means re-baseline the PROVISIONAL fingerprint rows; Delta versions are informational only.
+    (6, "PRE", "@data-planner", "Re-baseline PROVISIONAL fingerprints in freeze_pin_fingerprint_gate (hazard_span_intersection_v4_candidate, span_risk_predictions_v4_candidate) after the CEO writes; HSI-dependent v4-DRAFT rows (non-HSI done in P37/P58)", ("P48-DP-V4-REPIN-HSI-DEPENDENT", "BUG-DP-071", "P65-DP-PIN-TO-FINGERPRINT-GATES", FP_DECISION)),
+    (7, "PRE", "@qa", "QA gate (a) draft manifest verify + independent fingerprint-gate verify (fail closed)", ("P37-QA-VERIFY-V4-DRAFT-MANIFEST", "P65-QA-VERIFY-FINGERPRINT-GATES")),
     (8, "PRE", "@qa", "QA gate (b) HSI/prediction re-verify after the CEO writes", ("P51-QA-VERIFY-BUG-QA-087", "P38-QA-VERIFY-BUG-DP-071", "P36-QA-VERIFY-BUG-DP-070")),
     (9, "PRE", "@qa", "QA gate (c) SRLG data gates (CONDITIONAL PASS, P51-QA)", ("P51-QA-VERIFY-CUTOVER-READINESS",)),
     (10, "PRE", "@qa", "QA gate (d) band recalibration verify", ("P50-QA-VERIFY-V4-BAND-RECALIBRATION",)),
     (11, "PRE", "@pm", "Record DEC-PRI-V4-CUTOVER-GO (decided) and assign the execution task", ()),
-    (12, "PROMOTE", "@pm-assigned", "Runbook items a..i in order (dry_run all READY, then execute)", ()),
+    (12, "PROMOTE", "@pm-assigned", "Runbook items a..i in order (dry_run all READY = every fingerprint gate FP_PASS, then execute; re-check each candidate fingerprint right before its swap and the live fingerprint right after)", ()),
     # P60: capture the v4 column-comment snapshot IMMEDIATELY after the swap (mirrors freeze_v3_comment_snapshot),
     # before any other POST DDL. Manual step (no gate task) so it is never auto-DONE.
     (13, "POST", "@devops", "Capture freeze_v4_comment_snapshot for every promoted v4 table (v4_comment_snapshot_sql)", ()),
@@ -273,6 +287,79 @@ def _comment_counts(spark) -> dict:
     return {r.table_name: r.n for r in rows}
 
 
+def fingerprint_sql(name: str, columns: list) -> str:
+    """P65: the DP P58 / DE S60 fingerprint as ONE read-only SELECT (no time travel).
+
+    v1 = SUM(CONV(SUBSTR(SHA2(CONCAT_WS('|', every column cast to string, ordinal order), 256), 1, 15), 16, 10))
+    as DECIMAL(38,0). v2 = same with COALESCE(col, '<NULL>') so NULL-position shifts are detected.
+    """
+    if not columns:
+        raise ValueError(f"no columns for {name}")
+    v1 = ", ".join(f"CAST(`{c}` AS STRING)" for c in columns)
+    v2 = ", ".join(f"COALESCE(CAST(`{c}` AS STRING), '{FP_NULL_TOKEN}')" for c in columns)
+
+    def h(e):
+        return f"CAST(SUM(CAST(CONV(SUBSTR(SHA2(CONCAT_WS('|', {e}), 256), 1, 15), 16, 10) AS DECIMAL(38,0))) AS STRING)"
+    return (f"SELECT COUNT(*) AS fp_row_count, {h(v1)} AS fp_sha2_v1_null_skip, {h(v2)} AS fp_sha2_v2_null_token, "
+            f"{len(columns)} AS fp_column_count FROM {FQ}.`{name}`")
+
+
+def _columns(spark, name: str) -> list:
+    rows = spark.sql(
+        f"SELECT column_name FROM {CATALOG}.information_schema.columns "
+        f"WHERE table_schema = '{SCHEMA}' AND table_name = :t ORDER BY ordinal_position", args={"t": name}
+    ).collect()
+    return [r.column_name for r in rows]
+
+
+def fingerprint(spark, name: str) -> dict:
+    """Recompute all fingerprint components on the CURRENT table (read-only)."""
+    r = spark.sql(fingerprint_sql(name, _columns(spark, name))).first()
+    return {"fp_row_count": int(r.fp_row_count), "fp_sha2_v1_null_skip": str(r.fp_sha2_v1_null_skip),
+            "fp_sha2_v2_null_token": str(r.fp_sha2_v2_null_token), "fp_column_count": int(r.fp_column_count)}
+
+
+def _fp_baselines(spark) -> dict:
+    rows = spark.sql(
+        f"SELECT manifest_version, object_name, gate_status, {', '.join(FP_COMPONENTS)} FROM {FQ}.{FP_GATE_TABLE}"
+    ).collect()
+    return {(r.manifest_version, r.object_name): r.asDict() for r in rows}
+
+
+def compare_fingerprint(actual, baseline) -> dict:
+    """Pure, fail-closed comparison. Only FP_PASS is non-blocking.
+
+    FP_NO_BASELINE  - no freeze_pin_fingerprint_gate row for this object/manifest
+    FP_UNREADABLE   - the fingerprint could not be computed
+    FP_MISMATCH     - any of row count / v1 / v2 / column count differs
+    FP_PROVISIONAL  - baseline is PROVISIONAL (expected to change; re-baseline after the CEO writes)
+    FP_PASS         - all 4 components equal a PASS baseline
+    """
+    if not baseline:
+        return {"status": "FP_NO_BASELINE", "mismatched": []}
+    if not actual:
+        return {"status": "FP_UNREADABLE", "mismatched": list(FP_COMPONENTS)}
+    bad = [k for k in FP_COMPONENTS if baseline.get(k) is None or str(actual.get(k)) != str(baseline.get(k))]
+    if (baseline.get("gate_status") or "").upper() == "PROVISIONAL":
+        return {"status": "FP_PROVISIONAL", "mismatched": bad}
+    if bad:
+        return {"status": "FP_MISMATCH", "mismatched": bad}
+    if (baseline.get("gate_status") or "").upper() != "PASS":
+        return {"status": "FP_NO_BASELINE", "mismatched": []}
+    return {"status": "FP_PASS", "mismatched": []}
+
+
+def fingerprint_gate(spark, name: str, manifest_version: str, baselines: dict | None = None) -> dict:
+    """Recompute + compare one object. Any exception while computing counts as FP_UNREADABLE (fail closed)."""
+    baselines = baselines if baselines is not None else _fp_baselines(spark)
+    base = baselines.get((manifest_version, name))
+    try:
+        actual = fingerprint(spark, name) if base else None
+    except Exception as e:  # noqa: BLE001 - fail closed on any read error
+        return {"status": "FP_UNREADABLE", "mismatched": list(FP_COMPONENTS), "error": str(e)[:200]}
+    return compare_fingerprint(actual, base)
+
+
 def _decided(cur, code: str) -> bool:
     if cur is None:
         return False
@@ -288,13 +375,18 @@ def _open_tasks(cur) -> set:
 
 
 # ---------------------------------------------------------------- plan builders
-def promote_sql(item: Item, pin) -> list:
+def promote_sql(item: Item, fp_status=None) -> list:
+    """P65: pin-free. The candidate is read at its CURRENT version, guarded by the fingerprint gate."""
     live, cand = f"{FQ}.`{item.live}`", f"{FQ}.`{item.candidate}`"
     if item.action in ("promote", "conditional_promote"):
         pre = ([f"-- CONDITIONAL ({SERVICE_PATH_DECISION}): run only if service_path_condition() is met; "
                 f"else log SKIPPED and skip {SERVICE_PATH_FK}"] if item.action == "conditional_promote" else [])
         return pre + [
-            f"CREATE OR REPLACE TABLE {live} AS SELECT * FROM {cand} VERSION AS OF {pin}",
+            f"-- FINGERPRINT GATE ({FP_DECISION}, fail closed; dry-run status={fp_status or '<not computed>'}): "
+            f"fingerprint_gate(spark, '{item.candidate}', '{V4_DRAFT}') must be FP_PASS immediately before the swap",
+            f"CREATE OR REPLACE TABLE {live} AS SELECT * FROM {cand}",
+            f"-- POST-SWAP CHECK (fail closed): fingerprint(spark, '{item.live}') must equal the {FP_GATE_TABLE} "
+            f"'{V4_DRAFT}' baseline of {item.candidate}; else run ROLLBACK",
             f"-- re-apply v3 comments: SELECT reapply_sql FROM {FQ}.freeze_v3_comment_snapshot "
             f"WHERE manifest_version='{V3}' AND table_name='{item.live}' ORDER BY ordinal_position",
             f"-- then apply new v4 column comments copied from {item.candidate} (DEC-PRI-FREEZE-COMMENTS)",
@@ -313,8 +405,12 @@ def rollback_sql(item: Item, v3_pin) -> list:
         if item.action in ("promote", "conditional_promote"):
             return [f"DROP TABLE IF EXISTS {live}  -- new in v4, no v3 pin"]
         return [f"-- {live}: restore previous view definition from v3 (no data pin)"]
+    # P65: <pre-cutover live version> is captured from DESCRIBE HISTORY at swap time (minutes old, well inside
+    # retention); it is NOT a freeze pin. The v3 manifest delta_version is informational only.
     return [
-        f"RESTORE TABLE {live} TO VERSION AS OF <pre-cutover live version>  -- v3 data pin = v{v3_pin}",
+        f"RESTORE TABLE {live} TO VERSION AS OF <pre-cutover live version captured immediately before the swap>"
+        f"  -- manifest v{v3_pin} is informational only",
+        f"-- verify (fail closed): fingerprint(spark, '{item.live}') == {FP_GATE_TABLE} '{V3}' baseline",
         f"-- re-apply comments from freeze_v3_comment_snapshot WHERE table_name='{item.live}'",
     ]
 
@@ -437,6 +533,7 @@ def pk_fk_plan(text: str | None = None, root: str | None = None, service_path_pr
 def dry_run(spark, cur=None, verbose: bool = True) -> list:
     """Read-only evaluation of every runbook item. Executes NO plan SQL."""
     objs, v3, draft, ccount = _objects(spark), _manifest(spark, V3), _manifest(spark, V4_DRAFT), _comment_counts(spark)
+    fp_base = _fp_baselines(spark)
     open_tasks = _open_tasks(cur)
     sp_status = {}
     if cur is not None:
@@ -451,14 +548,17 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
         d["v3_status"] = v3row.freeze_status if v3row else "NOT_IN_V3"
         d["v3_pin"] = v3row.delta_version if v3row else None
         d["v3_comment_rows"] = ccount.get(it.live, 0)
-        if d["live_type"] == "MANAGED" and d["v3_pin"] is not None:
-            d["live_data_ver"] = latest_data_version(spark, it.live)
-            d["live_drift"] = d["live_data_ver"] != d["v3_pin"]
+        if d["live_type"] == "MANAGED" and v3row is not None:
+            d["live_data_ver"] = latest_data_version(spark, it.live)  # informational only (P65)
+            d["live_fp"] = fingerprint_gate(spark, it.live, V3, fp_base)
+            d["live_drift"] = d["live_fp"]["status"] != "FP_PASS"
         drow = draft.get(it.candidate) if it.candidate else None
         d["draft_pin"] = drow.delta_version if drow else None
         d["draft_status"] = drow.freeze_status if drow else "UNPINNED"
         if d["cand_type"] == "MANAGED":
-            d["cand_data_ver"] = latest_data_version(spark, it.candidate)
+            d["cand_data_ver"] = latest_data_version(spark, it.candidate)  # informational only (P65)
+            if drow is not None and it.action in ("promote", "conditional_promote"):
+                d["cand_fp"] = fingerprint_gate(spark, it.candidate, V4_DRAFT, fp_base)
         gates_open = sorted(t for t in open_tasks if t in it.owner_gate)
         d["open_gate_tasks"] = gates_open
         if it.action == "conditional_promote":
@@ -472,7 +572,7 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
         elif d["cand_type"] is None:
             verdict = "MISSING_CANDIDATE"
         elif d.get("live_drift"):
-            verdict = "V3_DRIFT"
+            verdict = "V3_FP_" + d["live_fp"]["status"][3:]  # e.g. V3_FP_MISMATCH (fail closed)
         elif it.action == "repoint_view" and gates_open:
             verdict = "GATE_OPEN"
         elif it.action == "repoint_view":
@@ -481,17 +581,16 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
             verdict = "UNPINNED"
         elif d["draft_status"] == "V4_CANDIDATE_WIP":
             verdict = "WIP_PIN"
-        # Drift = a data-changing commit AFTER the pin. A pin above the latest data version is
-        # a comment/property-only commit (P37 pinned latest to capture BUG-QA-081 comments): same data.
-        elif d.get("cand_data_ver") is not None and d["draft_pin"] is not None and d["cand_data_ver"] > d["draft_pin"]:
-            verdict = "PIN_DRIFT"
+        # P65: drift is decided by the fingerprint gate, not by comparing Delta versions to a pin.
+        elif d.get("cand_fp", {}).get("status", "FP_NO_BASELINE") != "FP_PASS":
+            verdict = d.get("cand_fp", {}).get("status", "FP_NO_BASELINE")
         elif gates_open:
             verdict = "GATE_OPEN"
         else:
             verdict = "READY"
         if it.action in ("promote", "conditional_promote") and verdict not in ("READY", "SKIPPED_CONDITIONAL"):
             upstream_ok = False
-        f = Finding(it, verdict, d, promote_sql(it, d["draft_pin"] if d["draft_pin"] is not None else "<pin>"),
+        f = Finding(it, verdict, d, promote_sql(it, d.get("cand_fp", {}).get("status")),
                     rollback_sql(it, d["v3_pin"]))
         out.append(f)
     if verbose:
@@ -518,7 +617,8 @@ def print_report(findings: list, cur=None) -> None:
         d = f.details
         print(f"[{f.item.step}] {f.item.live:<30} {f.verdict:<18} v3_pin={d.get('v3_pin')} live_dv={d.get('live_data_ver')} "
               f"draft_pin={d.get('draft_pin')}({d.get('draft_status')}) cand_dv={d.get('cand_data_ver')} "
-              f"comments={d.get('v3_comment_rows')} gates={d.get('open_gate_tasks')}")
+              f"comments={d.get('v3_comment_rows')} gates={d.get('open_gate_tasks')} "
+              f"live_fp={d.get('live_fp', {}).get('status')} cand_fp={d.get('cand_fp', {}).get('status')}")
         for s in f.sql:
             print("      WOULD RUN:", s)
         for s in f.rollback_sql:

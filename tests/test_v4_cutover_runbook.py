@@ -26,13 +26,18 @@ def test_promotion_order_matches_p36_and_dec32():
     assert _pos("resilience_score_snapshot") < _pos("proactive_action")
 
 
-def test_promote_sql_targets_live_from_pinned_candidate():
+def test_promote_sql_targets_live_from_fingerprint_gated_candidate():
+    """P65: promote reads the candidate at its current version (no VERSION AS OF), wrapped by FP gates."""
     for it in rb.RUNBOOK:
-        sql = rb.promote_sql(it, 7)
+        sql = rb.promote_sql(it, "FP_PASS")
         writes = [s for s in sql if not s.startswith("--")]
         for s in writes:
-            assert s.startswith(f"CREATE OR REPLACE TABLE {rb.FQ}.`{it.live}` AS SELECT * FROM "), s
-            assert f"`{it.candidate}` VERSION AS OF 7" in s
+            assert s == f"CREATE OR REPLACE TABLE {rb.FQ}.`{it.live}` AS SELECT * FROM {rb.FQ}.`{it.candidate}`", s
+            assert "VERSION AS OF" not in s.upper() and "TIMESTAMP AS OF" not in s.upper()
+        if writes:
+            i = sql.index(writes[0])
+            assert sql[i - 1].startswith("-- FINGERPRINT GATE") and rb.FP_DECISION in sql[i - 1]
+            assert sql[i + 1].startswith("-- POST-SWAP CHECK") and rb.FP_GATE_TABLE in sql[i + 1]
         if it.action == "promote":
             assert len(writes) == 1 and any("freeze_v3_comment_snapshot" in s for s in sql)
 
@@ -43,9 +48,92 @@ def test_dry_run_only_issues_read_statements():
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "sql":
             first = node.args[0]
+            if isinstance(first, ast.Call):  # P65: spark.sql(fingerprint_sql(...)); builder checked below
+                assert getattr(first.func, "id", "") == "fingerprint_sql", ast.dump(first)
+                continue
             text = first.values[0].value if isinstance(first, ast.JoinedStr) else first.value
             assert text.lstrip().upper().startswith(("SELECT", "DESCRIBE")), text
     assert "cur.execute(\"SELECT" in SRC and "INSERT" not in SRC.split("# ---------------------------------------------------------------- read helpers")[1].split("# ---------------------------------------------------------------- plan builders")[0]
+
+
+# ---------------------------------------------------------------- P65 fingerprint gates
+def test_p65_fingerprint_sql_matches_dp_p58_formula():
+    q = rb.fingerprint_sql("customer", ["customer_id", "name"])
+    assert q.startswith("SELECT COUNT(*) AS fp_row_count, ") and q.endswith(f"FROM {rb.FQ}.`customer`")
+    assert "VERSION AS OF" not in q.upper()
+    v1 = "CAST(`customer_id` AS STRING), CAST(`name` AS STRING)"
+    v2 = "COALESCE(CAST(`customer_id` AS STRING), '<NULL>'), COALESCE(CAST(`name` AS STRING), '<NULL>')"
+    for e, alias in ((v1, "fp_sha2_v1_null_skip"), (v2, "fp_sha2_v2_null_token")):
+        assert (f"CAST(SUM(CAST(CONV(SUBSTR(SHA2(CONCAT_WS('|', {e}), 256), 1, 15), 16, 10) AS DECIMAL(38,0))) "
+                f"AS STRING) AS {alias}") in q
+    assert "2 AS fp_column_count" in q
+    with pytest.raises(ValueError):
+        rb.fingerprint_sql("x", [])
+
+
+_BASE = {"gate_status": "PASS", "fp_row_count": 1200, "fp_sha2_v1_null_skip": "683930732249270446323",
+         "fp_sha2_v2_null_token": "683930732249270446323", "fp_column_count": 12}
+
+
+def _act(**kw):
+    a = {k: _BASE[k] for k in rb.FP_COMPONENTS}
+    a.update(kw)
+    return a
+
+
+def test_p65_compare_fingerprint_fail_closed():
+    assert rb.compare_fingerprint(_act(), _BASE)["status"] == "FP_PASS"
+    # decimal baseline vs string actual must still compare equal (stored as STRING in the gate table)
+    assert rb.compare_fingerprint(_act(fp_sha2_v1_null_skip=683930732249270446323), _BASE)["status"] == "FP_PASS"
+    for k, v in (("fp_row_count", 1201), ("fp_sha2_v1_null_skip", "1"), ("fp_sha2_v2_null_token", "1"),
+                 ("fp_column_count", 13)):
+        r = rb.compare_fingerprint(_act(**{k: v}), _BASE)
+        assert r == {"status": "FP_MISMATCH", "mismatched": [k]}, (k, r)
+    # v1 alone is not enough: a NULL-shift changes only v2 and must still fail
+    assert rb.compare_fingerprint(_act(fp_sha2_v2_null_token="9"), _BASE)["status"] == "FP_MISMATCH"
+    assert rb.compare_fingerprint(_act(), None)["status"] == "FP_NO_BASELINE"
+    assert rb.compare_fingerprint(None, _BASE)["status"] == "FP_UNREADABLE"
+    prov = dict(_BASE, gate_status="PROVISIONAL")
+    assert rb.compare_fingerprint(_act(), prov)["status"] == "FP_PROVISIONAL"
+    assert rb.compare_fingerprint(_act(), dict(_BASE, gate_status=None))["status"] == "FP_NO_BASELINE"
+    assert rb.compare_fingerprint(_act(), dict(_BASE, fp_sha2_v2_null_token=None))["status"] == "FP_MISMATCH"
+
+
+def test_p65_fingerprint_gate_unreadable_fails_closed():
+    class _Boom:
+        def sql(self, *a, **k):
+            raise RuntimeError("DELTA_UNSUPPORTED_TIME_TRAVEL")
+    r = rb.fingerprint_gate(_Boom(), "customer", rb.V3, {(rb.V3, "customer"): _BASE})
+    assert r["status"] == "FP_UNREADABLE"
+    assert rb.fingerprint_gate(_Boom(), "customer", rb.V3, {})["status"] == "FP_NO_BASELINE"
+
+
+def test_p65_only_fp_pass_is_non_blocking():
+    it = next(i for i in rb.RUNBOOK if i.live == "physical_resource_span")
+    for v in ("FP_MISMATCH", "FP_NO_BASELINE", "FP_PROVISIONAL", "FP_UNREADABLE", "V3_FP_MISMATCH"):
+        assert rb.summary([rb.Finding(it, v)])["blocking"] == 1, v
+
+
+def test_p65_no_freeze_pin_time_travel_left_in_runbook():
+    """Only the rollback RESTORE (to the pre-cutover version captured at swap time) may use VERSION AS OF."""
+    code = [ln for ln in SRC.splitlines() if "VERSION AS OF" in ln.upper()]
+    offenders = [ln for ln in code if "RESTORE TABLE" not in ln and "VERSION AS OF pins" not in ln
+                 and "VERSION AS OF freeze pin" not in ln]
+    assert offenders == [], offenders
+    assert "PIN_DRIFT" not in SRC.split("def dry_run")[1]
+    for it in rb.RUNBOOK:
+        rs = rb.rollback_sql(it, 9)
+        assert all("<pre-cutover live version captured immediately before the swap>" in s
+                   for s in rs if s.startswith("RESTORE"))
+
+
+def test_p65_checklist_rebaseline_and_qa_gates():
+    six = next(c for c in rb.CHECKLIST if c[0] == 6)
+    seven = next(c for c in rb.CHECKLIST if c[0] == 7)
+    assert "P65-DP-PIN-TO-FINGERPRINT-GATES" in six[4] and rb.FP_DECISION in six[4]
+    assert "PROVISIONAL" in six[3] and rb.FP_GATE_TABLE in six[3] and "Re-pin" not in six[3]
+    assert "P65-QA-VERIFY-FINGERPRINT-GATES" in seven[4]
+    assert "FP_PASS" in next(c for c in rb.CHECKLIST if c[0] == 12)[3]
 
 
 def test_execute_refuses_by_default(monkeypatch):

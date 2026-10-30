@@ -79,7 +79,7 @@ databricks bundle deploy --target prod
 
 ### Stage 3b: App KPI Parity vs PRI-DEMO-FREEZE-v3 (P23 smoke, P33-APP-V3-KPI-PARITY-CHECK)
 
-The app queries table HEAD (no VERSION AS OF). Before the smoke test, confirm the HEAD data-changing version of each table still equals its v3 pin. If any pin has drifted, the demo is no longer at freeze state, so stop and flag @data-planner.
+The app queries table HEAD (no VERSION AS OF). Before the smoke test, run the fingerprint gate for each table (DEC-PRI-V4-PIN-FINGERPRINT-GATES, P65): `rb.fingerprint_gate(spark, '<table>', 'PRI-DEMO-FREEZE-v3')` from `ops/v4_cutover_runbook.py` must return `FP_PASS`. It recomputes row count, the v1 and v2 sha2 fingerprints and the column count, and compares them with `freeze_pin_fingerprint_gate`. Any other status means the demo is no longer at freeze state, so stop and flag @data-planner. Delta version numbers in the table below are informational only; Delta 7-day retention means the old versions may no longer be readable.
 
 | Table read by app | v3 pin (version / rows) | Verified 2026-10-25 |
 | --- | --- | --- |
