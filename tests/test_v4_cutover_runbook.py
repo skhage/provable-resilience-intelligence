@@ -390,3 +390,15 @@ def test_p63_skip_is_non_blocking_in_summary():
     it = next(i for i in rb.RUNBOOK if i.live == "service_path")
     s = rb.summary([rb.Finding(it, "SKIPPED_CONDITIONAL")])
     assert s["blocking"] == 0 and s["conditional_skips"] == ["service_path"]
+
+
+def test_p67_gate0_restore_uses_manifest_restore_version():
+    """P67 / BUG-QA-095: gate-0 restore targets demo_freeze_manifest.restore_version, never delta_version."""
+    it = next(i for i in rb.RUNBOOK if i.live == "physical_resource_span")
+    rs = rb.gate0_restore_sql(it, 20)  # span: delta_version 11 (past retention), restore_version 20
+    restores = [s for s in rs if s.startswith("RESTORE")]
+    assert len(restores) == 1 and "VERSION AS OF 20" in restores[0] and "restore_version" in restores[0]
+    assert "VERSION AS OF 11" not in " ".join(rs)
+    assert not any(s.startswith("RESTORE") for s in rb.gate0_restore_sql(it, None))  # fail closed
+    assert "restore_version" in SRC.split("def _manifest")[1].split("def ")[0]
+    assert 'd["v3_restore"] = v3row.restore_version' in SRC

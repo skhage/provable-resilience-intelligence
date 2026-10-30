@@ -273,7 +273,7 @@ def _objects(spark) -> dict:
 
 def _manifest(spark, version: str) -> dict:
     rows = spark.sql(
-        f"SELECT object_name, delta_version, row_count, freeze_status FROM {FQ}.demo_freeze_manifest "
+        f"SELECT object_name, delta_version, restore_version, row_count, freeze_status FROM {FQ}.demo_freeze_manifest "
         "WHERE manifest_version = :v", args={"v": version}
     ).collect()
     return {r.object_name: r for r in rows}
@@ -415,6 +415,20 @@ def rollback_sql(item: Item, v3_pin) -> list:
     ]
 
 
+def gate0_restore_sql(item: Item, restore_version) -> list:
+    """P67-DE-RUNBOOK-RESTORE-VERSION (BUG-QA-095): gate-0 restore of a v3 FROZEN live table whose fingerprint
+    drifted BEFORE the swap (verdict V3_FP_*). Target = demo_freeze_manifest.restore_version (readable Delta version),
+    never delta_version (data-lineage pin, may be past the 7-day retention). Text builder only; never executed here."""
+    live = f"{FQ}.`{item.live}`"
+    if restore_version is None:
+        return [f"-- {live}: no manifest restore_version; gate 0 cannot restore, escalate to @pm (fail closed)"]
+    return [
+        f"RESTORE TABLE {live} TO VERSION AS OF {int(restore_version)}  -- gate 0: manifest restore_version (BUG-QA-095)",
+        f"-- verify (fail closed): fingerprint(spark, '{item.live}') == {FP_GATE_TABLE} '{V3}' baseline",
+        f"-- re-apply comments from freeze_v3_comment_snapshot WHERE table_name='{item.live}'",
+    ]
+
+
 # P60-DEVOPS-RUNBOOK-V4-COMMENT-SNAPSHOT: v4 comment snapshot + PK/FK placement. Text builders only.
 V4_COMMENT_SNAPSHOT = "freeze_v4_comment_snapshot"
 V3_COMMENT_SNAPSHOT = "freeze_v3_comment_snapshot"
@@ -546,7 +560,8 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
         d = {"live_type": objs.get(it.live), "cand_type": objs.get(it.candidate) if it.candidate else None}
         v3row = v3.get(it.live)
         d["v3_status"] = v3row.freeze_status if v3row else "NOT_IN_V3"
-        d["v3_pin"] = v3row.delta_version if v3row else None
+        d["v3_pin"] = v3row.delta_version if v3row else None  # data-lineage label only
+        d["v3_restore"] = v3row.restore_version if v3row else None  # P67: gate-0 restore target
         d["v3_comment_rows"] = ccount.get(it.live, 0)
         if d["live_type"] == "MANAGED" and v3row is not None:
             d["live_data_ver"] = latest_data_version(spark, it.live)  # informational only (P65)
@@ -590,6 +605,8 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
             verdict = "READY"
         if it.action in ("promote", "conditional_promote") and verdict not in ("READY", "SKIPPED_CONDITIONAL"):
             upstream_ok = False
+        if d.get("live_drift"):
+            d["gate0_restore_sql"] = gate0_restore_sql(it, d["v3_restore"])
         f = Finding(it, verdict, d, promote_sql(it, d.get("cand_fp", {}).get("status")),
                     rollback_sql(it, d["v3_pin"]))
         out.append(f)
@@ -615,7 +632,8 @@ def print_report(findings: list, cur=None) -> None:
     print(f"PRI v4 cutover DRY RUN (write-disabled) - {len(findings)} items")
     for f in findings:
         d = f.details
-        print(f"[{f.item.step}] {f.item.live:<30} {f.verdict:<18} v3_pin={d.get('v3_pin')} live_dv={d.get('live_data_ver')} "
+        print(f"[{f.item.step}] {f.item.live:<30} {f.verdict:<18} v3_pin={d.get('v3_pin')} v3_restore={d.get('v3_restore')} "
+              f"live_dv={d.get('live_data_ver')} "
               f"draft_pin={d.get('draft_pin')}({d.get('draft_status')}) cand_dv={d.get('cand_data_ver')} "
               f"comments={d.get('v3_comment_rows')} gates={d.get('open_gate_tasks')} "
               f"live_fp={d.get('live_fp', {}).get('status')} cand_fp={d.get('cand_fp', {}).get('status')}")
@@ -623,6 +641,8 @@ def print_report(findings: list, cur=None) -> None:
             print("      WOULD RUN:", s)
         for s in f.rollback_sql:
             print("      ROLLBACK :", s)
+        for s in d.get("gate0_restore_sql", []):
+            print("      GATE-0   :", s)
     for p in POST_STEPS:
         print("   POST:", p)
     sp = next((f for f in findings if f.item.action == "conditional_promote"), None)
