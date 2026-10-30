@@ -484,6 +484,49 @@ WHERE sp.service_id = :service_id
 ORDER BY sp.path_type, sp.hop_sequence
 """
 
+# BUG-QA-094: PRI_V4_KPIS=true path trace. /topology edges come from conduit_v4, but service_path is
+# still v3, so v3 backbone hops (span_id BB-*) point at the 90 v3 BB-placeholder conduits, which are
+# INVENTORY_ONLY in v4 (span_count=0). The traced hop was drawn 'Inventory only' and lost the BB
+# caveat. Remap each v3 BB hop to its v4 CDT-BBR-* route conduit via span_v4.parent_route_id
+# (= v3 span_id; 1:1, 92/92 parents -> 92 distinct CDT-BBR conduits, MIN() is defensive only), and
+# read conduit metadata from conduit_v4. Non-BB hops keep their v3 conduit_id (ids are a subset of
+# v4). Same columns, params and ORDER BY as _SERVICE_PATH_TRACE_SQL; that v3 constant is unchanged.
+# Live 2026-10-30: 54,572 hops (no fan-out), 30,769 remapped onto CDT-BBR, 0 on INVENTORY_ONLY.
+_SERVICE_PATH_TRACE_V4_SQL = """
+SELECT
+  sp.service_id,
+  sp.hop_sequence AS hop_index,
+  sp.span_id,
+  sp.path_type,
+  COALESCE(bbr.route_conduit_id, prs.conduit_id) AS conduit_id,
+  prs.site_a_id AS span_site_a_id,
+  prs.site_z_id AS span_site_z_id,
+  ROUND(prs.length_km, 1) AS span_length_km,
+  prs.fiber_type,
+  prs.fiber_count AS strand_count,
+  prc.conduit_type,
+  ROUND(prc.length_km, 1) AS conduit_length_km,
+  prc.corridor,
+  sa.site_name AS site_a_name,
+  sz.site_name AS site_z_name,
+  sa.region AS site_a_region,
+  sz.region AS site_z_region
+FROM service_path sp
+JOIN physical_resource_span prs ON sp.span_id = prs.span_id
+LEFT JOIN (
+  SELECT parent_route_id, MIN(conduit_id) AS route_conduit_id
+  FROM physical_resource_span_v4_candidate
+  WHERE is_active = TRUE AND parent_route_id IS NOT NULL
+  GROUP BY parent_route_id
+) bbr ON bbr.parent_route_id = sp.span_id
+LEFT JOIN physical_resource_conduit_v4_candidate prc
+  ON prc.conduit_id = COALESCE(bbr.route_conduit_id, prs.conduit_id)
+LEFT JOIN geographic_site sa ON prs.site_a_id = sa.site_id
+LEFT JOIN geographic_site sz ON prs.site_z_id = sz.site_id
+WHERE sp.service_id = :service_id
+ORDER BY sp.path_type, sp.hop_sequence
+"""
+
 # BUG-QA-080: service_inventory has no path_diversity_status column. Diversity is derived
 # from the governed path structure (service_path -> span -> conduit, shared_risk_group);
 # see classify_diversity(). path_diversity_score is returned for context only, because it
@@ -1071,9 +1114,14 @@ class CatalogSqlService:
     # Path trace + SRLG + Hazard overlay (TOPOLOGY-VIS-SPEC §2, §3, §4)
     # ------------------------------------------------------------------
 
-    def get_service_path_trace(self, service_id: str) -> list[dict] | None:
-        """Return hop-by-hop path for a service (working + protect)."""
-        rows = self._execute(_SERVICE_PATH_TRACE_SQL, row_limit=500, params={"service_id": service_id})
+    def get_service_path_trace(self, service_id: str, v4: bool = False) -> list[dict] | None:
+        """Return hop-by-hop path for a service (working + protect).
+
+        v4=True (PRI_V4_KPIS, BUG-QA-094) remaps v3 backbone hops onto their v4 CDT-BBR-* route
+        conduit so they match the v4 /topology edges. v4=False is the unchanged v3 freeze query.
+        """
+        sql = _SERVICE_PATH_TRACE_V4_SQL if v4 else _SERVICE_PATH_TRACE_SQL
+        rows = self._execute(sql, row_limit=500, params={"service_id": service_id})
         if rows is None:
             return None
         for r in rows:

@@ -525,15 +525,19 @@ def get_service_path_trace(
     service_id: str,
     csql: Dependencies.CatalogSql,
     response: Response,
+    config: Dependencies.Config,
 ):
     """Return hop-by-hop path trace for a service (working + protect).
 
     TOPOLOGY-VIS-SPEC §2.1 — on-demand query for service path visualization.
     BUG-QA-080: X-PRI-Data-Source is 'live' or 'unavailable' (never silent).
+    BUG-QA-094: with PRI_V4_KPIS=true, backbone hops are remapped to the v4 CDT-BBR-* route
+    conduit so they line up with the v4 /topology edges (same flag as list_topology_conduits).
     """
+    v4 = bool(getattr(config, "v4_kpis", False))
     if hasattr(csql, "is_available") and csql.is_available:
         try:
-            hops = csql.get_service_path_trace(service_id)
+            hops = csql.get_service_path_trace(service_id, v4=True) if v4 else csql.get_service_path_trace(service_id)
             if hops is not None:
                 response.headers[DATA_SOURCE_HEADER] = "live"
                 return hops

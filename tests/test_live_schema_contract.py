@@ -103,7 +103,9 @@ def test_router_flags_unavailable_instead_of_silent():
             raise RuntimeError("UNRESOLVED_COLUMN")
 
     resp = Response()
-    assert r.get_service_path_trace("SVC-1", _Down(), resp) == []
+    # BUG-QA-094: path trace now takes config (v4 flag); flag off = v3 call shape.
+    from types import SimpleNamespace
+    assert r.get_service_path_trace("SVC-1", _Down(), resp, SimpleNamespace(v4_kpis=False)) == []
     assert resp.headers[r.DATA_SOURCE_HEADER] == "unavailable"
     resp = Response()
     assert r.list_topology_srlgs(_Down(), resp, region="West") == []
