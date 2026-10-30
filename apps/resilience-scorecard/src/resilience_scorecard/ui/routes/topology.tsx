@@ -42,6 +42,16 @@ import {
   type DataState,
   type TraceBannerMode,
 } from "@/lib/topology-data-state";
+// BUG-DW-117: visible keyboard-focus callout for hazard markers (aria-hidden, label unchanged)
+import {
+  focusedHazardFor,
+  hazardCalloutBox,
+  hazardCalloutText,
+  hazardMarkerPos,
+  hazardRingRadius,
+  isKeyboardFocus,
+  nextFocusedHazard,
+} from "@/lib/hazard-callout";
 // BUG-DW-099: one sentence-case label map for banner, legend and mobile badge
 import {
   DIVERSITY_BASIS_CAPTION,
@@ -1261,6 +1271,10 @@ function SiteGraph({
   overlays: Overlays;
   diversity: ServiceDiversity | null;
 }) {
+  // BUG-DW-117: hazard marker with keyboard focus (drives the aria-hidden visible callout)
+  const [focusedHazardId, setFocusedHazardId] = useState<string | null>(null);
+  const focusedHazard = focusedHazardFor(hazards, focusedHazardId, overlays.hazard);
+
   // Build lookup sets for path trace
   const pathSiteIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1541,9 +1555,7 @@ function SiteGraph({
       {overlays.hazard && hazards.map((h) => {
         // Simple position: use lat/lon scaled relative to visible sites
         // For demo, place hazards based on hash of hazard_id in visible area
-        const hash = h.hazard_id.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-        const hx = 80 + (hash % (CANVAS_W - 160));
-        const hy = 60 + ((hash * 7) % (CANVAS_H - 120));
+        const { x: hx, y: hy } = hazardMarkerPos(h.hazard_id, CANVAS_W, CANVAS_H);
         // BUG-DW-070: color + stroke pattern/width per severity (grayscale-safe)
         const sev = HAZARD_SEVERITY_STYLES[h.severity] ?? HAZARD_SEVERITY_STYLES.medium;
         const hazColor = sev.color;
@@ -1563,12 +1575,24 @@ function SiteGraph({
             role="img"
             aria-label={`${h.hazard_type.replace(/_/g, " ")} hazard: ${h.name}, severity ${h.severity}, ${h.direct_impact_spans} direct impact spans, ${h.near_impact_spans} near impact spans`}
             tabIndex={0}
+            onFocus={(e) => {
+              if (isKeyboardFocus(e.currentTarget)) setFocusedHazardId(h.hazard_id);
+            }}
+            onBlur={() => setFocusedHazardId((cur) => nextFocusedHazard(cur, h.hazard_id))}
+            onKeyDown={(e) => {
+              // WCAG 1.4.13: first Escape only dismisses the callout (focus stays put); the
+              // document-level Escape (close panel / drill out) runs on the next press.
+              if (e.key === "Escape" && focusedHazardId === h.hazard_id) {
+                e.stopPropagation();
+                setFocusedHazardId(null);
+              }
+            }}
           >
             {/* Proximity ring */}
             <circle
               cx={hx}
               cy={hy}
-              r={h.direct_impact_spans > 0 ? 30 : 20}
+              r={hazardRingRadius(h)}
               fill={hazColor}
               fillOpacity={0.08}
               stroke={hazColor}
@@ -1609,6 +1633,43 @@ function SiteGraph({
           </g>
         );
       })}
+
+      {/* BUG-DW-117: visible callout for the keyboard-focused hazard only. aria-hidden because
+          the marker aria-label already carries the same facts; rendered after all markers so it
+          paints on top; never focusable, no <title>. */}
+      {focusedHazard && (() => {
+        const pos = hazardMarkerPos(focusedHazard.hazard_id, CANVAS_W, CANVAS_H);
+        const box = hazardCalloutBox(
+          pos.x, pos.y, hazardRingRadius(focusedHazard), hazardCalloutText(focusedHazard),
+          CANVAS_W, CANVAS_H,
+        );
+        return (
+          <g
+            className="hazard-focus-callout"
+            aria-hidden="true"
+            pointerEvents="none"
+            data-hazard-id={focusedHazard.hazard_id}
+            data-placement={box.placement}
+          >
+            <rect
+              className="hazard-focus-callout-box"
+              x={box.x}
+              y={box.y}
+              width={box.width}
+              height={box.height}
+              rx={4}
+            />
+            <text
+              className="hazard-focus-callout-text"
+              x={box.textX}
+              y={box.textY}
+              dominantBaseline="central"
+            >
+              {box.text}
+            </text>
+          </g>
+        );
+      })()}
 
       {/* BUG-DW-056: sr-only hazard summary for screen readers (WCAG 4.1.2) */}
       {overlays.hazard && hazards.length > 0 && (

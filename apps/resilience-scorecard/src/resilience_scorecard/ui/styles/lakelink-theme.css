@@ -1843,6 +1843,25 @@ select:focus-visible,
   border-radius: 50%;
 }
 
+/* BUG-DW-117: keyboard-focus callout for hazard markers (aria-hidden; parity with the hover
+   tooltip). White box, 1px iron border, iron 12px Inter text = 8.45:1 on white. */
+.hazard-focus-callout {
+  pointer-events: none;
+}
+
+.hazard-focus-callout-box {
+  fill: #FFFFFF;
+  stroke: var(--lf-iron, #4D4D4D);
+  stroke-width: 1;
+}
+
+.hazard-focus-callout-text {
+  fill: var(--lf-iron, #4D4D4D);
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+}
+
 /* ===================================================================
    MOBILE TREE VIEW (TOPOLOGY-VIS-SPEC §6.2 — <768px fallback)
    Accessible searchable tree replacing SVG graph on mobile.
@@ -2266,6 +2285,16 @@ select:focus-visible,
   .hazard-overlay-marker:focus-visible {
     outline: 2px solid Highlight;
     outline-offset: 2px;
+  }
+
+  /* BUG-DW-117: hazard focus callout uses system colors */
+  .hazard-focus-callout-box {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+
+  .hazard-focus-callout-text {
+    fill: CanvasText;
   }
 
   /* --- General: ensure badges & buttons show system borders --- */
