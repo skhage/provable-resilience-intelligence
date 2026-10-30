@@ -24,10 +24,16 @@ count against cdm_tmforum.provable_resilience_intelligence.freeze_pin_fingerprin
 P58). Any mismatch, missing baseline or PROVISIONAL baseline fails closed. Delta versions are printed
 for information only.
 
+P68-DEVOPS-RUNBOOK-PARTIAL-CUTOVER-B (DEC-PRI-V4-073-SECOND-MISS-PARTIAL-CUTOVER, id 41, option b): with
+partial_cutover=True (DEFAULT OFF) the hazard_span_intersection, span_risk_predictions and
+resilience_score_snapshot v4 promotes are SKIPPED. Their v3 live tables stay the source (PROVISIONAL), and
+each one must pass the v3 fingerprint gate (fail closed). execute() also requires id 41 to be 'decided'.
+
 Usage (notebook, read-only):
     import sys; sys.path.append('<project root>/ops')
     import v4_cutover_runbook as rb
     report = rb.dry_run(spark, lakebase_cursor)   # prints plan + verdict
+    report = rb.dry_run(spark, lakebase_cursor, partial_cutover=True)   # DEC-41 option (b) preview
 """
 from __future__ import annotations
 
@@ -437,14 +443,45 @@ COMMENT_SNAPSHOT_COLUMNS = ("manifest_version", "table_name", "column_name", "or
 PK_FK_DDL_PATH = "runbooks/P43_v4_pk_fk_constraints.sql"  # @data-engineer P43-DE-V4-PK-FK-CONSTRAINTS
 
 
-def promoted_tables(include_conditional: bool = False) -> list:
+def promoted_tables(include_conditional: bool = False, partial_cutover: bool = False) -> list:
     """Managed live tables replaced by the swap (views/regenerated/report objects excluded).
 
     Conditional promotes (service_path, P63) count only when include_conditional=True, i.e. when
-    service_path_condition() is met at cutover time.
+    service_path_condition() is met at cutover time. P68: partial_cutover=True drops PARTIAL_KEEP_V3
+    (they stay v3 live, so no v4 comment snapshot and no AFTER_SWAP constraints for them).
     """
     acts = ("promote", "conditional_promote") if include_conditional else ("promote",)
-    return [i.live for i in RUNBOOK if i.action in acts]
+    return [i.live for i in RUNBOOK if i.action in acts and not (partial_cutover and i.live in PARTIAL_KEEP_V3)]
+
+
+# P68-DEVOPS-RUNBOOK-PARTIAL-CUTOVER-B: DEC-PRI-V4-073-SECOND-MISS-PARTIAL-CUTOVER (id 41) option (b).
+# OFF by default. If the CEO has not run the BUG-QA-073 HSI re-derive + P36 rescore writes by 11-01 23:59Z,
+# the 11-02 cutover promotes only the non-HSI v4 objects. These three keep the v3 live table as the source,
+# labelled PROVISIONAL, and move to v4.1. Each kept table must pass the v3 fingerprint gate (fail closed).
+PARTIAL_DECISION = "DEC-PRI-V4-073-SECOND-MISS-PARTIAL-CUTOVER"
+PARTIAL_KEEP_V3 = ("hazard_span_intersection", "span_risk_predictions", "resilience_score_snapshot")
+PARTIAL_VERDICT = "KEPT_V3_PROVISIONAL"
+
+
+def partial_keep_verdict(item: Item, d: dict) -> str | None:
+    """Pure: verdict for a PARTIAL_KEEP_V3 item in partial mode, else None. Only FP_PASS on the v3 live
+    table yields KEPT_V3_PROVISIONAL; a missing live table, missing baseline or mismatch fails closed."""
+    if item.live not in PARTIAL_KEEP_V3:
+        return None
+    if d.get("live_type") != "MANAGED" or d.get("v3_status", "NOT_IN_V3") == "NOT_IN_V3":
+        return "V3_FP_NO_LIVE"
+    st = d.get("live_fp", {}).get("status", "FP_NO_BASELINE")
+    return PARTIAL_VERDICT if st == "FP_PASS" else "V3_FP_" + st[3:]
+
+
+def partial_sql(item: Item) -> list:
+    """Plan text for a kept v3 table in partial mode. Comments only: nothing is written."""
+    return [
+        f"-- PARTIAL CUTOVER ({PARTIAL_DECISION}): {item.candidate} is NOT promoted; v3 {item.live} stays live "
+        "(PROVISIONAL in the v4 manifest and UI/Genie copy; promote in v4.1 after the CEO writes)",
+        f"-- FINGERPRINT GATE ({FP_DECISION}, fail closed): fingerprint_gate(spark, '{item.live}', '{V3}') "
+        "must be FP_PASS before the swap window and again after it",
+    ]
 
 
 # P63: DEC-PRI-V4-SERVICE-PATH-PROMOTE-CONDITIONAL inputs.
@@ -506,7 +543,8 @@ def _ddl_statements(text: str) -> list:
     return [" ".join(s.split()) for s in body.split(";") if s.strip()]
 
 
-def pk_fk_plan(text: str | None = None, root: str | None = None, service_path_promoted: bool = False) -> dict:
+def pk_fk_plan(text: str | None = None, root: str | None = None, service_path_promoted: bool = False,
+               partial_cutover: bool = False) -> dict:
     """Split the P43-DE constraint DDL into AFTER_SWAP (step 14) and DEFERRED (step 19).
 
     A statement is AFTER_SWAP only if its ALTER target AND any REFERENCES parent are promoted
@@ -522,7 +560,7 @@ def pk_fk_plan(text: str | None = None, root: str | None = None, service_path_pr
             return {"source": None, "after_swap": [], "deferred": [], "deferred_tables": [], "skipped": []}
         with open(path) as fh:
             text = fh.read()
-    promoted = set(promoted_tables(include_conditional=service_path_promoted))
+    promoted = set(promoted_tables(include_conditional=service_path_promoted, partial_cutover=partial_cutover))
     after, deferred, dtables, skipped = [], [], set(), []
     for s in _ddl_statements(text):
         m = re.match(r"(?i)ALTER TABLE\s+`?([\w.]+?)`?\s", s + " ")
@@ -544,8 +582,11 @@ def pk_fk_plan(text: str | None = None, root: str | None = None, service_path_pr
 
 
 # ---------------------------------------------------------------- dry run
-def dry_run(spark, cur=None, verbose: bool = True) -> list:
-    """Read-only evaluation of every runbook item. Executes NO plan SQL."""
+def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False) -> list:
+    """Read-only evaluation of every runbook item. Executes NO plan SQL.
+
+    partial_cutover=True (P68, DEC-41 option b; default OFF) keeps PARTIAL_KEEP_V3 on v3 behind the v3 fingerprint gate.
+    """
     objs, v3, draft, ccount = _objects(spark), _manifest(spark, V3), _manifest(spark, V4_DRAFT), _comment_counts(spark)
     fp_base = _fp_baselines(spark)
     open_tasks = _open_tasks(cur)
@@ -563,6 +604,7 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
         d["v3_pin"] = v3row.delta_version if v3row else None  # data-lineage label only
         d["v3_restore"] = v3row.restore_version if v3row else None  # P67: gate-0 restore target
         d["v3_comment_rows"] = ccount.get(it.live, 0)
+        d["partial_cutover"] = bool(partial_cutover)
         if d["live_type"] == "MANAGED" and v3row is not None:
             d["live_data_ver"] = latest_data_version(spark, it.live)  # informational only (P65)
             d["live_fp"] = fingerprint_gate(spark, it.live, V3, fp_base)
@@ -578,7 +620,10 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
         d["open_gate_tasks"] = gates_open
         if it.action == "conditional_promote":
             d["condition"] = sp_cond
-        if it.action == "conditional_promote" and not sp_cond["met"]:
+        pv = partial_keep_verdict(it, d) if partial_cutover else None
+        if pv is not None:
+            verdict = pv  # P68: KEPT_V3_PROVISIONAL or V3_FP_* (fail closed)
+        elif it.action == "conditional_promote" and not sp_cond["met"]:
             verdict = "SKIPPED_CONDITIONAL"  # non-blocking; upstream_ok unchanged
         elif it.action == "regenerate":
             verdict = "POST_CUTOVER"
@@ -603,12 +648,15 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
             verdict = "GATE_OPEN"
         else:
             verdict = "READY"
-        if it.action in ("promote", "conditional_promote") and verdict not in ("READY", "SKIPPED_CONDITIONAL"):
+        if it.action in ("promote", "conditional_promote") and verdict not in ("READY", "SKIPPED_CONDITIONAL", PARTIAL_VERDICT):
             upstream_ok = False
         if d.get("live_drift"):
             d["gate0_restore_sql"] = gate0_restore_sql(it, d["v3_restore"])
-        f = Finding(it, verdict, d, promote_sql(it, d.get("cand_fp", {}).get("status")),
-                    rollback_sql(it, d["v3_pin"]))
+        if pv is not None:  # kept on v3: no promote, nothing to roll back
+            f = Finding(it, verdict, d, partial_sql(it), [])
+        else:
+            f = Finding(it, verdict, d, promote_sql(it, d.get("cand_fp", {}).get("status")),
+                        rollback_sql(it, d["v3_pin"]))
         out.append(f)
     if verbose:
         print_report(out, cur)
@@ -616,20 +664,27 @@ def dry_run(spark, cur=None, verbose: bool = True) -> list:
 
 
 def summary(findings: list, cur=None) -> dict:
-    blocking = [f for f in findings if f.verdict not in ("READY", "POST_CUTOVER", "REPORT_ONLY", "SKIPPED_CONDITIONAL")]
+    blocking = [f for f in findings if f.verdict not in ("READY", "POST_CUTOVER", "REPORT_ONLY", "SKIPPED_CONDITIONAL",
+                                                         PARTIAL_VERDICT)]
+    partial = any(f.details.get("partial_cutover") for f in findings)
     return {
         "items": len(findings),
+        "partial_cutover": partial,
+        "partial_decision": _decided(cur, PARTIAL_DECISION) if partial else None,
+        "kept_v3_provisional": [f.item.live for f in findings if f.verdict == PARTIAL_VERDICT],
         "conditional_skips": [f.item.live for f in findings if f.verdict == "SKIPPED_CONDITIONAL"],
         "ready": sum(f.verdict == "READY" for f in findings),
         "blocking": len(blocking),
         "go_decision": _decided(cur, GO_DECISION),
         "v3_drift": [f.item.live for f in findings if f.details.get("live_drift")],
-        "cutover_ready": not blocking and _decided(cur, GO_DECISION),
+        "cutover_ready": not blocking and _decided(cur, GO_DECISION) and (not partial or _decided(cur, PARTIAL_DECISION)),
     }
 
 
 def print_report(findings: list, cur=None) -> None:
-    print(f"PRI v4 cutover DRY RUN (write-disabled) - {len(findings)} items")
+    partial = any(f.details.get("partial_cutover") for f in findings)
+    print(f"PRI v4 cutover DRY RUN (write-disabled) - {len(findings)} items"
+          + (f" - PARTIAL ({PARTIAL_DECISION}, option b)" if partial else ""))
     for f in findings:
         d = f.details
         print(f"[{f.item.step}] {f.item.live:<30} {f.verdict:<18} v3_pin={d.get('v3_pin')} v3_restore={d.get('v3_restore')} "
@@ -647,11 +702,11 @@ def print_report(findings: list, cur=None) -> None:
         print("   POST:", p)
     sp = next((f for f in findings if f.item.action == "conditional_promote"), None)
     sp_met = bool(sp and sp.verdict != "SKIPPED_CONDITIONAL")
-    for s in v4_comment_snapshot_sql(promoted_tables(include_conditional=sp_met)):
+    for s in v4_comment_snapshot_sql(promoted_tables(include_conditional=sp_met, partial_cutover=partial)):
         print("   V4 COMMENT SNAPSHOT WOULD RUN:", s[:200] + ("..." if len(s) > 200 else ""))
     if sp is not None and not sp_met:
         print("   LOG:", sp.details.get("condition", {}).get("log"))
-    pk = pk_fk_plan(service_path_promoted=sp_met)
+    pk = pk_fk_plan(service_path_promoted=sp_met, partial_cutover=partial)
     print(f"   PK/FK ({pk['source']}): after_swap={len(pk['after_swap'])} deferred={len(pk['deferred'])} "
           f"skipped={len(pk['skipped'])} deferred_tables={pk['deferred_tables']}")
     for c in checklist_status(cur):
@@ -666,13 +721,18 @@ class CutoverRefused(RuntimeError):
     pass
 
 
-def execute(spark, cur, write_enabled: bool = False):
-    """Refuses unless explicitly enabled, env-armed, GO-decided and fully READY."""
+def execute(spark, cur, write_enabled: bool = False, partial_cutover: bool = False):
+    """Refuses unless explicitly enabled, env-armed, GO-decided and fully READY.
+
+    P68: partial_cutover=True (default OFF) additionally requires a decided DEC-41 (PARTIAL_DECISION).
+    """
     if not write_enabled or os.environ.get("PRI_V4_CUTOVER_WRITE") != "1":
         raise CutoverRefused("write-disabled: pass write_enabled=True AND set PRI_V4_CUTOVER_WRITE=1")
     if not _decided(cur, GO_DECISION):
         raise CutoverRefused(f"no decided {GO_DECISION} row in Lakebase decisions")
-    findings = dry_run(spark, cur, verbose=False)
+    if partial_cutover and not _decided(cur, PARTIAL_DECISION):
+        raise CutoverRefused(f"partial cutover needs a decided {PARTIAL_DECISION} row in Lakebase decisions")
+    findings = dry_run(spark, cur, verbose=False, partial_cutover=partial_cutover)
     s = summary(findings, cur)
     if not s["cutover_ready"]:
         raise CutoverRefused(f"dry run not READY: {s}")

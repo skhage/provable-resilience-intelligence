@@ -402,3 +402,58 @@ def test_p67_gate0_restore_uses_manifest_restore_version():
     assert not any(s.startswith("RESTORE") for s in rb.gate0_restore_sql(it, None))  # fail closed
     assert "restore_version" in SRC.split("def _manifest")[1].split("def ")[0]
     assert 'd["v3_restore"] = v3row.restore_version' in SRC
+
+
+# ---------------------------------------------------------------- P68 partial cutover (DEC-41 option b)
+def test_p68_partial_flag_defaults_off():
+    import inspect
+    for fn in (rb.dry_run, rb.execute, rb.promoted_tables, rb.pk_fk_plan):
+        assert inspect.signature(fn).parameters["partial_cutover"].default is False, fn.__name__
+    assert rb.PARTIAL_DECISION == "DEC-PRI-V4-073-SECOND-MISS-PARTIAL-CUTOVER"
+    assert set(rb.PARTIAL_KEEP_V3) == {"hazard_span_intersection", "span_risk_predictions", "resilience_score_snapshot"}
+    acts = {i.live: i.action for i in rb.RUNBOOK}
+    assert all(acts[t] == "promote" for t in rb.PARTIAL_KEEP_V3)
+    assert set(rb.PARTIAL_KEEP_V3) <= set(rb.promoted_tables())  # full cutover unchanged
+    assert not set(rb.PARTIAL_KEEP_V3) & set(rb.promoted_tables(partial_cutover=True))
+    assert set(rb.promoted_tables()) - set(rb.promoted_tables(partial_cutover=True)) == set(rb.PARTIAL_KEEP_V3)
+
+
+def test_p68_partial_keep_verdict_fails_closed():
+    hsi = next(i for i in rb.RUNBOOK if i.live == "hazard_span_intersection")
+    span = next(i for i in rb.RUNBOOK if i.live == "physical_resource_span")
+    ok = {"live_type": "MANAGED", "v3_status": "FROZEN", "live_fp": {"status": "FP_PASS"}}
+    assert rb.partial_keep_verdict(hsi, ok) == rb.PARTIAL_VERDICT
+    assert rb.partial_keep_verdict(span, ok) is None  # non-kept items use the normal promote path
+    assert rb.partial_keep_verdict(hsi, {**ok, "live_fp": {"status": "FP_MISMATCH"}}) == "V3_FP_MISMATCH"
+    assert rb.partial_keep_verdict(hsi, {**ok, "live_fp": {}}) == "V3_FP_NO_BASELINE"
+    assert rb.partial_keep_verdict(hsi, {**ok, "live_type": None}) == "V3_FP_NO_LIVE"
+    assert rb.partial_keep_verdict(hsi, {**ok, "v3_status": "NOT_IN_V3"}) == "V3_FP_NO_LIVE"
+    sql = rb.partial_sql(hsi)
+    assert sql and all(s.startswith("--") for s in sql)  # plan text only, no writes
+    assert rb.PARTIAL_DECISION in sql[0] and "PROVISIONAL" in sql[0] and rb.V3 in sql[1]
+
+
+def test_p68_summary_and_execute_gate_on_dec41(monkeypatch):
+    keep = [rb.Finding(i, rb.PARTIAL_VERDICT, {"partial_cutover": True}) for i in rb.RUNBOOK if i.live in rb.PARTIAL_KEEP_V3]
+    rest = [rb.Finding(i, "READY", {"partial_cutover": True}) for i in rb.RUNBOOK if i.live not in rb.PARTIAL_KEEP_V3]
+    s = rb.summary(keep + rest, _GateCur({}, decided={rb.GO_DECISION}))
+    assert s["blocking"] == 0 and s["partial_cutover"] and sorted(s["kept_v3_provisional"]) == sorted(rb.PARTIAL_KEEP_V3)
+    assert s["cutover_ready"] is False  # GO alone is not enough in partial mode
+    assert rb.summary(keep + rest, _GateCur({}, decided={rb.GO_DECISION, rb.PARTIAL_DECISION}))["cutover_ready"] is True
+    bad = [rb.Finding(keep[0].item, "V3_FP_MISMATCH", {"partial_cutover": True})] + keep[1:] + rest
+    assert rb.summary(bad, _GateCur({}, decided={rb.GO_DECISION, rb.PARTIAL_DECISION}))["blocking"] == 1
+    full = rb.summary([rb.Finding(i, "READY") for i in rb.RUNBOOK], _GateCur({}, decided={rb.GO_DECISION}))
+    assert full["partial_cutover"] is False and full["partial_decision"] is None
+    monkeypatch.setenv("PRI_V4_CUTOVER_WRITE", "1")
+    with pytest.raises(rb.CutoverRefused, match=rb.PARTIAL_DECISION):
+        rb.execute(None, _GateCur({}, decided={rb.GO_DECISION}), write_enabled=True, partial_cutover=True)
+
+
+def test_p68_pk_fk_partial_defers_kept_tables():
+    ddl = ("ALTER TABLE x.hazard_span_intersection ADD CONSTRAINT pk_hsi PRIMARY KEY (id);\n"
+           "ALTER TABLE x.physical_resource_span ADD CONSTRAINT pk_span PRIMARY KEY (span_id);")
+    full = rb.pk_fk_plan(text=ddl)
+    part = rb.pk_fk_plan(text=ddl, partial_cutover=True)
+    assert len(full["after_swap"]) == 2 and not full["deferred"]
+    assert len(part["after_swap"]) == 1 and "physical_resource_span" in part["after_swap"][0]
+    assert part["deferred_tables"] == ["hazard_span_intersection"]
