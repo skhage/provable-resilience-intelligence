@@ -1647,6 +1647,15 @@ select:focus-visible,
 .path-trace-stats {
   color: var(--lf-iron);
 }
+/* BUG-DW-118: "{drawn} of {total} hops shown on this map" + Info button.
+   Solid iron #4D4D4D (8.45:1 on white), no new colour; wraps as one unit in the flex row. */
+.path-trace-hops-shown {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--lf-iron, #4D4D4D);
+  font-variant-numeric: tabular-nums;
+}
 .path-trace-actions {
   display: flex;
   align-items: center;

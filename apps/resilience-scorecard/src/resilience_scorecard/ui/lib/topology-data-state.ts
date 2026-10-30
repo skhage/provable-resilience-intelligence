@@ -141,10 +141,14 @@ export function traceLiveSummary(
   diversityLabel: string,
   workingHops: number,
   protectHops: number,
+  hopsShown: HopsShown | null = null,
 ): string {
   if (workingHops + protectHops === 0) return noTracedPathMsg(serviceId);
   const protect = protectHops > 0 ? hopCount(protectHops, "protect") : "no protect path";
-  return `${serviceId} traced: ${diversityLabel}, ${hopCount(workingHops, "working")}, ${protect}.`;
+  const base = `${serviceId} traced: ${diversityLabel}, ${hopCount(workingHops, "working")}, ${protect}.`;
+  // BUG-DW-118 item 4: the hops-shown sentence is appended once, only when some hops are undrawn
+  const shown = hopsShownSpoken(hopsShown);
+  return shown ? `${base} ${shown}.` : base;
 }
 
 /**
@@ -160,13 +164,80 @@ export function traceStatusText(opts: {
   diversityLabel: string;
   workingHops: number;
   protectHops: number;
+  /** BUG-DW-118: drawn/total hop counts for the current map; null = no map scope */
+  hopsShown?: HopsShown | null;
 }): string {
   if (opts.busy) return RETRYING_LABEL;
   if (opts.retryFeedback) return opts.retryFeedback;
   const nonLive = traceBannerMessage(opts.mode, opts.serviceId);
   if (nonLive) return nonLive;
   if (opts.mode === "live") {
-    return traceLiveSummary(opts.serviceId, opts.diversityLabel, opts.workingHops, opts.protectHops);
+    return traceLiveSummary(
+      opts.serviceId,
+      opts.diversityLabel,
+      opts.workingHops,
+      opts.protectHops,
+      opts.hopsShown ?? null,
+    );
   }
   return "";
+}
+
+// ---------------------------------------------------------------------------
+// BUG-DW-118: "{drawn} of {total} hops shown on this map" disclosure
+// ---------------------------------------------------------------------------
+// The site map draws only tier 1/2 conduits for the selected region. Hops on conduits with a
+// tier 3 (access/hut) endpoint, or with no conduit, are counted in the banner but never drawn.
+
+export interface HopsShown {
+  drawn: number;
+  total: number;
+}
+
+/** Tooltip text (V4-KPI-COPY-SPEC section 1 Info pattern). */
+export const HOPS_SHOWN_TOOLTIP =
+  "Some hops run through access and hut sites (tier 3), which this map does not draw. The hop count includes them.";
+
+/** Same output as formatCount in bb-srlg-disclosure.ts (kept local: this module has no imports). */
+function fmt(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/**
+ * Count trace hops the site map actually draws: the hop's conduit is in the rendered
+ * (region-scoped, coverage-filtered) conduit list and, when siteIds is given, both conduit
+ * endpoints have a node on the map (SiteGraph skips edges without positions).
+ */
+export function countHopsShown(
+  hops: ReadonlyArray<{ conduit_id: string | null }>,
+  conduits: ReadonlyArray<{ conduit_id: string; site_a_id?: string; site_z_id?: string }>,
+  siteIds?: ReadonlySet<string> | null,
+): HopsShown {
+  const drawable = new Set<string>();
+  for (const c of conduits) {
+    if (siteIds && (!c.site_a_id || !c.site_z_id || !siteIds.has(c.site_a_id) || !siteIds.has(c.site_z_id))) {
+      continue;
+    }
+    drawable.add(c.conduit_id);
+  }
+  let drawn = 0;
+  for (const h of hops) if (h.conduit_id && drawable.has(h.conduit_id)) drawn += 1;
+  return { drawn, total: hops.length };
+}
+
+/** True only when some hops are not drawn (item 5: omit the line when drawn == total). */
+export function showHopsShown(hs: HopsShown | null | undefined): hs is HopsShown {
+  return !!hs && hs.total > 0 && hs.drawn < hs.total;
+}
+
+/** Visible line: "4 of 6 hops shown on this map", or null when nothing is hidden. */
+export function hopsShownLine(hs: HopsShown | null | undefined): string | null {
+  if (!showHopsShown(hs)) return null;
+  return `${fmt(hs.drawn)} of ${fmt(hs.total)} hops shown on this map`;
+}
+
+/** Spoken form (Info button aria-label + live announcement), no trailing period. */
+export function hopsShownSpoken(hs: HopsShown | null | undefined): string | null {
+  const line = hopsShownLine(hs);
+  return line ? `${line}, others pass through tier 3 sites` : null;
 }

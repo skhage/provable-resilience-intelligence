@@ -10,6 +10,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
 import { LoadingRegion } from "@/components/ui/loading-region";
+// BUG-DW-118: Info control for the "{drawn} of {total} hops shown on this map" disclosure
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { useBbSrlgCoverage } from "@/lib/api";
 import {
   BB_EDGE_CAVEAT,
@@ -28,9 +30,14 @@ import {
 } from "@/lib/bb-srlg-disclosure";
 // BUG-DW-098: live | unavailable | not_found per fetch (X-PRI-Data-Source / 503 / 404)
 import {
+  HOPS_SHOWN_TOOLTIP,
   RETRY_LABEL,
   RETRYING_LABEL,
+  countHopsShown,
   fetchWithState,
+  hopsShownLine,
+  hopsShownSpoken,
+  showHopsShown,
   showSrlgUnavailable,
   srlgUnavailableMsg,
   noTracedPathMsg,
@@ -40,6 +47,7 @@ import {
   traceBannerMode,
   traceStatusText,
   type DataState,
+  type HopsShown,
   type TraceBannerMode,
 } from "@/lib/topology-data-state";
 // BUG-DW-117: visible keyboard-focus callout for hazard markers (aria-hidden, label unchanged)
@@ -938,6 +946,23 @@ function EdgeDetailPanel({
 }
 
 // ---------------------------------------------------------------------------
+// BUG-DW-118: "{drawn} of {total} hops shown on this map" + Info tooltip
+// Shared by the desktop PathTraceBanner and the mobile diversity summary.
+// ---------------------------------------------------------------------------
+
+function HopsShownNote({ hopsShown }: { hopsShown: HopsShown }) {
+  const line = hopsShownLine(hopsShown);
+  const spoken = hopsShownSpoken(hopsShown);
+  if (!line || !spoken) return null;
+  return (
+    <span className="path-trace-hops-shown">
+      {line}
+      <InfoTooltip label={spoken} text={HOPS_SHOWN_TOOLTIP} />
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Service Path Info Banner (§2 — shows when a service is traced)
 // ---------------------------------------------------------------------------
 
@@ -952,10 +977,13 @@ function PathTraceBanner({
   busy = false,
   retryFeedback = null,
   bannerRef,
+  hopsShown = null,
 }: {
   serviceId: string;
   diversity: ServiceDiversity | null;
   hops: PathHop[];
+  /** BUG-DW-118: hops the current site map draws vs all trace hops; null = no site map */
+  hopsShown?: HopsShown | null;
   onClear: () => void;
   bbCoverage?: BbSrlgCoverage | null;
   /** BUG-DW-098: unavailable/not_found render neutral copy with NO badge and NO hop stats */
@@ -1058,6 +1086,9 @@ function PathTraceBanner({
           {/* BUG-DW-099: partially_diverse can mean shared conduit; show the reason in text */}
           {diversity ? sharedConduitStat(diversity.shared_conduit_count, formatCount) : ""}
         </span>
+        {/* BUG-DW-118: banner hop counts include tier 3 hops the map never draws; say so.
+             Omitted when drawn == total; never rendered without the Info tooltip. */}
+        {showHopsShown(hopsShown) && <HopsShownNote hopsShown={hopsShown} />}
       </div>
       <div className="path-trace-actions">
         <Link
@@ -1708,6 +1739,8 @@ interface MobileTreeProps {
   onRetry?: () => void;
   retryBusy?: boolean;
   retryFeedback?: string | null;
+  /** BUG-DW-118: drawn/total hop counts from the page; null = no site map in scope */
+  hopsShown?: HopsShown | null;
 }
 
 function MobileTreeView({
@@ -1722,6 +1755,7 @@ function MobileTreeView({
   onRetry,
   retryBusy = false,
   retryFeedback = null,
+  hopsShown = null,
 }: MobileTreeProps) {
   const [expandedRegions, setExpandedRegions] = useState<Set<string>>(
     new Set()
@@ -2103,6 +2137,8 @@ function MobileTreeView({
               {BB_UNVERIFIED}
             </span>
           )}
+          {/* BUG-DW-118 item 3: same disclosure text as the desktop banner */}
+          {showHopsShown(hopsShown) && <HopsShownNote hopsShown={hopsShown} />}
         </div>
       )}
 
@@ -2451,6 +2487,14 @@ function TopologyPage() {
     [],
   );
 
+  // BUG-DW-118: hops actually drawn on the site map (conduit rendered AND both endpoints placed).
+  // Only meaningful once a region's site map is loaded; the region overview draws no hops.
+  const hopsShown = useMemo<HopsShown | null>(() => {
+    if (!selectedRegion || loading || pathHops.length === 0) return null;
+    const siteIds = new Set(sites.map((s) => s.site_id));
+    return countHopsShown(pathHops, visibleConduits, siteIds);
+  }, [selectedRegion, loading, pathHops, visibleConduits, sites]);
+
   const handleClearTrace = useCallback(() => {
     setTracedServiceId(null);
     setPathHops([]);
@@ -2502,6 +2546,8 @@ function TopologyPage() {
                 diversityLabel: diversityLabel(diversity?.diversity_status),
                 workingHops: pathHops.filter((h) => h.path_type === "working").length,
                 protectHops: pathHops.filter((h) => h.path_type === "protect").length,
+                // BUG-DW-118 item 4: hops-shown sentence included once in the live summary
+                hopsShown,
               })}
         </div>
       )}
@@ -2522,6 +2568,7 @@ function TopologyPage() {
           busy={retryBusy}
           retryFeedback={retryFeedback}
           bannerRef={bannerFocusRef}
+          hopsShown={hopsShown}
         />
       )}
 
@@ -2568,6 +2615,7 @@ function TopologyPage() {
               onRetry={() => { retryCountRef.current += 1; setTraceRetry((n) => n + 1); }}
               retryBusy={retryBusy}
               retryFeedback={retryFeedback}
+              hopsShown={hopsShown}
             />
           )}
           {!loading && regions.length === 0 && (
