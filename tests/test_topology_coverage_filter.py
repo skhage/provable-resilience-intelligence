@@ -145,6 +145,69 @@ def test_chip_css_selected_teal_fill_white_text_beats_hover():
     assert re.search(r'forced-colors: active\)[^@]*\.topo-chip\[aria-checked="true"\][^}]*Highlight', css)
 
 
+# --- BUG-DW-116: focus ring on selected (teal-filled) chips ----------------------
+
+def _rel_lum(hexc):
+    h = hexc.lstrip("#")
+    ch = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    ch = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in ch]
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]
+
+
+def _contrast(a, b):
+    la, lb = sorted((_rel_lum(a), _rel_lum(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def _vars(css):
+    return dict(re.findall(r"--(lf-[a-z-]+):\s*(#[0-9A-Fa-f]{6})", css))
+
+
+def _resolve(val, v):
+    m = re.search(r"var\(--(lf-[a-z-]+)\)", val)
+    return v[m.group(1)].upper() if m else val
+
+
+def _base_rule(css, selector):
+    m = re.search(r"(?m)^" + re.escape(selector) + r" \{([^}]*)\}", css)
+    assert m, selector
+    return dict((p.strip(), x.strip()) for p, x in
+                (d.split(":", 1) for d in m.group(1).split(";") if ":" in d))
+
+
+def test_contrast_helper_known_answers():
+    assert round(_contrast("#006272", "#FFFFFF"), 2) == 7.02   # spec figure
+    assert round(_contrast("#000000", "#FFFFFF"), 1) == 21.0
+    assert round(_contrast("#FFFFFF", "#FFFFFF"), 1) == 1.0
+
+
+def test_dw116_selected_chip_focus_ring_visible_on_both_sides():
+    css = _read("styles", "lakelink-theme.css")
+    v = _vars(css)
+    toolbar_bg = _resolve(_base_rule(css, ".topo-toolbar")["background"], v)
+    chip_fill = _resolve(_base_rule(css, '.topo-toolbar .topo-chip[aria-checked="true"]')["background"], v)
+    focus = _base_rule(css, '.topo-toolbar .topo-chip[aria-checked="true"]:focus-visible')
+    width, style, color = focus["outline"].split(" ", 2)
+    ring = _resolve(color, v)
+    offset = int(focus["outline-offset"].rstrip("px"))
+    assert style == "solid" and int(width.rstrip("px")) >= 2 and offset > 0
+    # Ring sits outside the chip on the toolbar: must contrast with the toolbar (2.4.11 / 1.4.11).
+    assert _contrast(ring, toolbar_bg) >= 3, (ring, toolbar_bg)
+    # Offset gap is filled by a halo of exactly offset px that must separate the ring from the teal fill.
+    halo = re.fullmatch(r"0 0 0 (\d+)px (var\(--lf-[a-z-]+\)|#[0-9A-Fa-f]{6})", focus["box-shadow"])
+    assert halo and int(halo.group(1)) == offset
+    gap = _resolve(halo.group(2), v)
+    assert _contrast(gap, chip_fill) >= 3 and _contrast(gap, ring) >= 3
+    # Regression guard: the designer-proposed white ring would be 1:1 on the white toolbar.
+    assert _contrast(v["lf-white"], toolbar_bg) < 3
+
+
+def test_dw116_forced_colors_ring_uses_canvastext():
+    css = _read("styles", "lakelink-theme.css")
+    assert re.search(r'forced-colors: active\)[^@]*\.topo-chip\[aria-checked="true"\]:focus-visible \{\s*'
+                     r'outline-color: CanvasText;', css)
+
+
 # --- backend ---------------------------------------------------------------------
 
 if APP_SRC not in sys.path:

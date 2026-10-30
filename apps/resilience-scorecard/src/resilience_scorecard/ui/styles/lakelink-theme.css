@@ -1114,6 +1114,17 @@ select:focus-visible,
   font-weight: 600;
 }
 
+/* BUG-DW-116 (WCAG 2.4.11 / 1.4.11): selected chips are teal-filled, so the focus ring must never touch
+   the fill. The ring is drawn at outline-offset 2px, OUTSIDE the chip, on the white .topo-toolbar, so a
+   white outline (as in .nav-tabs on the teal header) would be 1:1 against the toolbar. Instead: teal ring
+   (7.02:1 vs white) plus a 2px white box-shadow halo that fills the offset gap, giving a teal|white|teal
+   double ring that holds 7.02:1 on both sides whatever the container background. (0,4,0) > (0,2,1). */
+.topo-toolbar .topo-chip[aria-checked="true"]:focus-visible {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--lf-white);
+}
+
 .topo-chip-check {
   display: inline-block;
   width: 1em;
@@ -1130,6 +1141,10 @@ select:focus-visible,
     background: Highlight;
     color: HighlightText;
     border-color: Highlight;
+  }
+  /* BUG-DW-116: ring sits on Canvas (box-shadow is dropped in forced colors), so use CanvasText. */
+  .topo-toolbar .topo-chip[aria-checked="true"]:focus-visible {
+    outline-color: CanvasText;
   }
 }
 
