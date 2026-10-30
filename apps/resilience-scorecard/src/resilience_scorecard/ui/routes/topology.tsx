@@ -1548,17 +1548,22 @@ function SiteGraph({
         const sev = HAZARD_SEVERITY_STYLES[h.severity] ?? HAZARD_SEVERITY_STYLES.medium;
         const hazColor = sev.color;
 
+        // BUG-DW-115 (DW-100 pattern): the hover <title> lives on a non-focusable role=none
+        // ancestor, so the focusable role=img marker has no child <title> and SVG-AAM has no
+        // description fallback (hazard was announced twice). The tooltip still shows via the ancestor.
+        // tabIndex=0 is kept on purpose: the marker has no click action, but keyboard users need to
+        // reach each hazard summary (aria-label). Removal requires a designer decision.
         return (
+          <g key={h.hazard_id} role="none">
+            <title>
+              {h.hazard_type.replace(/_/g, " ")} hazard: {h.name} ({h.severity}) — {h.direct_impact_spans} direct, {h.near_impact_spans} near impact spans
+            </title>
           <g
-            key={h.hazard_id}
             className="hazard-overlay-marker"
             role="img"
             aria-label={`${h.hazard_type.replace(/_/g, " ")} hazard: ${h.name}, severity ${h.severity}, ${h.direct_impact_spans} direct impact spans, ${h.near_impact_spans} near impact spans`}
             tabIndex={0}
           >
-            <title>
-              {h.hazard_type.replace(/_/g, " ")} hazard: {h.name} ({h.severity}) — {h.direct_impact_spans} direct, {h.near_impact_spans} near impact spans
-            </title>
             {/* Proximity ring */}
             <circle
               cx={hx}
@@ -1600,6 +1605,7 @@ function SiteGraph({
             >
               {h.name.slice(0, 20)}
             </text>
+          </g>
           </g>
         );
       })}
