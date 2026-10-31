@@ -49,7 +49,12 @@ def test_dry_run_only_issues_read_statements():
         if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "sql":
             first = node.args[0]
             if isinstance(first, ast.Call):  # P65: spark.sql(fingerprint_sql(...)); builder checked below
-                assert getattr(first.func, "id", "") == "fingerprint_sql", ast.dump(first)
+                # P71: bridge_orphan_sql is SELECT-only (test_p71_bridge_sql_is_read_only_and_unions_bridge)
+                assert getattr(first.func, "id", "") in ("fingerprint_sql", "bridge_orphan_sql"), ast.dump(first)
+                continue
+            if isinstance(first, ast.Name):  # P71: only the bridge_integrity_sql() loop variable (all SELECT)
+                assert first.id == "q" and "for k, q in bridge_integrity_sql(span_source).items():" in SRC, ast.dump(first)
+                assert all(s.startswith("SELECT") for s in rb.bridge_integrity_sql().values())
                 continue
             text = first.values[0].value if isinstance(first, ast.JoinedStr) else first.value
             assert text.lstrip().upper().startswith(("SELECT", "DESCRIBE")), text
@@ -412,8 +417,8 @@ def test_p68_partial_flag_defaults_off():
     assert rb.PARTIAL_DECISION == "DEC-PRI-V4-073-SECOND-MISS-PARTIAL-CUTOVER"
     assert set(rb.PARTIAL_KEEP_V3) >= {"hazard_span_intersection", "span_risk_predictions", "resilience_score_snapshot"}
     acts = {i.live: i.action for i in rb.RUNBOOK}
-    assert all(acts[t] in ("promote", "repoint_view") for t in rb.PARTIAL_KEEP_V3)
-    kept_promotes = {t for t in rb.PARTIAL_KEEP_V3 if acts[t] == "promote"}
+    assert all(acts[t] in ("promote", "repoint_view") for t in rb.PARTIAL_KEEP_V3_ITEMS)
+    kept_promotes = {t for t in rb.PARTIAL_KEEP_V3_ITEMS if acts[t] == "promote"}
     assert kept_promotes <= set(rb.promoted_tables())  # full cutover unchanged
     assert not set(rb.PARTIAL_KEEP_V3) & set(rb.promoted_tables(partial_cutover=True))
     assert set(rb.promoted_tables()) - set(rb.promoted_tables(partial_cutover=True)) == kept_promotes
@@ -426,11 +431,14 @@ DEC42_ADDED = {"hazard_span_proximity", "span_hazard_features", "hazard_proximit
 
 def test_p69_partial_keep_v3_has_dec42_objects():
     assert rb.PARTIAL_EXPAND_DECISION == "DEC-PRI-V4-PARTIAL-KEEP-V3-EXPAND"
-    assert set(rb.PARTIAL_KEEP_V3) == DEC42_ADDED | {"hazard_span_intersection", "span_risk_predictions",
-                                                     "resilience_score_snapshot"}
-    assert len(rb.PARTIAL_KEEP_V3) == len(set(rb.PARTIAL_KEEP_V3)) == 11
+    assert set(rb.PARTIAL_KEEP_V3_ITEMS) == DEC42_ADDED | {"hazard_span_intersection", "span_risk_predictions",
+                                                           "resilience_score_snapshot"}
+    assert len(rb.PARTIAL_KEEP_V3_ITEMS) == len(set(rb.PARTIAL_KEEP_V3_ITEMS)) == 11
     lives = {i.live for i in rb.RUNBOOK}
-    assert set(rb.PARTIAL_KEEP_V3) <= lives  # every kept name is a real runbook item
+    assert set(rb.PARTIAL_KEEP_V3_ITEMS) <= lives  # every kept runbook name is a real runbook item
+    # P71 (QA S59): the DEC-44 FK consumers are kept too, but they are NOT runbook items
+    assert set(rb.PARTIAL_KEEP_V3_FK_CONSUMERS).isdisjoint(lives)
+    assert set(rb.PARTIAL_KEEP_V3) == set(rb.PARTIAL_KEEP_V3_ITEMS) | set(rb.PARTIAL_KEEP_V3_FK_CONSUMERS)
     # Non-HSI promotes stay in partial mode (DEC-42: conduit, span, SRLG set, site promote).
     part = set(rb.promoted_tables(partial_cutover=True))
     assert {"physical_resource_conduit", "physical_resource_span", "derived_shared_risk_group"} <= part
@@ -484,7 +492,7 @@ def test_p68_summary_and_execute_gate_on_dec41(monkeypatch):
     keep = [rb.Finding(i, rb.PARTIAL_VERDICT, {"partial_cutover": True}) for i in rb.RUNBOOK if i.live in rb.PARTIAL_KEEP_V3]
     rest = [rb.Finding(i, "READY", {"partial_cutover": True}) for i in rb.RUNBOOK if i.live not in rb.PARTIAL_KEEP_V3]
     s = rb.summary(keep + rest, _GateCur({}, decided={rb.GO_DECISION}))
-    assert s["blocking"] == 0 and s["partial_cutover"] and sorted(s["kept_v3_provisional"]) == sorted(rb.PARTIAL_KEEP_V3)
+    assert s["blocking"] == 0 and s["partial_cutover"] and sorted(s["kept_v3_provisional"]) == sorted(rb.PARTIAL_KEEP_V3_ITEMS)
     assert s["cutover_ready"] is False  # GO alone is not enough in partial mode
     assert rb.summary(keep + rest, _GateCur({}, decided={rb.GO_DECISION, rb.PARTIAL_DECISION}))["cutover_ready"] is True
     bad = [rb.Finding(keep[0].item, "V3_FP_MISMATCH", {"partial_cutover": True})] + keep[1:] + rest
@@ -504,3 +512,147 @@ def test_p68_pk_fk_partial_defers_kept_tables():
     assert len(full["after_swap"]) == 2 and not full["deferred"]
     assert len(part["after_swap"]) == 1 and "physical_resource_span" in part["after_swap"][0]
     assert part["deferred_tables"] == ["hazard_span_intersection"]
+
+
+# ---------------------------------------------------------------- P71 b0 span_bb_route_bridge (DEC id 44)
+class _Row(tuple):
+    def __new__(cls, *vals, **kw):
+        r = super().__new__(cls, vals or tuple(kw.values()))
+        r.__dict__.update(kw)
+        return r
+
+
+class _Res:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def collect(self):
+        return self.rows
+
+    def first(self):
+        return self.rows[0]
+
+
+class _BridgeSpark:
+    """Fake spark for bridge_check: answers information_schema, integrity counts and orphan SELECTs."""
+
+    def __init__(self, orphans=None, integrity=None, cols=None, boom=False):
+        self.orphans, self.integrity, self.boom, self.sql_log = orphans or {}, integrity or {}, boom, []
+        default = {t: {"span_id"} for t in rb.BRIDGE_FK_CONSUMERS}
+        default[rb.BRIDGE_TABLE] = {"bb_span_id", "bbs_span_id"}
+        self.cols = default if cols is None else cols
+
+    def sql(self, q, args=None):
+        self.sql_log.append(q)
+        assert q.lstrip().upper().startswith("SELECT"), q  # read-only
+        if self.boom:
+            raise RuntimeError("table not readable")
+        if "information_schema.columns" in q:
+            return _Res([_Row(table_name=t, column_name=c) for t, cs in self.cols.items() for c in cs])
+        if "AS n" in q:
+            t = next(t for t in rb.BRIDGE_FK_CONSUMERS if f"`{t}` c" in q)
+            n = self.orphans.get(t, 0)
+            return _Res([_Row(n=n, k=min(n, 92))])
+        k = next(k for k, s in rb.bridge_integrity_sql().items() if s == q)
+        return _Res([_Row(self.integrity.get(k, {"rows": 5325, "bb_keys": 92}.get(k, 0)))])
+
+
+def test_p71_runbook_items_b0_before_span_and_keep_consumers_appended():
+    assert rb.runbook_items() == rb.RUNBOOK  # full cutover unchanged
+    assert rb.BRIDGE_TABLE not in {i.live for i in rb.RUNBOOK}
+    part = rb.runbook_items(partial_cutover=True)
+    lives = [i.live for i in part]
+    assert lives.index(rb.BRIDGE_TABLE) + 1 == lives.index("physical_resource_span")  # b0 right before (b)
+    assert part[lives.index(rb.BRIDGE_TABLE)].step == "b0" and part[lives.index(rb.BRIDGE_TABLE)].action == "bridge_verify"
+    assert lives[-2:] == list(rb.PARTIAL_KEEP_V3_FK_CONSUMERS)
+    assert all(i.action == "keep_v3" and i.candidate is None for i in part[-2:])
+    assert len(part) == len(rb.RUNBOOK) + 3
+
+
+def test_p71_fk_consumer_set_matches_dec44():
+    assert rb.BRIDGE_DECISION == "DEC-PRI-V4-PARTIAL-SPAN-GRAIN-BRIDGE"
+    assert set(rb.PARTIAL_KEEP_V3_FK_CONSUMERS) == {"optical_anomaly_detection", "span_risk_inference_log"}
+    # DP P68 section C: the 7 tables that orphan 32,502 rows on the 92 BB-* keys
+    assert set(rb.BRIDGE_FK_CONSUMERS) == {"service_path", "hazard_span_intersection", "proactive_action",
+                                           "hazard_span_proximity", "span_risk_predictions",
+                                           "optical_anomaly_detection", "span_risk_inference_log"}
+    assert set(rb.BRIDGE_FK_CONSUMERS) <= set(rb.PARTIAL_KEEP_V3) | {"service_path"}
+    assert "physical_resource_span" not in rb.BRIDGE_FK_CONSUMERS
+    # kept FK consumers never enter the promote set (no v4 comment snapshot / AFTER_SWAP constraints)
+    assert set(rb.PARTIAL_KEEP_V3_FK_CONSUMERS).isdisjoint(rb.promoted_tables(include_conditional=True))
+
+
+def test_p71_bridge_sql_is_read_only_and_unions_bridge():
+    for t in rb.BRIDGE_FK_CONSUMERS:
+        q = rb.bridge_orphan_sql(t)
+        assert q.startswith("SELECT") and "LEFT ANTI JOIN" in q and "UNION" in q and "bb_span_id" in q
+        assert rb.SPAN_V4 in q and rb.BRIDGE_TABLE in q
+    assert "`physical_resource_span`" in rb.bridge_orphan_sql("service_path", "physical_resource_span")
+    assert set(rb.BRIDGE_INTEGRITY_ZERO) <= set(rb.bridge_integrity_sql())
+    assert all(q.startswith("SELECT") for q in rb.bridge_integrity_sql().values())
+    plan = rb.bridge_plan_sql()
+    assert all(s.startswith(("--", "SELECT")) for s in plan)  # never writes the bridge
+    assert not any(w in s.upper() for s in plan for w in ("CREATE ", "INSERT ", "MERGE ", "DROP ", "DELETE "))
+    assert "POST-SWAP" in plan[-1]
+
+
+def test_p71_bridge_check_ready_and_fail_closed():
+    objs = {rb.BRIDGE_TABLE: "MANAGED"}
+    ok = rb.bridge_check(_BridgeSpark(), objs)
+    assert ok["integrity"]["rows"] == 5325 and set(ok["orphans"]) == set(rb.BRIDGE_FK_CONSUMERS)
+    assert rb.bridge_verdict(ok, True) == "READY"
+    assert rb.bridge_verdict(ok, False) == "BRIDGE_NOT_DECIDED"
+    assert rb.bridge_verdict(ok, True, ["P70-QA-VERIFY-PARTIAL-FK-BRIDGE"]) == "GATE_OPEN"
+    assert rb.bridge_verdict(None, True) == "BRIDGE_NOT_CHECKED"
+    # missing bridge fails closed (P70-DE not landed)
+    assert rb.bridge_verdict(rb.bridge_check(_BridgeSpark(), {}), True) == "BRIDGE_MISSING"
+    orph = rb.bridge_check(_BridgeSpark(orphans={"service_path": 30769}), objs)
+    assert rb.bridge_verdict(orph, True) == "BRIDGE_FK_ORPHANS" and orph["orphans"]["service_path"]["rows"] == 30769
+    bad = rb.bridge_check(_BridgeSpark(integrity={"bbs_unmapped": 3}), objs)
+    assert rb.bridge_verdict(bad, True) == "BRIDGE_INTEGRITY"
+    nocol = _BridgeSpark()
+    nocol.cols[rb.BRIDGE_TABLE] = {"bbs_span_id"}
+    r = rb.bridge_check(nocol, objs)
+    assert r["missing_columns"] == ["bb_span_id"] and rb.bridge_verdict(r, True) == "BRIDGE_COLUMNS_MISSING"
+    extra = _BridgeSpark()
+    extra.cols["resilience_score_snapshot"] = {"span_id"}  # a kept table gains span_id -> gate must list it
+    assert rb.bridge_verdict(rb.bridge_check(extra, objs), True) == "BRIDGE_CONSUMER_SET_DRIFT"
+    boom = rb.bridge_check(_BridgeSpark(boom=True), objs)
+    assert "error" in boom and rb.bridge_verdict(boom, True) == "BRIDGE_UNREADABLE"
+
+
+def test_p71_summary_bridge_blocks_partial_cutover():
+    part = rb.runbook_items(partial_cutover=True)
+
+    def fs(bridge_verdict):
+        out = []
+        for i in part:
+            v = (bridge_verdict if i.action == "bridge_verify" else
+                 rb.PARTIAL_VERDICT if i.live in rb.PARTIAL_KEEP_V3 else "READY")
+            out.append(rb.Finding(i, v, {"partial_cutover": True, "bridge": {"orphans": {"service_path": {"rows": 0}}}}))
+        return out
+
+    dec = {rb.GO_DECISION, rb.PARTIAL_DECISION}
+    good = rb.summary(fs("READY"), _GateCur({}, decided=dec))
+    assert good["blocking"] == 0 and good["bridge"] == "READY" and good["bridge_orphans"] == 0 and good["cutover_ready"]
+    assert set(rb.PARTIAL_KEEP_V3_FK_CONSUMERS) <= set(good["kept_v3_provisional"])
+    miss = rb.summary(fs("BRIDGE_MISSING"), _GateCur({}, decided=dec))
+    assert miss["blocking"] == 1 and miss["bridge"] == "BRIDGE_MISSING" and miss["cutover_ready"] is False
+    assert rb.summary([rb.Finding(i, "READY") for i in rb.RUNBOOK], _GateCur({}, decided=dec))["bridge"] is None
+
+
+def test_p71_keep_v3_consumer_uses_v3_fingerprint_gate():
+    it = rb.KEEP_V3_CONSUMER_ITEMS[0]
+    ok = {"live_type": "MANAGED", "v3_status": "FROZEN", "live_fp": {"status": "FP_PASS"}}
+    assert rb.partial_keep_verdict(it, ok) == rb.PARTIAL_VERDICT
+    assert rb.partial_keep_verdict(it, {**ok, "live_fp": {"status": "FP_MISMATCH"}}) == "V3_FP_MISMATCH"
+    assert rb.partial_keep_verdict(it, {**ok, "live_type": None}) == "V3_FP_NO_LIVE"
+    sql = rb.partial_sql(it)
+    assert all(s.startswith("--") for s in sql) and "None" not in sql[0] and rb.BRIDGE_DECISION in sql[0]
+
+
+def test_p71_dry_run_wires_bridge_only_in_partial_mode():
+    body = SRC.split("def dry_run")[1].split("\ndef ")[0]
+    assert "bridge_check(spark, objs) if partial_cutover else None" in body
+    assert "runbook_items(partial_cutover)" in body
+    assert '"bridge_verify") and verdict not in' in body  # a failed b0 blocks everything downstream
