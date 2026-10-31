@@ -33,7 +33,8 @@ export type BadgeVariant = "interim" | "provisional";
 
 // §7.2 surface-to-source-object mapping
 const SURFACE_SOURCES: Record<string, string[]> = {
-  scorecard_header: ["resilience_score_snapshot"],
+  // BUG-QA-100: the header Revenue at Risk card reads revenue_at_risk, and diversity coverage reads diversity_coverage.
+  scorecard_header: ["resilience_score_snapshot", "revenue_at_risk", "diversity_coverage"],
   service_table: ["resilience_score_snapshot"],
   hazards_page: ["hazard_span_proximity", "hazard_span_intersection"],
   actions_page: ["proactive_action", "hazard_span_proximity", "hazard_span_intersection"],

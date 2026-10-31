@@ -23,6 +23,8 @@ from databricks.sdk.service.sql import (
     StatementState,
 )
 
+from ..provisional_objects import PROVISIONAL_OBJECTS_SQL
+
 if TYPE_CHECKING:
     from ..core import AppConfig
 
@@ -412,6 +414,8 @@ SELECT CASE
        END AS report_status
 FROM {_KPI_DELTA_TABLE}
 """
+# BUG-QA-100: live KEPT_V3_PROVISIONAL derivation (v3 manifest AND live object). See provisional_objects.py.
+_PROVISIONAL_OBJECTS_SQL = PROVISIONAL_OBJECTS_SQL
 _CONDUIT_COVERAGE_CLASSES = ("REAL_SEGMENTED", "BB_SEGMENTED", "BB_ONLY", "INVENTORY_ONLY")
 
 _CONDUIT_COVERAGE_SQL = f"""
@@ -1235,6 +1239,18 @@ class CatalogSqlService:
             return None
         state = rows[0].get("report_status")
         return state if state in ("INTERIM", "FINAL") else None
+
+    def get_provisional_objects(self) -> list[str] | None:
+        """BUG-QA-100: KEEP_V3 candidates that would be KEPT_V3_PROVISIONAL in partial mode.
+
+        A candidate counts only if it is in the v3 manifest and has a live object, so DEFERRED_V4_1
+        v4-only objects are excluded. Returns None when the query fails, and the router then uses
+        DEFAULT_PROVISIONAL_OBJECTS.
+        """
+        rows = self._execute(_PROVISIONAL_OBJECTS_SQL)
+        if rows is None:
+            return None
+        return [r["object_name"] for r in rows if r.get("object_name")]
 
     def get_mrc_protected(self) -> dict | None:
         """MRC Protected KPI from the v4 metric view (P36-APP-V4-MRC-PROTECTED-KPI).

@@ -12,6 +12,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from .core import Dependencies
+from .provisional_objects import DEFAULT_PROVISIONAL_OBJECTS
 from .models import (
     ActionQueueSummaryOut,
     ActionStatusUpdate,
@@ -722,16 +723,9 @@ def get_feature_flags(config: Dependencies.Config):
 
 # P68-APP-PROVISIONAL-BADGE (V4-KPI-COPY-SPEC §7.1): per-object cutover status from the freeze
 # manifest. Drives the PROVISIONAL badge on surfaces whose source object is KEPT_V3_PROVISIONAL.
-# Default list from DEC-41 PARTIAL_KEEP_V3 + DEC-42 expansion.
-_DEFAULT_PROVISIONAL_OBJECTS = [
-    "resilience_score_snapshot",
-    "hazard_span_intersection",
-    "span_risk_predictions",
-    "hazard_span_proximity",
-    "span_hazard_features",
-    "hazard_proximity_count",
-    "proactive_action",
-]
+# BUG-QA-100: the fallback is derived from the runbook PARTIAL_KEEP_V3 mirror minus DEFERRED_V4_1
+# (see provisional_objects.py; the sync test is tests/test_provisional_objects_qa100.py).
+_DEFAULT_PROVISIONAL_OBJECTS = list(DEFAULT_PROVISIONAL_OBJECTS)
 
 
 @router.get(
@@ -751,20 +745,16 @@ def get_cutover_manifest(config: Dependencies.Config, csql: Dependencies.Catalog
         return CutoverManifestOut()
     provisional: list[str] = []
     if mode == "PARTIAL":
-        # Try live query of the freeze manifest table first
-        if (
-            hasattr(csql, "is_available")
-            and csql.is_available
-            and hasattr(csql, "get_provisional_objects")
-        ):
+        # Live derivation from the v3 freeze manifest (CatalogSqlService.get_provisional_objects).
+        if getattr(csql, "is_available", False):
             try:
-                provisional = csql.get_provisional_objects()
+                provisional = csql.get_provisional_objects() or []
             except Exception:
                 logger.warning(
                     "Provisional objects query failed; using default list",
                     exc_info=True,
                 )
-        # Fall back to the known DEC-41 + DEC-42 list when the live query is empty
+        # If the live query fails or returns nothing, fail safe: keep labelling the known KEEP_V3 set.
         if not provisional:
             provisional = list(_DEFAULT_PROVISIONAL_OBJECTS)
     return CutoverManifestOut(cutover_mode=mode, provisional_objects=provisional)
