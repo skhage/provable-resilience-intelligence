@@ -124,14 +124,19 @@ def test_badge_copy_verbatim_from_spec():
     assert ("Preliminary v4 figures. Only the hazard-distance fix is included so far. Backbone "
             "segmentation and shared-risk updates are still being scored, so these numbers will change.") in t
     b = _read("components", "ui", "interim-badge.tsx")
-    assert 'role="img" aria-label={INTERIM_ARIA}' in b
+    # P68: variant-driven; COPY record maps interim -> INTERIM_ARIA (still verbatim from §6.2)
+    assert 'role="img" aria-label={c.aria}' in b
+    assert "aria: INTERIM_ARIA," in b  # COPY.interim references the §6.2 constant
     assert "<InfoTooltip" in b  # reuses DW-092 hover bridge
 
 
 def test_header_badge_on_three_cards_only_and_v3_markup_preserved():
     t = _read("components", "dashboard", "scorecard-header.tsx")
-    assert "const interim = showInterimBadge(v4Kpis, summary.report_status);" in t
-    assert t.count("<InterimBadge />") == 3
+    # P68: showInterimBadge replaced by badgeVariant (supports interim + provisional)
+    assert "const headerVariant" in t
+    assert "badgeVariant(" in t
+    # Avg Score, Critical Risk, Revenue at Risk get variant={headerVariant} (3 cards)
+    assert t.count('<InterimBadge variant={headerVariant} />') == 3
     for label in ("Avg Resilience Score", "Critical Risk", "Revenue at Risk"):
         assert f'<div className="kpi-label">{label}</div>' in t  # v3 branch untouched
         assert f"<span>{label}</span>\n" in t
@@ -140,7 +145,7 @@ def test_header_badge_on_three_cards_only_and_v3_markup_preserved():
     assert "v4Kpis ? formatKpiCount(summary.critical_count) : summary.critical_count" in t
     # never on MRC Protected / the other cards
     seg = t[t.index("<span>Revenue at Risk</span>"):]
-    assert "<InterimBadge />" in seg[:120]
+    assert '<InterimBadge variant={headerVariant} />' in seg[:120]
     assert '"INTERIM"' not in t  # status is never hard-coded in the component
 
 
