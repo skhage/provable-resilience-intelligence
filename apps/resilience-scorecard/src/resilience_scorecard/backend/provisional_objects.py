@@ -38,6 +38,11 @@ DEFAULT_PROVISIONAL_OBJECTS: tuple[str, ...] = tuple(
     o for o in PARTIAL_KEEP_V3_CANDIDATES if o not in DEFERRED_V4_1_OBJECTS
 )
 
+# P73 / DEC-PRI-V4-BRIDGE-RETAIN-BOTH-MODES (id 45): in a FULL cutover these 2 historical ML output/log tables
+# still stay on v3 (re-keying is v4.1 ML scope), so the manifest labels them PROVISIONAL in FULL mode too.
+# Mirror of ops/v4_cutover_runbook.FULL_MODE_PROVISIONAL (the sync test enforces equality).
+FULL_MODE_PROVISIONAL_OBJECTS: tuple[str, ...] = ("optical_anomaly_detection", "span_risk_inference_log")
+
 _IDENT = re.compile(r"^[a-z0-9_]+$")
 if not all(_IDENT.match(o) for o in PARTIAL_KEEP_V3_CANDIDATES + (V3_MANIFEST_VERSION.lower().replace("-", "_"),)):
     raise ValueError("provisional object names must be plain lower-case identifiers")  # pragma: no cover

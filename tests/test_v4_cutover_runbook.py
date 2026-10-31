@@ -558,8 +558,10 @@ class _BridgeSpark:
 
 
 def test_p71_runbook_items_b0_before_span_and_keep_consumers_appended():
-    assert rb.runbook_items() == rb.RUNBOOK  # full cutover unchanged
     assert rb.BRIDGE_TABLE not in {i.live for i in rb.RUNBOOK}
+    # P73 (DEC id 45): full mode now has the same b0 + keep_v3 consumer shape as partial mode
+    assert [(i.step, i.live, i.action) for i in rb.runbook_items()] == \
+        [(i.step, i.live, i.action) for i in rb.runbook_items(partial_cutover=True)]
     part = rb.runbook_items(partial_cutover=True)
     lives = [i.live for i in part]
     assert lives.index(rb.BRIDGE_TABLE) + 1 == lives.index("physical_resource_span")  # b0 right before (b)
@@ -651,8 +653,131 @@ def test_p71_keep_v3_consumer_uses_v3_fingerprint_gate():
     assert all(s.startswith("--") for s in sql) and "None" not in sql[0] and rb.BRIDGE_DECISION in sql[0]
 
 
-def test_p71_dry_run_wires_bridge_only_in_partial_mode():
+def test_p71_dry_run_wires_bridge_in_both_modes():
     body = SRC.split("def dry_run")[1].split("\ndef ")[0]
-    assert "bridge_check(spark, objs) if partial_cutover else None" in body
+    assert "if partial_cutover else None" not in body  # P73: b0 is no longer partial-only
+    assert 'consumers=bridge_consumers(False, sp_cond["met"])' in body
+    assert "bridge_decision(partial_cutover)" in body
     assert "runbook_items(partial_cutover)" in body
     assert '"bridge_verify") and verdict not in' in body  # a failed b0 blocks everything downstream
+
+
+# ---------------------------------------------------------------- P73 full-mode bridge consumers (DEC id 45)
+def test_p73_full_mode_consumers_and_decision():
+    assert rb.BRIDGE_FULL_DECISION == "DEC-PRI-V4-BRIDGE-RETAIN-BOTH-MODES"
+    assert rb.bridge_decision(False) == rb.BRIDGE_FULL_DECISION and rb.bridge_decision(True) == rb.BRIDGE_DECISION
+    assert set(rb.FULL_MODE_PROVISIONAL) == {"optical_anomaly_detection", "span_risk_inference_log"}
+    assert rb.bridge_consumers(True) == rb.BRIDGE_FK_CONSUMERS
+    assert rb.bridge_consumers(False, service_path_promoted=True) == rb.FULL_KEEP_V3_FK_CONSUMERS
+    assert set(rb.bridge_consumers(False)) == set(rb.FULL_KEEP_V3_FK_CONSUMERS) | {"service_path"}
+    # promoted v4 tables are never full-mode bridge consumers
+    assert set(rb.bridge_consumers(False)).isdisjoint(rb.promoted_tables())
+
+
+def test_p73_full_mode_bridge_check_ready_and_fail_closed():
+    objs = {rb.BRIDGE_TABLE: "MANAGED"}
+    cons = rb.bridge_consumers(False)
+
+    def full_spark(**kw):  # information_schema is filtered to the watched tables (consumers + bridge)
+        cols = {t: {"span_id"} for t in cons}
+        cols[rb.BRIDGE_TABLE] = {"bb_span_id", "bbs_span_id"}
+        return _BridgeSpark(cols=cols, **kw)
+
+    sp = full_spark()
+    ok = rb.bridge_check(sp, objs, consumers=cons)
+    assert set(ok["orphans"]) == set(cons) and ok["unlisted_consumers"] == []
+    assert rb.bridge_verdict(ok, True) == "READY"
+    # only the full-mode consumers are queried (promoted v3 tables like HSI are not)
+    assert not any("`hazard_span_intersection` c" in q for q in sp.sql_log)
+    assert "'hazard_span_intersection'" not in next(q for q in sp.sql_log if "information_schema" in q)
+    orph = rb.bridge_check(full_spark(orphans={"optical_anomaly_detection": 4}), objs, consumers=cons)
+    assert rb.bridge_verdict(orph, True) == "BRIDGE_FK_ORPHANS"
+    miss = full_spark()
+    miss.cols["span_risk_inference_log"] = set()
+    assert rb.bridge_verdict(rb.bridge_check(miss, objs, consumers=cons), True) == "BRIDGE_CONSUMER_SET_DRIFT"
+    part = rb.bridge_check(full_spark(), objs, consumers=cons)
+    part["orphans"].pop("span_risk_inference_log")
+    assert rb.bridge_verdict(part, True) == "BRIDGE_FK_UNCHECKED"
+    plan = rb.bridge_plan_sql(cons, rb.BRIDGE_FULL_DECISION)
+    assert rb.BRIDGE_FULL_DECISION in plan[0] and sum(s.startswith("SELECT") for s in plan) == len(cons)
+
+
+def test_p73_full_mode_keep_v3_items_use_v3_fp_gate():
+    full = rb.runbook_items()
+    keep = [i for i in full if i.action == "keep_v3"]
+    assert [i.live for i in keep] == list(rb.FULL_KEEP_V3_FK_CONSUMERS)
+    body = SRC.split("def dry_run")[1].split("\ndef ")[0]
+    assert 'partial_keep_verdict(it, d) if (partial_cutover or it.action == "keep_v3") else None' in body
+    sql = rb.partial_sql(keep[0], partial_cutover=False)
+    assert all(s.startswith("--") for s in sql) and rb.BRIDGE_FULL_DECISION in sql[0] and "FULL CUTOVER" in sql[0]
+
+
+def test_p73_full_mode_summary_counts_kept_consumers_non_blocking():
+    full = rb.runbook_items()
+    fs = [rb.Finding(i, rb.PARTIAL_VERDICT if i.action == "keep_v3" else "READY",
+                     {"partial_cutover": False, "bridge": {"orphans": {}}}) for i in full]
+    s = rb.summary(fs, _GateCur({}, decided={rb.GO_DECISION}))
+    assert s["blocking"] == 0 and s["cutover_ready"] and not s["partial_cutover"]
+    assert s["kept_v3_provisional"] == list(rb.FULL_MODE_PROVISIONAL) and s["bridge"] == "READY"
+
+
+# ---------------------------------------------------------------- BUG-QA-102 b0 gates everything after it
+def _qa102_verdicts(b0_verdict):
+    """Replays the dry_run BUG-QA-102 rule on a list of READY items after b0."""
+    body = SRC.split("def dry_run")[1].split("\ndef ")[0]
+    assert 'elif (not bridge_ok and verdict == "READY"' in body and 'bridge_ok = verdict == "READY"' in body
+    out, bridge_ok = {}, True
+    for it in rb.runbook_items(partial_cutover=True):
+        verdict = b0_verdict if it.action == "bridge_verify" else "READY"
+        if it.action == "bridge_verify":
+            bridge_ok = verdict == "READY"
+        elif not bridge_ok and verdict == "READY" and it.action in ("promote", "conditional_promote", "repoint_view"):
+            verdict = "WAITS_UPSTREAM"
+        out.setdefault(it.live, verdict)
+    return out
+
+
+def test_bug_qa_102_non_ready_b0_makes_span_wait_upstream():
+    v = _qa102_verdicts("BRIDGE_MISSING")
+    assert v["physical_resource_conduit"] == "READY"  # step (a) is before b0
+    for t in ("physical_resource_span", "resource_alarm", "resource_performance_measure", "service_path",
+              "unified_shared_risk_group"):
+        assert v[t] == "WAITS_UPSTREAM", t
+    assert all(x in ("READY", "WAITS_UPSTREAM") for k, x in v.items() if k != rb.BRIDGE_TABLE)
+    ok = _qa102_verdicts("READY")
+    assert ok["physical_resource_span"] == "READY" and ok["resource_alarm"] == "READY"
+
+
+class _Q102Spark:
+    """Minimal end-to-end fake for dry_run: every object present and FP_PASS, bridge table absent."""
+
+    def sql(self, q, args=None):
+        raise RuntimeError("no spark in unit test")
+
+
+def test_bug_qa_102_dry_run_end_to_end(monkeypatch):
+    items = rb.runbook_items(partial_cutover=True)
+    objs = {}
+    for i in items:
+        if i.action == "bridge_verify":
+            continue
+        objs[i.live] = "MANAGED"
+        if i.candidate:
+            objs[i.candidate] = "MANAGED"
+    row = type("R", (), {"freeze_status": "FROZEN", "delta_version": 1, "restore_version": 1})
+    drow = type("D", (), {"freeze_status": "V4_CANDIDATE", "delta_version": 1, "restore_version": None})
+    monkeypatch.setattr(rb, "_objects", lambda s: objs)
+    monkeypatch.setattr(rb, "_manifest", lambda s, v: ({i.live: row for i in items} if v == rb.V3
+                                                       else {i.candidate: drow for i in items if i.candidate}))
+    monkeypatch.setattr(rb, "_comment_counts", lambda s: {})
+    monkeypatch.setattr(rb, "_fp_baselines", lambda s: {})
+    monkeypatch.setattr(rb, "_open_tasks", lambda c: set())
+    monkeypatch.setattr(rb, "latest_data_version", lambda s, n: 1)
+    monkeypatch.setattr(rb, "fingerprint_gate", lambda s, n, v, b=None: {"status": "FP_PASS"})
+    monkeypatch.setattr(rb, "_decided", lambda c, code: True)
+    for partial in (True, False):
+        f = {x.item.live: x.verdict for x in rb.dry_run(_Q102Spark(), None, verbose=False, partial_cutover=partial)}
+        assert f[rb.BRIDGE_TABLE] == "BRIDGE_MISSING"
+        assert f["physical_resource_conduit"] == "READY"
+        assert f["physical_resource_span"] == "WAITS_UPSTREAM" and f["resource_alarm"] == "WAITS_UPSTREAM"
+        assert "READY" not in [v for k, v in f.items() if k not in ("physical_resource_conduit",)]

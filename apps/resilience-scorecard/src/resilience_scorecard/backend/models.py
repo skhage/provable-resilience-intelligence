@@ -154,7 +154,7 @@ class FeatureFlagsOut(BaseModel):
 class CutoverManifestOut(BaseModel):
     """P68-APP-PROVISIONAL-BADGE (V4-KPI-COPY-SPEC §7.1). Per-object cutover status from the
     demo freeze manifest. Drives the PROVISIONAL badge on surfaces whose source object
-    is KEPT_V3_PROVISIONAL. Returns empty lists when cutover_mode is not PARTIAL."""
+    is KEPT_V3_PROVISIONAL. FULL mode lists the 2 DEC-45 FK consumers; empty when no cutover mode."""
     cutover_mode: Literal["PARTIAL", "FULL"] | None = Field(
         default=None,
         description="'PARTIAL' = DEC-41 partial cutover; 'FULL' = all tables promoted; null = no cutover active",

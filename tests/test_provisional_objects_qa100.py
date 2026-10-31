@@ -133,9 +133,22 @@ def test_router_partial_falls_back_to_default(csql):
     assert set(out.provisional_objects) == set(po.DEFAULT_PROVISIONAL_OBJECTS)
 
 
-@pytest.mark.parametrize("mode", ["none", "", None, "FULL"])
-def test_router_non_partial_has_no_provisional(mode):
+@pytest.mark.parametrize("mode", ["none", "", None])
+def test_router_no_cutover_mode_has_no_provisional(mode):
     assert _manifest(mode, _Csql(result=["revenue_at_risk"])).provisional_objects == []
+
+
+@pytest.mark.parametrize("mode", ["FULL", "full"])
+def test_router_full_lists_only_dec45_fk_consumers(mode):
+    """P73 / DEC-PRI-V4-BRIDGE-RETAIN-BOTH-MODES (id 45): FULL mode labels only the 2 kept FK consumers."""
+    out = _manifest(mode, _Csql(result=["revenue_at_risk"]))
+    assert out.cutover_mode == "FULL"
+    assert out.provisional_objects == ["optical_anomaly_detection", "span_risk_inference_log"]
+
+
+def test_full_mode_provisional_mirrors_runbook():
+    assert tuple(po.FULL_MODE_PROVISIONAL_OBJECTS) == tuple(rb.FULL_MODE_PROVISIONAL)
+    assert set(po.FULL_MODE_PROVISIONAL_OBJECTS) <= set(po.DEFAULT_PROVISIONAL_OBJECTS)
 
 
 # ---------------------------------------------------------------- UI surface mapping

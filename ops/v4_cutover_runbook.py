@@ -35,6 +35,12 @@ before (b). It verifies (read-only) span_bb_route_bridge and the FK gate consume
 bridge.bb_span_id) for the 7 BRIDGE_FK_CONSUMERS (expected 0 orphans), and fails closed otherwise.
 optical_anomaly_detection and span_risk_inference_log join PARTIAL_KEEP_V3 as non-runbook FK consumers.
 
+P73-DEVOPS-FULL-MODE-BRIDGE-CONSUMERS (DEC-PRI-V4-BRIDGE-RETAIN-BOTH-MODES, id 45): the bridge is kept in BOTH
+modes. In FULL mode b0 also runs before (b). Its FK gate covers the v3 tables that still hold BB-* keys after a
+full swap: optical_anomaly_detection and span_risk_inference_log (stay v3 PROVISIONAL behind the v3 fingerprint
+gate; re-keying is v4.1 ML scope), plus service_path while its DEC-39 conditional promote is SKIPPED.
+BUG-QA-102: a non-READY b0 makes every later promote/repoint WAITS_UPSTREAM (it no longer stays READY).
+
 Usage (notebook, read-only):
     import sys; sys.path.append('<project root>/ops')
     import v4_cutover_runbook as rb
@@ -508,12 +514,13 @@ def partial_keep_verdict(item: Item, d: dict) -> str | None:
     return PARTIAL_VERDICT if st == "FP_PASS" else "V3_FP_" + st[3:]
 
 
-def partial_sql(item: Item) -> list:
-    """Plan text for a kept v3 table in partial mode. Comments only: nothing is written."""
+def partial_sql(item: Item, partial_cutover: bool = True) -> list:
+    """Plan text for a kept v3 table (partial mode, or a P73 full-mode FK consumer). Comments only."""
     what = (f"{item.candidate} is NOT promoted" if item.candidate
-            else f"no v4 candidate by design (FK consumer, {BRIDGE_DECISION})")
+            else f"no v4 candidate by design (FK consumer, {bridge_decision(partial_cutover)})")
+    mode = f"PARTIAL CUTOVER ({PARTIAL_DECISION})" if partial_cutover else f"FULL CUTOVER KEEP_V3 ({BRIDGE_FULL_DECISION})"
     return [
-        f"-- PARTIAL CUTOVER ({PARTIAL_DECISION}): {what}; v3 {item.live} stays live "
+        f"-- {mode}: {what}; v3 {item.live} stays live "
         "(PROVISIONAL in the v4 manifest and UI/Genie copy; promote in v4.1 after the CEO writes)",
         f"-- FINGERPRINT GATE ({FP_DECISION}, fail closed): fingerprint_gate(spark, '{item.live}', '{V3}') "
         "must be FP_PASS before the swap window and again after it",
@@ -544,12 +551,29 @@ BRIDGE_INTEGRITY_ZERO = ("null_keys", "bbs_unmapped", "bb_still_in_span", "paren
 BRIDGE_ITEM = Item(BRIDGE_STEP, BRIDGE_TABLE, None, BRIDGE_GATES, "bridge_verify")
 KEEP_V3_CONSUMER_ITEMS = [Item("keep", t, None, BRIDGE_DECISION, "keep_v3") for t in PARTIAL_KEEP_V3_FK_CONSUMERS]
 
+# P73-DEVOPS-FULL-MODE-BRIDGE-CONSUMERS: DEC-PRI-V4-BRIDGE-RETAIN-BOTH-MODES (id 45). Full mode keeps the bridge too.
+# The 2 historical ML output/log tables are not re-keyed in v4 (v4.1 ML scope, P36/P44-ML); they stay v3, labelled
+# PROVISIONAL in the manifest, and their FK gate is measured against span_v4 UNION bridge.
+BRIDGE_FULL_DECISION = "DEC-PRI-V4-BRIDGE-RETAIN-BOTH-MODES"
+FULL_KEEP_V3_FK_CONSUMERS = PARTIAL_KEEP_V3_FK_CONSUMERS
+FULL_MODE_PROVISIONAL = FULL_KEEP_V3_FK_CONSUMERS  # mirrored by the app's provisional_objects.py (sync test)
+
+
+def bridge_consumers(partial_cutover: bool = False, service_path_promoted: bool = False) -> tuple:
+    """FK consumers the b0 gate must cover. Partial: the 7 DP P68 tables. Full: the 2 kept FK consumers, plus
+    service_path while it stays v3 (DEC-39 conditional promote not met; fail closed)."""
+    if partial_cutover:
+        return BRIDGE_FK_CONSUMERS
+    return FULL_KEEP_V3_FK_CONSUMERS + (() if service_path_promoted else ("service_path",))
+
+
+def bridge_decision(partial_cutover: bool = False) -> str:
+    return BRIDGE_DECISION if partial_cutover else BRIDGE_FULL_DECISION
+
 
 def runbook_items(partial_cutover: bool = False) -> list:
-    """RUNBOOK as evaluated by dry_run. Full mode: unchanged. Partial mode: b0 right before (b), and the
-    non-runbook KEEP_V3 FK consumers appended (v3 fingerprint gate only)."""
-    if not partial_cutover:
-        return list(RUNBOOK)
+    """RUNBOOK as evaluated by dry_run. Both modes (P73, DEC id 45): b0 right before (b), and the non-runbook
+    KEEP_V3 FK consumers appended (v3 fingerprint gate only)."""
     out = []
     for it in RUNBOOK:
         if it.step == "b":
@@ -579,13 +603,19 @@ def bridge_integrity_sql(span_source: str = SPAN_V4) -> dict:
     }
 
 
-def bridge_check(spark, objs: dict, span_source: str = SPAN_V4) -> dict:
-    """Read-only: evaluate the bridge and the FK gate for every BRIDGE_FK_CONSUMERS table. Never raises."""
+def bridge_check(spark, objs: dict, span_source: str = SPAN_V4, consumers=None) -> dict:
+    """Read-only: evaluate the bridge and the FK gate for every consumer table. Never raises.
+
+    consumers=None means the partial-mode set (BRIDGE_FK_CONSUMERS, drift-checked against PARTIAL_KEEP_V3).
+    P73 full mode passes bridge_consumers(False, ...); only those tables are watched."""
+    partial_set = consumers is None
+    consumers = tuple(BRIDGE_FK_CONSUMERS if partial_set else consumers)
     out = {"table": BRIDGE_TABLE, "span_source": span_source, "exists": objs.get(BRIDGE_TABLE) == "MANAGED",
+           "consumers": list(consumers),
            "missing_columns": list(BRIDGE_COLUMNS), "missing_consumers": [], "unlisted_consumers": [],
            "integrity": {}, "orphans": {}}
     try:
-        watch = sorted(set(PARTIAL_KEEP_V3) | set(BRIDGE_FK_CONSUMERS) | {BRIDGE_TABLE})
+        watch = sorted((set(PARTIAL_KEEP_V3) if partial_set else set()) | set(consumers) | {BRIDGE_TABLE})
         in_list = ", ".join(f"'{t}'" for t in watch)
         rows = spark.sql(
             f"SELECT c.table_name, c.column_name FROM {CATALOG}.information_schema.columns c "
@@ -595,10 +625,10 @@ def bridge_check(spark, objs: dict, span_source: str = SPAN_V4) -> dict:
         cols: dict = {}
         for r in rows:
             cols.setdefault(r.table_name, set()).add(r.column_name.lower())
-        out["missing_consumers"] = sorted(t for t in BRIDGE_FK_CONSUMERS if "span_id" not in cols.get(t, set()))
+        out["missing_consumers"] = sorted(t for t in consumers if "span_id" not in cols.get(t, set()))
         # fail-safe: a kept MANAGED v3 table with span_id that the gate does not list
         out["unlisted_consumers"] = sorted(t for t, cs in cols.items() if t != BRIDGE_TABLE and "span_id" in cs
-                                           and t not in BRIDGE_FK_CONSUMERS)
+                                           and t not in consumers)
         if not out["exists"]:
             return out
         out["missing_columns"] = [c for c in BRIDGE_COLUMNS if c not in cols.get(BRIDGE_TABLE, set())]
@@ -606,7 +636,7 @@ def bridge_check(spark, objs: dict, span_source: str = SPAN_V4) -> dict:
             return out
         for k, q in bridge_integrity_sql(span_source).items():
             out["integrity"][k] = int(spark.sql(q).first()[0])
-        for t in BRIDGE_FK_CONSUMERS:
+        for t in consumers:
             if t in out["missing_consumers"]:
                 continue
             r = spark.sql(bridge_orphan_sql(t, span_source)).first()
@@ -634,7 +664,7 @@ def bridge_verdict(b: dict | None, decided: bool, gates_open=()) -> str:
     if any(integ.get(k) is None or integ.get(k) != 0 for k in BRIDGE_INTEGRITY_ZERO):
         return "BRIDGE_INTEGRITY"
     orph = b.get("orphans", {})
-    if set(orph) != set(BRIDGE_FK_CONSUMERS):
+    if set(orph) != set(b.get("consumers") or BRIDGE_FK_CONSUMERS):
         return "BRIDGE_FK_UNCHECKED"
     if any(v.get("rows", 1) != 0 for v in orph.values()):
         return "BRIDGE_FK_ORPHANS"
@@ -643,12 +673,13 @@ def bridge_verdict(b: dict | None, decided: bool, gates_open=()) -> str:
     return "READY"
 
 
-def bridge_plan_sql() -> list:
+def bridge_plan_sql(consumers=None, decision: str = BRIDGE_DECISION) -> list:
     """Plan text for b0. Read-only checks only: the runbook never creates or writes the bridge."""
-    return ([f"-- b0 ({BRIDGE_DECISION}): verify {BRIDGE_TABLE} (built by @data-engineer P70-DE; never written here) "
+    consumers = tuple(BRIDGE_FK_CONSUMERS if consumers is None else consumers)
+    return ([f"-- b0 ({decision}): verify {BRIDGE_TABLE} (built by @data-engineer P70-DE; never written here) "
              "BEFORE step (b); fail closed if missing / integrity != 0 / any FK orphan"]
             + [f"-- integrity {k}: {q}" for k, q in bridge_integrity_sql().items()]
-            + [bridge_orphan_sql(t) for t in BRIDGE_FK_CONSUMERS]
+            + [bridge_orphan_sql(t) for t in consumers]
             + ["-- POST-SWAP re-check right after (b): bridge_check(spark, objs, span_source='physical_resource_span') "
                "must give bridge_verdict == READY; else roll back (b)"])
 
@@ -764,9 +795,12 @@ def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False
         cur.execute("SELECT task_code, status FROM agent_tasks WHERE task_code = ANY(%s)", (list(SERVICE_PATH_GATES),))
         sp_status = dict(cur.fetchall())
     sp_cond = service_path_condition(objs, sp_status)
-    bridge = bridge_check(spark, objs) if partial_cutover else None  # P71: b0 (partial mode only)
+    # P71/P73: b0 runs in both modes (DEC id 45); the consumer set depends on the mode.
+    bridge = (bridge_check(spark, objs) if partial_cutover
+              else bridge_check(spark, objs, consumers=bridge_consumers(False, sp_cond["met"])))
     out = []
     upstream_ok = True  # every promote item so far is READY
+    bridge_ok = True  # BUG-QA-102: False once b0 is evaluated non-READY
     for it in runbook_items(partial_cutover):
         d = {"live_type": objs.get(it.live), "cand_type": objs.get(it.candidate) if it.candidate else None}
         v3row = v3.get(it.live)
@@ -790,10 +824,11 @@ def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False
         d["open_gate_tasks"] = gates_open
         if it.action == "conditional_promote":
             d["condition"] = sp_cond
-        pv = partial_keep_verdict(it, d) if partial_cutover else None
+        # P73: full-mode keep_v3 FK consumers use the same v3 fingerprint gate as partial mode.
+        pv = partial_keep_verdict(it, d) if (partial_cutover or it.action == "keep_v3") else None
         if it.action == "bridge_verify":
             d["bridge"] = bridge
-            verdict = bridge_verdict(bridge, _decided(cur, BRIDGE_DECISION), gates_open)  # P71 (fail closed)
+            verdict = bridge_verdict(bridge, _decided(cur, bridge_decision(partial_cutover)), gates_open)  # fail closed
         elif pv is not None:
             verdict = pv  # P68: KEPT_V3_PROVISIONAL or V3_FP_* (fail closed)
         elif it.action == "conditional_promote" and not sp_cond["met"]:
@@ -821,14 +856,21 @@ def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False
             verdict = "GATE_OPEN"
         else:
             verdict = "READY"
+        # BUG-QA-102: nothing after a non-READY b0 may report READY (an operator running READY items one by one
+        # would otherwise swap span with no bridge).
+        if it.action == "bridge_verify":
+            bridge_ok = verdict == "READY"
+        elif (not bridge_ok and verdict == "READY"
+              and it.action in ("promote", "conditional_promote", "repoint_view")):
+            verdict = "WAITS_UPSTREAM"
         if it.action in ("promote", "conditional_promote", "bridge_verify") and verdict not in ("READY", "SKIPPED_CONDITIONAL", *PARTIAL_OK_VERDICTS):
             upstream_ok = False
         if d.get("live_drift"):
             d["gate0_restore_sql"] = gate0_restore_sql(it, d["v3_restore"])
         if it.action == "bridge_verify":  # P71: read-only verification, nothing to roll back
-            f = Finding(it, verdict, d, bridge_plan_sql(), [])
+            f = Finding(it, verdict, d, bridge_plan_sql(bridge.get("consumers"), bridge_decision(partial_cutover)), [])
         elif pv is not None:  # kept on v3: no promote, nothing to roll back
-            f = Finding(it, verdict, d, partial_sql(it), [])
+            f = Finding(it, verdict, d, partial_sql(it, partial_cutover), [])
         else:
             f = Finding(it, verdict, d, promote_sql(it, d.get("cand_fp", {}).get("status")),
                         rollback_sql(it, d["v3_pin"]))

@@ -12,7 +12,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from .core import Dependencies
-from .provisional_objects import DEFAULT_PROVISIONAL_OBJECTS
+from .provisional_objects import DEFAULT_PROVISIONAL_OBJECTS, FULL_MODE_PROVISIONAL_OBJECTS
 from .models import (
     ActionQueueSummaryOut,
     ActionStatusUpdate,
@@ -738,7 +738,9 @@ def get_cutover_manifest(config: Dependencies.Config, csql: Dependencies.Catalog
 
     Returns the list of UC table names with KEPT_V3_PROVISIONAL status.
     The UI shows a PROVISIONAL badge on surfaces that read from these tables.
-    Returns empty when cutover_mode is not PARTIAL (flag off = identical UI).
+    FULL mode (P73, DEC-PRI-V4-BRIDGE-RETAIN-BOTH-MODES id 45) lists only the 2 kept FK consumers
+    (optical_anomaly_detection, span_risk_inference_log). Returns empty when no cutover mode is set
+    (flag off = identical UI).
     """
     mode = str(getattr(config, "cutover_mode", "none") or "none").strip().upper()
     if mode not in ("PARTIAL", "FULL"):
@@ -757,6 +759,8 @@ def get_cutover_manifest(config: Dependencies.Config, csql: Dependencies.Catalog
         # If the live query fails or returns nothing, fail safe: keep labelling the known KEEP_V3 set.
         if not provisional:
             provisional = list(_DEFAULT_PROVISIONAL_OBJECTS)
+    else:  # FULL: P73 / DEC id 45
+        provisional = list(FULL_MODE_PROVISIONAL_OBJECTS)
     return CutoverManifestOut(cutover_mode=mode, provisional_objects=provisional)
 
 
