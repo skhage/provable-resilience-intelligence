@@ -25,8 +25,9 @@ P58). Any mismatch, missing baseline or PROVISIONAL baseline fails closed. Delta
 for information only.
 
 P68-DEVOPS-RUNBOOK-PARTIAL-CUTOVER-B (DEC-PRI-V4-073-SECOND-MISS-PARTIAL-CUTOVER, id 41, option b): with
-partial_cutover=True (DEFAULT OFF) the hazard_span_intersection, span_risk_predictions and
-resilience_score_snapshot v4 promotes are SKIPPED. Their v3 live tables stay the source (PROVISIONAL), and
+partial_cutover=True (DEFAULT OFF) the PARTIAL_KEEP_V3 v4 promotes/repoints are SKIPPED (P69 / DEC id 42
+expanded the list from HSI, span_risk_predictions, resilience_score_snapshot to 11 objects; v4-only
+objects with no v3 live are DEFERRED_V4_1, kept v3 views are not repointed). Their v3 live tables stay the source (PROVISIONAL), and
 each one must pass the v3 fingerprint gate (fail closed). execute() also requires id 41 to be 'decided'.
 
 Usage (notebook, read-only):
@@ -459,8 +460,24 @@ def promoted_tables(include_conditional: bool = False, partial_cutover: bool = F
 # the 11-02 cutover promotes only the non-HSI v4 objects. These three keep the v3 live table as the source,
 # labelled PROVISIONAL, and move to v4.1. Each kept table must pass the v3 fingerprint gate (fail closed).
 PARTIAL_DECISION = "DEC-PRI-V4-073-SECOND-MISS-PARTIAL-CUTOVER"
-PARTIAL_KEEP_V3 = ("hazard_span_intersection", "span_risk_predictions", "resilience_score_snapshot")
+PARTIAL_KEEP_V3 = (
+    "hazard_span_intersection", "span_risk_predictions", "resilience_score_snapshot",
+    # P69-DEVOPS-PARTIAL-KEEP-V3-EXPAND (DEC-PRI-V4-PARTIAL-KEEP-V3-EXPAND, id 42): every object whose v4
+    # build is gated on BUG-QA-073 or P36 stays on v3 in partial mode.
+    "hazard_span_proximity", "span_hazard_features", "hazard_proximity_count",  # HSI-derived
+    "proactive_action",        # moved to v4.1 by DEC-41
+    "path_diversity_conduit",  # BUG-QA-084 is P36-gated
+    "diversity_coverage",      # P51-DA is P36-gated
+    "revenue_at_risk", "mv_mrc_protected",  # WAITS_UPSTREAM on the above
+)
+PARTIAL_EXPAND_DECISION = "DEC-PRI-V4-PARTIAL-KEEP-V3-EXPAND"
 PARTIAL_VERDICT = "KEPT_V3_PROVISIONAL"
+# P69: a kept object that is new in v4 (no v3 live object AND not in the v3 manifest) has nothing to keep;
+# its v4 promote/repoint is simply deferred to v4.1. Non-blocking. A v3-manifest object whose live object is
+# missing still fails closed (V3_FP_NO_LIVE).
+PARTIAL_DEFERRED_VERDICT = "DEFERRED_V4_1"
+PARTIAL_OK_VERDICTS = (PARTIAL_VERDICT, PARTIAL_DEFERRED_VERDICT)
+_VIEW_TYPES = ("VIEW", "METRIC_VIEW", "MATERIALIZED_VIEW")
 
 
 def partial_keep_verdict(item: Item, d: dict) -> str | None:
@@ -468,7 +485,14 @@ def partial_keep_verdict(item: Item, d: dict) -> str | None:
     table yields KEPT_V3_PROVISIONAL; a missing live table, missing baseline or mismatch fails closed."""
     if item.live not in PARTIAL_KEEP_V3:
         return None
-    if d.get("live_type") != "MANAGED" or d.get("v3_status", "NOT_IN_V3") == "NOT_IN_V3":
+    live_type, in_v3 = d.get("live_type"), d.get("v3_status", "NOT_IN_V3") != "NOT_IN_V3"
+    if live_type is None and not in_v3:
+        return PARTIAL_DEFERRED_VERDICT  # P69: v4-only object, nothing live to keep
+    if item.action == "repoint_view" and live_type in _VIEW_TYPES and in_v3:
+        # P69: the v3 view is simply not repointed. Views carry no data fingerprint; their v3 sources are
+        # themselves FP-gated (promoted-and-gated or kept-and-gated).
+        return PARTIAL_VERDICT
+    if live_type != "MANAGED" or not in_v3:
         return "V3_FP_NO_LIVE"
     st = d.get("live_fp", {}).get("status", "FP_NO_BASELINE")
     return PARTIAL_VERDICT if st == "FP_PASS" else "V3_FP_" + st[3:]
@@ -648,7 +672,7 @@ def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False
             verdict = "GATE_OPEN"
         else:
             verdict = "READY"
-        if it.action in ("promote", "conditional_promote") and verdict not in ("READY", "SKIPPED_CONDITIONAL", PARTIAL_VERDICT):
+        if it.action in ("promote", "conditional_promote") and verdict not in ("READY", "SKIPPED_CONDITIONAL", *PARTIAL_OK_VERDICTS):
             upstream_ok = False
         if d.get("live_drift"):
             d["gate0_restore_sql"] = gate0_restore_sql(it, d["v3_restore"])
@@ -665,13 +689,14 @@ def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False
 
 def summary(findings: list, cur=None) -> dict:
     blocking = [f for f in findings if f.verdict not in ("READY", "POST_CUTOVER", "REPORT_ONLY", "SKIPPED_CONDITIONAL",
-                                                         PARTIAL_VERDICT)]
+                                                         *PARTIAL_OK_VERDICTS)]
     partial = any(f.details.get("partial_cutover") for f in findings)
     return {
         "items": len(findings),
         "partial_cutover": partial,
         "partial_decision": _decided(cur, PARTIAL_DECISION) if partial else None,
         "kept_v3_provisional": [f.item.live for f in findings if f.verdict == PARTIAL_VERDICT],
+        "deferred_v4_1": [f.item.live for f in findings if f.verdict == PARTIAL_DEFERRED_VERDICT],
         "conditional_skips": [f.item.live for f in findings if f.verdict == "SKIPPED_CONDITIONAL"],
         "ready": sum(f.verdict == "READY" for f in findings),
         "blocking": len(blocking),

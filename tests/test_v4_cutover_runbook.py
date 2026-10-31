@@ -410,12 +410,59 @@ def test_p68_partial_flag_defaults_off():
     for fn in (rb.dry_run, rb.execute, rb.promoted_tables, rb.pk_fk_plan):
         assert inspect.signature(fn).parameters["partial_cutover"].default is False, fn.__name__
     assert rb.PARTIAL_DECISION == "DEC-PRI-V4-073-SECOND-MISS-PARTIAL-CUTOVER"
-    assert set(rb.PARTIAL_KEEP_V3) == {"hazard_span_intersection", "span_risk_predictions", "resilience_score_snapshot"}
+    assert set(rb.PARTIAL_KEEP_V3) >= {"hazard_span_intersection", "span_risk_predictions", "resilience_score_snapshot"}
     acts = {i.live: i.action for i in rb.RUNBOOK}
-    assert all(acts[t] == "promote" for t in rb.PARTIAL_KEEP_V3)
-    assert set(rb.PARTIAL_KEEP_V3) <= set(rb.promoted_tables())  # full cutover unchanged
+    assert all(acts[t] in ("promote", "repoint_view") for t in rb.PARTIAL_KEEP_V3)
+    kept_promotes = {t for t in rb.PARTIAL_KEEP_V3 if acts[t] == "promote"}
+    assert kept_promotes <= set(rb.promoted_tables())  # full cutover unchanged
     assert not set(rb.PARTIAL_KEEP_V3) & set(rb.promoted_tables(partial_cutover=True))
-    assert set(rb.promoted_tables()) - set(rb.promoted_tables(partial_cutover=True)) == set(rb.PARTIAL_KEEP_V3)
+    assert set(rb.promoted_tables()) - set(rb.promoted_tables(partial_cutover=True)) == kept_promotes
+
+
+# ---------------------------------------------------------------- P69 PARTIAL_KEEP_V3 expand (DEC id 42)
+DEC42_ADDED = {"hazard_span_proximity", "span_hazard_features", "hazard_proximity_count", "proactive_action",
+               "path_diversity_conduit", "diversity_coverage", "revenue_at_risk", "mv_mrc_protected"}
+
+
+def test_p69_partial_keep_v3_has_dec42_objects():
+    assert rb.PARTIAL_EXPAND_DECISION == "DEC-PRI-V4-PARTIAL-KEEP-V3-EXPAND"
+    assert set(rb.PARTIAL_KEEP_V3) == DEC42_ADDED | {"hazard_span_intersection", "span_risk_predictions",
+                                                     "resilience_score_snapshot"}
+    assert len(rb.PARTIAL_KEEP_V3) == len(set(rb.PARTIAL_KEEP_V3)) == 11
+    lives = {i.live for i in rb.RUNBOOK}
+    assert set(rb.PARTIAL_KEEP_V3) <= lives  # every kept name is a real runbook item
+    # Non-HSI promotes stay in partial mode (DEC-42: conduit, span, SRLG set, site promote).
+    part = set(rb.promoted_tables(partial_cutover=True))
+    assert {"physical_resource_conduit", "physical_resource_span", "derived_shared_risk_group"} <= part
+    assert {"hazard_span_proximity", "proactive_action", "path_diversity_conduit"}.isdisjoint(part)
+
+
+def test_p69_partial_keep_verdict_views_and_v4_only():
+    item = {i.live: i for i in rb.RUNBOOK}
+    view_ok = {"live_type": "METRIC_VIEW", "v3_status": "FROZEN"}
+    for v in ("hazard_proximity_count", "diversity_coverage", "revenue_at_risk"):
+        assert rb.partial_keep_verdict(item[v], view_ok) == rb.PARTIAL_VERDICT  # v3 view kept, not repointed
+    new_v4 = {"live_type": None, "v3_status": "NOT_IN_V3"}
+    for v in ("span_hazard_features", "path_diversity_conduit", "mv_mrc_protected"):
+        assert rb.partial_keep_verdict(item[v], new_v4) == rb.PARTIAL_DEFERRED_VERDICT
+    # fail closed: v3-manifest object whose live view/table is gone
+    assert rb.partial_keep_verdict(item["revenue_at_risk"], {"live_type": None, "v3_status": "FROZEN"}) == "V3_FP_NO_LIVE"
+    assert rb.partial_keep_verdict(item["proactive_action"], {"live_type": None, "v3_status": "FROZEN"}) == "V3_FP_NO_LIVE"
+    # kept MANAGED tables still go through the v3 fingerprint gate
+    ok = {"live_type": "MANAGED", "v3_status": "FROZEN", "live_fp": {"status": "FP_PASS"}}
+    assert rb.partial_keep_verdict(item["hazard_span_proximity"], ok) == rb.PARTIAL_VERDICT
+    assert rb.partial_keep_verdict(item["proactive_action"], {**ok, "live_fp": {"status": "FP_MISMATCH"}}) == "V3_FP_MISMATCH"
+    # a MANAGED promote item is never treated as a view
+    assert rb.partial_keep_verdict(item["proactive_action"], view_ok) == "V3_FP_NO_LIVE"
+
+
+def test_p69_summary_deferred_is_non_blocking():
+    fs = [rb.Finding(i, rb.PARTIAL_DEFERRED_VERDICT if i.live == "mv_mrc_protected" else
+                     (rb.PARTIAL_VERDICT if i.live in rb.PARTIAL_KEEP_V3 else "READY"), {"partial_cutover": True})
+          for i in rb.RUNBOOK]
+    s = rb.summary(fs, _GateCur({}, decided={rb.GO_DECISION, rb.PARTIAL_DECISION}))
+    assert s["blocking"] == 0 and s["deferred_v4_1"] == ["mv_mrc_protected"] and s["cutover_ready"] is True
+    assert len(s["kept_v3_provisional"]) == 10
 
 
 def test_p68_partial_keep_verdict_fails_closed():
