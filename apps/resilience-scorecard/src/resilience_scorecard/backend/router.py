@@ -17,6 +17,7 @@ from .models import (
     ActionStatusUpdate,
     ConduitCoverageOut,
     ConduitCoverageSummaryOut,
+    CutoverManifestOut,
     FeatureFlagsOut,
     HazardCrosswalkRowOut,
     HazardCrosswalkSummaryOut,
@@ -717,6 +718,56 @@ def get_action_summary(lb: Dependencies.LakebaseClient, csql: Dependencies.Catal
 def get_feature_flags(config: Dependencies.Config):
     """UI feature flags. v4_kpis=False keeps the PRI-DEMO-FREEZE-v3 UI."""
     return {"v4_kpis": bool(getattr(config, "v4_kpis", False))}
+
+
+# P68-APP-PROVISIONAL-BADGE (V4-KPI-COPY-SPEC §7.1): per-object cutover status from the freeze
+# manifest. Drives the PROVISIONAL badge on surfaces whose source object is KEPT_V3_PROVISIONAL.
+# Default list from DEC-41 PARTIAL_KEEP_V3 + DEC-42 expansion.
+_DEFAULT_PROVISIONAL_OBJECTS = [
+    "resilience_score_snapshot",
+    "hazard_span_intersection",
+    "span_risk_predictions",
+    "hazard_span_proximity",
+    "span_hazard_features",
+    "hazard_proximity_count",
+    "proactive_action",
+]
+
+
+@router.get(
+    "/config/cutover-manifest",
+    response_model=CutoverManifestOut,
+    operation_id="getCutoverManifest",
+)
+def get_cutover_manifest(config: Dependencies.Config, csql: Dependencies.CatalogSql):
+    """Per-object cutover status for the DEC-41 partial cutover contingency.
+
+    Returns the list of UC table names with KEPT_V3_PROVISIONAL status.
+    The UI shows a PROVISIONAL badge on surfaces that read from these tables.
+    Returns empty when cutover_mode is not PARTIAL (flag off = identical UI).
+    """
+    mode = str(getattr(config, "cutover_mode", "none") or "none").strip().upper()
+    if mode not in ("PARTIAL", "FULL"):
+        return CutoverManifestOut()
+    provisional: list[str] = []
+    if mode == "PARTIAL":
+        # Try live query of the freeze manifest table first
+        if (
+            hasattr(csql, "is_available")
+            and csql.is_available
+            and hasattr(csql, "get_provisional_objects")
+        ):
+            try:
+                provisional = csql.get_provisional_objects()
+            except Exception:
+                logger.warning(
+                    "Provisional objects query failed; using default list",
+                    exc_info=True,
+                )
+        # Fall back to the known DEC-41 + DEC-42 list when the live query is empty
+        if not provisional:
+            provisional = list(_DEFAULT_PROVISIONAL_OBJECTS)
+    return CutoverManifestOut(cutover_mode=mode, provisional_objects=provisional)
 
 
 @router.get(

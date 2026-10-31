@@ -8,13 +8,15 @@ import { ErrorBoundary } from "react-error-boundary";
 import { Link } from "@tanstack/react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
-import { useBbSrlgCoverage, useListResilienceScoresSuspense } from "@/lib/api";
+import { useBbSrlgCoverage, useCutoverManifest, useV4Kpis, useListResilienceScoresSuspense } from "@/lib/api";
 import { METRO_ACCESS, METRO_ACCESS_SPOKEN } from "@/lib/bb-srlg-disclosure";
 import {
   PATH_DIV_HEADER,
   PATH_DIV_HEADER_QUALIFIER,
   snapshotGradeSrText,
 } from "@/lib/diversity-copy";
+import { isProvisional } from "@/lib/provisional-disclosure";
+import { InterimBadge } from "@/components/ui/interim-badge";
 import selector from "@/lib/selector";
 
 function gaugeClass(score: number): string {
@@ -52,6 +54,12 @@ function ServiceTableContent() {
   const [pageSize, setPageSize] = useState<number>(25);
   // P41-APP-V4-INTERIM-BADGE §6.3: null when PRI_V4_KPIS is off, so the v3 header is unchanged.
   const bbCoverage = useBbSrlgCoverage();
+  // P68-APP-PROVISIONAL-BADGE §7.2: one badge in the table caption (not per row or header cell).
+  const v4Kpis = useV4Kpis();
+  const manifest = useCutoverManifest();
+  const showProvisionalCaption = v4Kpis && isProvisional(
+    "service_table", manifest?.provisional_objects ?? [],
+  );
   const { data: scores } = useListResilienceScoresSuspense({
     params: { sort_by: "resilience_score", sort_dir: sortDir },
     ...selector(),
@@ -80,6 +88,12 @@ function ServiceTableContent() {
   return (
     <div className="data-table">
       <table aria-label="Service resilience scores">
+        {/* P68-APP-PROVISIONAL-BADGE §7.2: one badge in the table caption */}
+        {showProvisionalCaption && (
+          <caption className="service-table-caption">
+            <InterimBadge variant="provisional" />
+          </caption>
+        )}
         <thead>
           <tr>
             <th>Service</th>

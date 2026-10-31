@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { InterimBadge } from "@/components/ui/interim-badge";
-import { useGetResilienceSummarySuspense, useV4Kpis } from "@/lib/api";
+import { useGetResilienceSummarySuspense, useCutoverManifest, useV4Kpis } from "@/lib/api";
 import {
   BB_SRLG_PARTIAL_TOOLTIP,
   METRO_ACCESS,
@@ -22,8 +22,8 @@ import {
   formatKpiCount,
   formatMillions,
   formatScore,
-  showInterimBadge,
 } from "@/lib/v4-delta-format";
+import { badgeVariant, type BadgeVariant } from "@/lib/provisional-disclosure";
 import selector from "@/lib/selector";
 
 function scoreClass(score: number): string {
@@ -63,10 +63,14 @@ function ScorecardHeaderContent() {
   const { data: summary } = useGetResilienceSummarySuspense(selector());
   // V4-KPI-COPY-SPEC §1 unit consistency: Revenue at Risk is monthly, shown as /mo under the flag.
   const v4Kpis = useV4Kpis();
-  // P41-APP-V4-INTERIM-BADGE (V4-KPI-COPY-SPEC §6.2/§6.4): badge driven by the API report_status
-  // (never hard-coded) on Avg Score, Critical and Revenue at Risk only (not MRC Protected).
+  // P41/P68 (V4-KPI-COPY-SPEC §6.2/§7): badge driven by API report_status + cutover manifest.
+  // §7.1: PROVISIONAL replaces INTERIM on surfaces whose source object is KEPT_V3_PROVISIONAL.
   // Flag off: every expression below falls back to the v3 freeze markup/formatting.
-  const interim = showInterimBadge(v4Kpis, summary.report_status);
+  const manifest = useCutoverManifest();
+  const provisionalObjects = manifest?.provisional_objects ?? [];
+  const headerVariant: BadgeVariant | null = badgeVariant(
+    v4Kpis, summary.report_status, provisionalObjects, "scorecard_header",
+  );
   const avgScore = v4Kpis ? formatScore(summary.avg_resilience_score) : summary.avg_resilience_score.toFixed(1);
   const critical = v4Kpis ? formatKpiCount(summary.critical_count) : summary.critical_count;
 
@@ -74,10 +78,10 @@ function ScorecardHeaderContent() {
     <div className="kpi-row">
       <div className={`kpi-card ${scoreClass(summary.avg_resilience_score)}`}
            role="group" aria-label={`Avg Resilience Score: ${avgScore}`}>
-        {interim ? (
+        {headerVariant ? (
           <div className="kpi-label kpi-label-row kpi-label-row--interim">
             <span>Avg Resilience Score</span>
-            <InterimBadge />
+            <InterimBadge variant={headerVariant} />
           </div>
         ) : (
           <div className="kpi-label">Avg Resilience Score</div>
@@ -86,10 +90,10 @@ function ScorecardHeaderContent() {
       </div>
       <div className="kpi-card critical"
            role="group" aria-label={`Critical Risk: ${critical}`}>
-        {interim ? (
+        {headerVariant ? (
           <div className="kpi-label kpi-label-row kpi-label-row--interim">
             <span>Critical Risk</span>
-            <InterimBadge />
+            <InterimBadge variant={headerVariant} />
           </div>
         ) : (
           <div className="kpi-label">Critical Risk</div>
@@ -98,7 +102,15 @@ function ScorecardHeaderContent() {
       </div>
       <div className="kpi-card high"
            role="group" aria-label={`High Risk: ${summary.high_risk_count}`}>
-        <div className="kpi-label">High Risk</div>
+        {/* §7.2: High Risk also gets the PROVISIONAL badge in partial cutover */}
+        {headerVariant === "provisional" ? (
+          <div className="kpi-label kpi-label-row kpi-label-row--interim">
+            <span>High Risk</span>
+            <InterimBadge variant="provisional" />
+          </div>
+        ) : (
+          <div className="kpi-label">High Risk</div>
+        )}
         <div className="kpi-value">{summary.high_risk_count}</div>
       </div>
       <div className="kpi-card warning"
@@ -137,10 +149,10 @@ function ScorecardHeaderContent() {
       {summary.total_revenue_at_risk_usd != null && (
         <div className="kpi-card critical"
              role="group" aria-label={`Revenue at Risk: $${v4Kpis ? formatMillions(summary.total_revenue_at_risk_usd) : (summary.total_revenue_at_risk_usd / 1_000_000).toFixed(1)}M${v4Kpis ? " per month" : ""}`}>
-          {interim ? (
+          {headerVariant ? (
             <div className="kpi-label kpi-label-row kpi-label-row--interim">
               <span>Revenue at Risk</span>
-              <InterimBadge />
+              <InterimBadge variant={headerVariant} />
             </div>
           ) : (
             <div className="kpi-label">Revenue at Risk</div>

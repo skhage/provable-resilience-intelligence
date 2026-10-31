@@ -312,6 +312,29 @@ export function useGetAction(actionId: string | undefined) {
   });
 }
 
+// P68-APP-PROVISIONAL-BADGE (V4-KPI-COPY-SPEC §7.1)
+export type CutoverManifest = {
+  cutover_mode: "PARTIAL" | "FULL" | null;
+  provisional_objects: string[];
+};
+
+/**
+ * Per-object cutover status. Returns null when PRI_V4_KPIS is off or no manifest is active.
+ * Cached for the session (staleTime=Infinity): the cutover mode does not change at runtime.
+ */
+export function useCutoverManifest(): CutoverManifest | null {
+  const v4Kpis = useV4Kpis();
+  const { data } = useQuery<CutoverManifest>({
+    queryKey: ["getCutoverManifest"],
+    queryFn: () => request<CutoverManifest>("GET", "/api/config/cutover-manifest"),
+    enabled: v4Kpis,
+    staleTime: Infinity,
+    retry: false,
+  });
+  if (!v4Kpis || !data?.cutover_mode) return null;
+  return data;
+}
+
 export type UpdateActionStatusVars = { actionId: string; data: ActionStatusUpdate };
 
 export function useUpdateActionStatus(

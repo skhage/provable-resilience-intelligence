@@ -151,6 +151,20 @@ class FeatureFlagsOut(BaseModel):
     v4_kpis: bool = False
 
 
+class CutoverManifestOut(BaseModel):
+    """P68-APP-PROVISIONAL-BADGE (V4-KPI-COPY-SPEC §7.1). Per-object cutover status from the
+    demo freeze manifest. Drives the PROVISIONAL badge on surfaces whose source object
+    is KEPT_V3_PROVISIONAL. Returns empty lists when cutover_mode is not PARTIAL."""
+    cutover_mode: Literal["PARTIAL", "FULL"] | None = Field(
+        default=None,
+        description="'PARTIAL' = DEC-41 partial cutover; 'FULL' = all tables promoted; null = no cutover active",
+    )
+    provisional_objects: list[str] = Field(
+        default_factory=list,
+        description="UC table names whose freeze_status is KEPT_V3_PROVISIONAL",
+    )
+
+
 class MrcProtectedOut(BaseModel):
     """MRC Protected KPI (V4-KPI-COPY-SPEC §1, DEC-PRI-REV-PROTECTED-DEFINITION).
 

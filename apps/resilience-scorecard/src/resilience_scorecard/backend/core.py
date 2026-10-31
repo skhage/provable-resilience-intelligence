@@ -49,6 +49,12 @@ class AppConfig(BaseSettings):
         default="auto",
         validation_alias=AliasChoices("PRI_V4_REPORT_STATUS", "RESILIENCE_SCORECARD_V4_REPORT_STATUS"),
     )
+    # P68-APP-PROVISIONAL-BADGE (V4-KPI-COPY-SPEC §7.1): partial = DEC-41 partial cutover;
+    # none = no provisional surfaces; auto = check freeze manifest for KEPT_V3_PROVISIONAL rows.
+    cutover_mode: str = Field(
+        default="none",
+        validation_alias=AliasChoices("PRI_CUTOVER_MODE", "RESILIENCE_SCORECARD_CUTOVER_MODE"),
+    )
 
 
 # ---------------------------------------------------------------------------

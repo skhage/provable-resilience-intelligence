@@ -12,7 +12,8 @@ import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-r
 import { LoadingRegion } from "@/components/ui/loading-region";
 // BUG-DW-118: Info control for the "{drawn} of {total} hops shown on this map" disclosure
 import { InfoTooltip } from "@/components/ui/info-tooltip";
-import { useBbSrlgCoverage } from "@/lib/api";
+import { useBbSrlgCoverage, useCutoverManifest, useV4Kpis } from "@/lib/api";
+import { showProvisionalHazardLegend } from "@/lib/provisional-disclosure";
 import {
   BB_EDGE_CAVEAT,
   BB_LEGEND_COVERAGE_LINE,
@@ -557,6 +558,7 @@ function Legend({
   bbCoverage = null,
   srlgUnavailableRegion = null,
   showInventoryOnly = false,
+  provisionalHazardLegend = false,
 }: {
   collapsed: boolean;
   onToggle: () => void;
@@ -566,6 +568,8 @@ function Legend({
   bbCoverage?: BbSrlgCoverage | null;
   /** BUG-DW-098: region whose SRLG overlay fetch is unavailable (never an empty overlay silently) */
   srlgUnavailableRegion?: string | null;
+  /** P68-APP-PROVISIONAL-BADGE §7.2: one legend line for HSI-derived hazard overlay */
+  provisionalHazardLegend?: boolean;
 }) {
   const srlgUnavailableLine = srlgUnavailableRegion ? (
     <p className="legend-coverage-note legend-srlg-unavailable" role="status">
@@ -704,6 +708,10 @@ function Legend({
             {st.label}
           </div>
         ))}
+        {/* P68-APP-PROVISIONAL-BADGE §7.2: hazard overlay line */}
+        {provisionalHazardLegend && (
+          <p className="legend-coverage-note">Hazard overlay: provisional (v3 hazard model)</p>
+        )}
       </div>
       </div>
 
@@ -2243,6 +2251,12 @@ function TopologyPage() {
   const [legendCollapsed, setLegendCollapsed] = useState(false);
   // P36-APP-V4-BB-SRLG-DISCLOSURE: null when PRI_V4_KPIS is off (v3 freeze UI)
   const bbCoverage = useBbSrlgCoverage();
+  // P68-APP-PROVISIONAL-BADGE §7.2: hazard legend line in partial cutover
+  const v4KpisFlag = useV4Kpis();
+  const cutoverManifest = useCutoverManifest();
+  const provisionalHazard = showProvisionalHazardLegend(
+    v4KpisFlag, cutoverManifest?.provisional_objects ?? [],
+  );
   // P36-APP-V4-CONDUIT-COVERAGE-FILTER: default Segmented + Backbone only (conduits with span geometry)
   const [coverageSel, setCoverageSel] = useState<CoverageSelection>(DEFAULT_COVERAGE_SELECTION);
   const [loading, setLoading] = useState(true);
@@ -2693,6 +2707,7 @@ function TopologyPage() {
             srlgUnavailableRegion={
               showSrlgUnavailable(overlays.srlg, selectedRegion, srlgState) ? selectedRegion : null
             }
+            provisionalHazardLegend={provisionalHazard}
           />
 
           {/* Site detail panel (§5.1) */}

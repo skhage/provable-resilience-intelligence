@@ -12,18 +12,34 @@
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { HazardCrosswalkKpis, HazardCrosswalkTable } from "@/components/hazards";
+import { useCutoverManifest, useV4Kpis } from "@/lib/api";
+import {
+  PROVISIONAL_PAGE_NOTE,
+  showProvisionalPageNote,
+} from "@/lib/provisional-disclosure";
 
 export const Route = createFileRoute("/hazards")({
   component: HazardExposurePage,
 });
 
 function HazardExposurePage() {
+  const v4Kpis = useV4Kpis();
+  const manifest = useCutoverManifest();
+  const showNote = showProvisionalPageNote(
+    v4Kpis, manifest?.provisional_objects ?? [], "hazards_page",
+  );
   return (
     <>
       <section aria-label="Hazard exposure KPIs">
         <div className="section-header">
           <div>
             <h2>Hazard &times; Span Exposure</h2>
+            {/* P68-APP-PROVISIONAL-BADGE §7.4: page note under the h2 */}
+            {showNote && (
+              <p role="note" className="provisional-page-note">
+                <strong>Provisional:</strong> hazard exposure on this page uses the v3 hazard model. Topology and conduits use the v4 build.
+              </p>
+            )}
             <p className="section-subtitle">
               Spatial crosswalk of geographic hazard events intersecting Lakelink Fiber network spans.
               Computed via Haversine great-circle distance with bounding-box pre-filter.

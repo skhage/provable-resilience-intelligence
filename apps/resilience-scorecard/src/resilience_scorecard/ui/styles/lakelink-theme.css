@@ -2683,6 +2683,34 @@ select:focus-visible,
   .v4-delta { color: CanvasText; }
 }
 
+/* ==========================================================================
+   P68-APP-PROVISIONAL-BADGE — V4-KPI-COPY-SPEC §7.4 page note for /hazards and /actions.
+   Solid iron #4D4D4D on white (8.45:1 PASS). 14px min. Wraps at 320px (SC 1.4.10).
+   No dismiss control — it is part of the page meaning while the condition holds.
+   ========================================================================== */
+.provisional-page-note {
+  margin: 4px 0 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #4D4D4D;
+  white-space: normal;
+  word-wrap: break-word;
+}
+.provisional-page-note strong {
+  font-weight: 700;
+}
+
+/* §7.2: service table caption — left-aligned, standard table-caption sizing */
+.service-table-caption {
+  caption-side: top;
+  text-align: left;
+  padding: 0 0 8px;
+}
+
+@media (forced-colors: active) {
+  .provisional-page-note { color: CanvasText; }
+}
+
 /* BUG-DW-107: Service Table "Path div. (snapshot)" header. The qualifier sits on its own line in
    sentence case at 11px with no letter-spacing, so "(snapshot)" (~56px) plus th padding keeps the
    column close to the 44px mobile pill and the header never clips at 320px (WCAG 1.4.10; the table
