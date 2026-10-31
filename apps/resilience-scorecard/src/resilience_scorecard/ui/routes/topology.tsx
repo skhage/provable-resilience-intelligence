@@ -1094,7 +1094,8 @@ function PathTraceBanner({
           {/* BUG-DW-099: partially_diverse can mean shared conduit; show the reason in text */}
           {diversity ? sharedConduitStat(diversity.shared_conduit_count, formatCount) : ""}
         </span>
-        {/* BUG-DW-118: banner hop counts include tier 3 hops the map never draws; say so.
+        {/* BUG-DW-118/120: banner hop counts include hops the map never draws (customer premise,
+             hut, or other-region sites); say so.
              Omitted when drawn == total; never rendered without the Info tooltip. */}
         {showHopsShown(hopsShown) && <HopsShownNote hopsShown={hopsShown} />}
       </div>

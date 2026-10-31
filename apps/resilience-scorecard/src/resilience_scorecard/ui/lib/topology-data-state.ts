@@ -186,8 +186,9 @@ export function traceStatusText(opts: {
 // ---------------------------------------------------------------------------
 // BUG-DW-118: "{drawn} of {total} hops shown on this map" disclosure
 // ---------------------------------------------------------------------------
-// The site map draws only tier 1/2 conduits for the selected region. Hops on conduits with a
-// tier 3 (access/hut) endpoint, or with no conduit, are counted in the banner but never drawn.
+// The site map draws only tier 1/2 sites in the selected region. Hops to customer premises
+// (tier 3 or no tier), hut sites, or other regions, or with no conduit, are counted in the
+// banner but never drawn. BUG-DW-120: copy must not attribute every undrawn hop to tier 3.
 
 export interface HopsShown {
   drawn: number;
@@ -196,7 +197,10 @@ export interface HopsShown {
 
 /** Tooltip text (V4-KPI-COPY-SPEC section 1 Info pattern). */
 export const HOPS_SHOWN_TOOLTIP =
-  "Some hops run through access and hut sites (tier 3), which this map does not draw. The hop count includes them.";
+  "This map draws only tier 1 and tier 2 sites in the selected region. Hops to customer premises, hut sites, or other regions are counted but not drawn.";
+
+/** Reason suffix for the spoken form (Info aria-label + live announcement). */
+export const HOPS_SHOWN_SPOKEN_SUFFIX = ", others go to customer, hut, or other-region sites";
 
 /** Same output as formatCount in bb-srlg-disclosure.ts (kept local: this module has no imports). */
 function fmt(n: number): string {
@@ -230,14 +234,18 @@ export function showHopsShown(hs: HopsShown | null | undefined): hs is HopsShown
   return !!hs && hs.total > 0 && hs.drawn < hs.total;
 }
 
-/** Visible line: "4 of 6 hops shown on this map", or null when nothing is hidden. */
+/**
+ * Visible line: "4 of 6 hops shown on this map", or null when nothing is hidden.
+ * BUG-DW-120 item 3: drawn == 0 -> "None of the 6 hops are drawn on this map".
+ */
 export function hopsShownLine(hs: HopsShown | null | undefined): string | null {
   if (!showHopsShown(hs)) return null;
+  if (hs.drawn === 0) return `None of the ${fmt(hs.total)} hops are drawn on this map`;
   return `${fmt(hs.drawn)} of ${fmt(hs.total)} hops shown on this map`;
 }
 
 /** Spoken form (Info button aria-label + live announcement), no trailing period. */
 export function hopsShownSpoken(hs: HopsShown | null | undefined): string | null {
   const line = hopsShownLine(hs);
-  return line ? `${line}, others pass through tier 3 sites` : null;
+  return line ? `${line}${HOPS_SHOWN_SPOKEN_SUFFIX}` : null;
 }

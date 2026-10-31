@@ -23,8 +23,10 @@ _LIB = os.path.join(UI, "lib", "topology-data-state.ts")
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(NODE is None, reason="node not installed")
 
-TOOLTIP = ("Some hops run through access and hut sites (tier 3), which this map does not draw. "
-           "The hop count includes them.")
+# BUG-DW-120 superseded the DW-118 copy (undrawn hops are not only tier 3).
+TOOLTIP = ("This map draws only tier 1 and tier 2 sites in the selected region. Hops to customer "
+           "premises, hut sites, or other regions are counted but not drawn.")
+SUFFIX = ", others go to customer, hut, or other-region sites"
 
 
 def _read(*parts):
@@ -70,7 +72,7 @@ out = {hs, line: m.hopsShownLine(hs), spoken: m.hopsShownSpoken(hs), show: m.sho
 """)
     assert out["hs"] == {"drawn": 4, "total": 6}
     assert out["line"] == "4 of 6 hops shown on this map"
-    assert out["spoken"] == "4 of 6 hops shown on this map, others pass through tier 3 sites"
+    assert out["spoken"] == "4 of 6 hops shown on this map" + SUFFIX
     assert out["show"] is True
 
 
@@ -98,10 +100,10 @@ out = [m.hopsShownLine(null), m.hopsShownLine(undefined), m.hopsShownLine({drawn
 
 @needs_node
 def test_zero_of_n_still_has_spoken_reason():
-    # Item 5: '0 of N' is allowed only with the tooltip; the spoken form carries the reason.
+    # BUG-DW-120 item 3: 0-of-N uses 'None of the N hops' wording; spoken form carries the reason.
     out = _node("out = [m.hopsShownLine({drawn: 0, total: 6}), m.hopsShownSpoken({drawn: 0, total: 6})];")
-    assert out[0] == "0 of 6 hops shown on this map"
-    assert out[1].endswith(", others pass through tier 3 sites")
+    assert out[0] == "None of the 6 hops are drawn on this map"
+    assert out[1] == "None of the 6 hops are drawn on this map" + SUFFIX
 
 
 @needs_node
@@ -136,7 +138,7 @@ out = m.traceStatusText({mode: 'live', serviceId: 'SVC-00001', busy: false, retr
   diversityLabel: 'Partially diverse', workingHops: 4, protectHops: 2, hopsShown: hs});
 """)
     assert out == ("SVC-00001 traced: Partially diverse, 4 working hops, 2 protect hops. "
-                   "4 of 6 hops shown on this map, others pass through tier 3 sites.")
+                   "4 of 6 hops shown on this map" + SUFFIX + ".")
     assert out.count("shown on this map") == 1
 
 
