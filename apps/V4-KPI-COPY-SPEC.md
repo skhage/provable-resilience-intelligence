@@ -133,3 +133,68 @@ Source: `kpi_delta_attribution_v4_candidate` (report_status = INTERIM, interim-1
 * *Did resilience get worse?* No. The network is identical. The measurement now sees hazard exposure along the full route, so risk that was always there is now on the board.
 * *Will the numbers move again?* Yes. The final v4 adds backbone segmentation and the shared-risk re-derive. We publish final numbers only after QA gates. Backstage only, do not put on slides: the sensitivity range for critical services is 789 to 1,680.
 * *Why trust a lower number?* Because each driver is attributed. 100% of this interim delta traces to one documented fix (the hazard-span rebuild).
+
+## 7. PROVISIONAL disclosure for the DEC-41 partial cutover (P68-DESIGN-PROVISIONAL-HSI-COPY, 2026-10-31)
+
+Source decision: `DEC-PRI-V4-073-SECOND-MISS-PARTIAL-CUTOVER` (decisions id 41, option b). Runbook: `ops/v4_cutover_runbook.py` `partial_cutover=True`, `PARTIAL_KEEP_V3 = (hazard_span_intersection, span_risk_predictions, resilience_score_snapshot)` (commit a1b4053). This section is **contingency copy**. It ships only if DEC-41 becomes `decided`. If the CEO approves the BUG-QA-073 writes (DEC-41 `superseded`), §7 is never rendered and §6 applies unchanged.
+
+### 7.1 Gating (never hard-coded)
+
+* Render PROVISIONAL only when `PRI_V4_KPIS=true` **and** the API reports `cutover_mode = PARTIAL` for the surface's source object (from the demo freeze manifest row status `KEPT_V3_PROVISIONAL`, per P68-DP-PARTIAL-CUTOVER-MANIFEST-SPEC). Return the status per object, not as one global flag, so v4.1 can clear each surface on its own.
+* With the flag off, or with the manifest reporting no `KEPT_V3_PROVISIONAL` rows, the UI matches the current build exactly.
+* **PROVISIONAL and INTERIM never appear on the same element.** A v3-sourced figure is not a v4 candidate. On any card whose source is a kept-v3 object, PROVISIONAL replaces INTERIM. INTERIM stays only on surfaces that actually read a v4 INTERIM object. In partial mode that is none of the §6.2 cards.
+
+### 7.2 Where it appears
+
+| Surface | Source object (partial mode) | Treatment |
+| --- | --- | --- |
+| Scorecard header: Avg Resilience Score, Critical Risk, High Risk, Revenue at Risk | `resilience_score_snapshot` (v3) | PROVISIONAL badge in the label row (same slot as §6.2) |
+| Service table: score and risk-band columns | `resilience_score_snapshot` (v3) | One badge in the table caption, not per row or per header cell |
+| `/hazards` page (exposure counts, impacted services) | HSI-derived (`hazard_span_proximity`, v3 lineage) | Page note (§7.4) under the page title |
+| `/actions` page | `proactive_action` (v3; v4 moves to v4.1) + HSI-derived nearest hazard | Page note (§7.4) |
+| `/topology` hazard overlay legend | HSI-derived | One legend line: `Hazard overlay: provisional (v3 hazard model)` |
+| `/topology` map, conduits, SRLG, path trace; `/conduits` | v4 promoted | **No badge.** These are the v4 build. Do not imply they are provisional. |
+| MRC Protected card | `mv_mrc_protected` (WAITS_UPSTREAM in partial mode) | Keep the existing hide-on-null rule (P36). Do not show a PROVISIONAL card. |
+
+If @pm adds `hazard_span_proximity` or `proactive_action` to `PARTIAL_KEEP_V3` (the open @devops S65 question), the table above already covers them. If they are instead deferred as missing, `/hazards` and `/actions` show their existing empty or error state, not a PROVISIONAL note.
+
+### 7.3 Badge (reuse the INTERIM component)
+
+| Element | Spec |
+| --- | --- |
+| Component | Generalise `InterimBadge` into a status badge with `variant: "interim" \| "provisional"`. Same CSS class, so tokens cannot drift. |
+| Visible text | `Provisional` (12px, 600 weight, CSS uppercase) |
+| Style | Identical to §6.2: platinum #E8E8E8 fill, iron #4D4D4D text (6.90:1 PASS), 1px iron border, 4px radius, 3px brand-orange #F26522 decorative left accent. The variants differ by **text only** (SC 1.4.1). No new colour. |
+| aria-label | `Provisional figure, v3 hazard model, update pending` |
+| Info tooltip (InfoTooltip, `label="About provisional figures"`) | `Hazard exposure, risk bands and resilience scores still use the v3 hazard model. Network topology and conduits already show the v4 build. These figures will be updated after the v4 hazard re-derive passes QA.` |
+| Forced colours | Inherits the `.interim-badge` Canvas/CanvasText block. |
+| Removal | Driven by the per-object manifest status. When v4.1 promotes an object, its badge disappears with no code change. |
+
+### 7.4 Page note (`/hazards`, `/actions`)
+
+* Text: `Provisional: hazard exposure on this page uses the v3 hazard model. Topology and conduits use the v4 build.`
+* Markup: `<p role="note">` directly under the h1. It is static, so **not** a live region. Solid iron #4D4D4D on white (8.45:1). 14px minimum. It wraps at 320px (SC 1.4.10). Put the bold word `Provisional:` first so it does not depend on colour or the badge.
+* No dismiss control. It is part of the page's meaning while the condition holds.
+
+### 7.5 Genie disclosure (owner @data-analyst; Genie space name per BRAND-GUIDE `{Audience} Resilience Intelligence`)
+
+* General instruction, verbatim: `When an answer uses resilience scores, risk bands, critical or high risk counts, revenue at risk, or hazard exposure, end with: "Note: these figures are provisional. They use the v3 hazard model while the v4 hazard update completes. Topology, conduit and shared-risk figures are from the v4 build." Do not add the note to answers that use only topology, conduit, span or shared-risk data.`
+* Banned in Genie answers and sample questions: `worse`, `declined`, `dropped`, `deteriorated`, `regression` about scores (same as §6.1), and any v4 score delta (`61.5 → 56.8`, `1,087 critical`, `$54.4M/mo`). Those are v4 HSI figures and are **not live** in partial mode.
+* Sample question to add: `Which figures are provisional right now?` Expected answer: the scores, risk bands and hazard exposure are provisional (v3 hazard model), and topology and conduits are v4.
+* Company name is Lakelink Fiber only.
+
+### 7.6 Numbers and presenter frame in partial mode
+
+* Displayed values are the live v3 figures (checked 2026-10-31 on `resilience_score_snapshot` v24): Avg score **61.5** (raw 61.549), Critical **848**, High **2,932**, Revenue at Risk **$48.4M/mo**. Do **not** show the §6.1 v4 figures (56.8, 1,087, $54.4M/mo) or any v3→v4 score delta.
+* **Erratum to §6.1/§6.4:** the raw v3 average is 61.549, so it rounds half up to **61.5**, not 61.6. 61.6 came from rounding twice (61.549 → 61.55 → 61.6). When §6 ships (full cutover), use `61.5 → 56.8`, delta `−4.7` (recheck against the raw v4 value at that time).
+* Presenter frame (speaker note): `Topology, conduits and shared-risk groups are on the new v4 build today. The hazard model update lands next. Until then the scores are labelled provisional.` The §6.1 "same network, more honest measurement" frame is held back until HSI v4 ships.
+* The `(metro/access)` qualifier (§6.3) still follows `bb_srlg_coverage` and does not depend on §7.
+
+### 7.7 Acceptance checks (@designer verifies)
+
+1. Flag off, or no `KEPT_V3_PROVISIONAL` rows: there is no PROVISIONAL text anywhere, and the UI is identical to the current build.
+2. Partial mode: PROVISIONAL shows on exactly the §7.2 surfaces. No element shows both INTERIM and PROVISIONAL. `/conduits` and the topology map have no badge.
+3. The aria-label, tooltip and page note match §7.3/§7.4 byte for byte. Tooltip behaviour follows §4 (hover, focus, Esc).
+4. The header shows 61.5, 848, 2,932 and $48.4M/mo from the API, with no hard-coded numbers.
+5. `grep -riE "lumen"` over `ui/` returns 0, and so does a search for `\bworse\b|declined|deteriorat` in the new copy.
+6. At 320px the badge wraps under the label (`.kpi-label-row--interim` wrap rule) and the page note wraps without truncating.
