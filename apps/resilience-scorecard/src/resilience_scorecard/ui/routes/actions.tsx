@@ -28,13 +28,17 @@ function ActionsPage() {
   return (
     <section aria-label="Action queue">
       <div className="section-header">
-        <h2>Proactive Action Queue</h2>
-        {/* P68-APP-PROVISIONAL-BADGE §7.4: page note under the h2 */}
-        {showNote && (
-          <p role="note" className="provisional-page-note">
-            <strong>Provisional:</strong> hazard exposure on this page uses the v3 hazard model. Topology and conduits use the v4 build.
-          </p>
-        )}
+        {/* BUG-DW-122: wrap h2 + note in a plain div (same as hazards.tsx) so the
+            flex .section-header does not place the note beside the heading. */}
+        <div>
+          <h2>Proactive Action Queue</h2>
+          {/* P68-APP-PROVISIONAL-BADGE §7.4: page note under the h2 */}
+          {showNote && (
+            <p role="note" className="provisional-page-note">
+              <strong>Provisional:</strong> hazard exposure on this page uses the v3 hazard model. Topology and conduits use the v4 build.
+            </p>
+          )}
+        </div>
       </div>
       <p className="text-caption mb-md">
         Actions triggered by resilience risk thresholds. Status persisted in Lakebase.
