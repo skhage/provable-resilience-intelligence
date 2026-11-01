@@ -613,7 +613,7 @@ def bridge_check(spark, objs: dict, span_source: str = SPAN_V4, consumers=None) 
     out = {"table": BRIDGE_TABLE, "span_source": span_source, "exists": objs.get(BRIDGE_TABLE) == "MANAGED",
            "consumers": list(consumers),
            "missing_columns": list(BRIDGE_COLUMNS), "missing_consumers": [], "unlisted_consumers": [],
-           "integrity": {}, "orphans": {}}
+           "integrity": {}, "orphans": {}, "scanned": {}, "scan_exempt": []}
     try:
         watch = sorted((set(PARTIAL_KEEP_V3) if partial_set else set()) | set(consumers) | {BRIDGE_TABLE})
         in_list = ", ".join(f"'{t}'" for t in watch)
@@ -641,6 +641,26 @@ def bridge_check(spark, objs: dict, span_source: str = SPAN_V4, consumers=None) 
                 continue
             r = spark.sql(bridge_orphan_sql(t, span_source)).first()
             out["orphans"][t] = {"rows": int(r.n), "keys": int(r.k)}
+        # BUG-QA-104 (b): schema-wide unlisted-consumer scan. The watch list above only covers tables the gate
+        # already knows, so in FULL mode the drift check was vacuous. Scan EVERY managed table in the schema with a
+        # span_id column that is not a listed consumer, not replaced by the swap (promoted), not the span/bridge
+        # itself and not staging (BRIDGE_SCAN_EXEMPT / *_candidate). Any such table with an FK orphan against
+        # span_source UNION bridge is a consumer the gate does not list -> BRIDGE_CONSUMER_SET_DRIFT (fail closed).
+        skip = (set(consumers) | set(promoted_tables(include_conditional=True, partial_cutover=partial_set))
+                | {BRIDGE_TABLE, "physical_resource_span", SPAN_V4} | set(out["unlisted_consumers"]))
+        scan = spark.sql(
+            f"SELECT c.table_name, c.column_name FROM {CATALOG}.information_schema.columns c "
+            f"JOIN {CATALOG}.information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name "
+            f"WHERE c.table_schema = '{SCHEMA}' AND t.table_type = 'MANAGED' AND lower(c.column_name) = 'span_id'"
+        ).collect()
+        for t in sorted({r.table_name for r in scan if r.column_name.lower() == "span_id"} - skip):
+            if t in BRIDGE_SCAN_EXEMPT or t.endswith(BRIDGE_SCAN_EXEMPT_SUFFIXES):
+                out["scan_exempt"].append(t)
+                continue
+            r = spark.sql(bridge_orphan_sql(t, span_source)).first()
+            out["scanned"][t] = {"rows": int(r.n), "keys": int(r.k)}
+            if int(r.n) != 0:
+                out["unlisted_consumers"].append(t)
     except Exception as e:  # noqa: BLE001 - fail closed on any read error
         out["error"] = str(e)[:200]
     return out
@@ -682,6 +702,72 @@ def bridge_plan_sql(consumers=None, decision: str = BRIDGE_DECISION) -> list:
             + [bridge_orphan_sql(t) for t in consumers]
             + ["-- POST-SWAP re-check right after (b): bridge_check(spark, objs, span_source='physical_resource_span') "
                "must give bridge_verdict == READY; else roll back (b)"])
+
+
+# BUG-QA-104 (b): tables the schema-wide b0 scan does not treat as live FK consumers (listed in scan_exempt).
+# *_candidate tables are staging; the promote candidates among them are covered by the (a) candidate FK gate.
+BRIDGE_SCAN_EXEMPT = {
+    # BUG-DP-072 staging span SOURCE (span_id is its own key; ACC-* legs are not in physical_resource_span yet).
+    # It needs its own runbook item before service_path_regen_candidate can be promoted.
+    "access_span_regen": "BUG-DP-072 staging span source (ACC-* access legs)",
+}
+BRIDGE_SCAN_EXEMPT_SUFFIXES = ("_candidate",)
+
+
+# BUG-QA-104 (a): candidate-side FK gate. In FULL mode a promote candidate whose span_id rows are missing from
+# physical_resource_span_v4_candidate would go READY once its pin/FP gates clear and orphan those rows right after
+# step (b) (srp_v4: 92 BB-* rows; HSI_v4: 18,495). Every promote candidate with a span_id column must have 0 rows
+# outside span_v4 (UNION the bridge only if the live table stays PROVISIONAL, i.e. FULL_MODE_PROVISIONAL).
+# Verdict CAND_FK_ORPHANS / CAND_FK_UNREADABLE, fail closed. The span candidate itself is the parent, never checked.
+CAND_FK_VERDICTS = ("CAND_FK_ORPHANS", "CAND_FK_UNREADABLE")
+
+
+def cand_fk_orphan_sql(candidate: str, span_source: str = SPAN_V4, allow_bridge: bool = False) -> str:
+    """Read-only: candidate rows whose span_id is not in span_source (UNION bridge.bb_span_id only if allow_bridge)."""
+    parent = f"SELECT span_id AS key FROM {FQ}.`{span_source}`"
+    if allow_bridge:
+        parent += f" UNION SELECT bb_span_id AS key FROM {FQ}.`{BRIDGE_TABLE}`"
+    return (f"SELECT count(*) AS n, count(DISTINCT c.span_id) AS k FROM {FQ}.`{candidate}` c LEFT ANTI JOIN "
+            f"({parent}) p ON c.span_id = p.key WHERE c.span_id IS NOT NULL")
+
+
+def cand_fk_targets(items, objs: dict, partial_cutover: bool = False) -> dict:
+    """Pure: {candidate: allow_bridge} for every promoted (not kept) MANAGED candidate, span candidate excluded."""
+    return {it.candidate: it.live in FULL_MODE_PROVISIONAL for it in items
+            if it.action in ("promote", "conditional_promote") and it.candidate and it.candidate != SPAN_V4
+            and objs.get(it.candidate) == "MANAGED" and not (partial_cutover and it.live in PARTIAL_KEEP_V3)}
+
+
+def cand_fk_check(spark, targets: dict, span_source: str = SPAN_V4) -> dict:
+    """Read-only: which targets have span_id, and their orphan counts. Never raises (error -> fail closed)."""
+    out = {"span_source": span_source, "span_cols": [], "orphans": {}}
+    if not targets:
+        return out
+    try:
+        in_list = ", ".join(f"'{t}'" for t in sorted(targets))
+        rows = spark.sql(
+            f"SELECT c.table_name, c.column_name FROM {CATALOG}.information_schema.columns c "
+            f"WHERE c.table_schema = '{SCHEMA}' AND c.table_name IN ({in_list})"
+        ).collect()
+        out["span_cols"] = sorted({r.table_name for r in rows if r.column_name.lower() == "span_id"} & set(targets))
+        for t in out["span_cols"]:
+            r = spark.sql(cand_fk_orphan_sql(t, span_source, targets[t])).first()
+            out["orphans"][t] = {"rows": int(r.n), "keys": int(r.k), "allow_bridge": bool(targets[t])}
+    except Exception as e:  # noqa: BLE001 - fail closed on any read error
+        out["error"] = str(e)[:200]
+    return out
+
+
+def cand_fk_verdict(c: dict | None, candidate: str) -> str | None:
+    """Pure, fail closed. None = no candidate FK issue (no span_id column, or 0 orphans)."""
+    if c is None or c.get("error"):
+        return "CAND_FK_UNREADABLE"
+    if candidate not in c.get("span_cols", ()):
+        return None
+    o = c.get("orphans", {}).get(candidate)
+    if o is None:
+        return "CAND_FK_UNREADABLE"
+    return "CAND_FK_ORPHANS" if o.get("rows", 1) != 0 else None
 
 
 # P63: DEC-PRI-V4-SERVICE-PATH-PROMOTE-CONDITIONAL inputs.
@@ -798,10 +884,12 @@ def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False
     # P71/P73: b0 runs in both modes (DEC id 45); the consumer set depends on the mode.
     bridge = (bridge_check(spark, objs) if partial_cutover
               else bridge_check(spark, objs, consumers=bridge_consumers(False, sp_cond["met"])))
+    items = runbook_items(partial_cutover)
+    cand_fk = cand_fk_check(spark, cand_fk_targets(items, objs, partial_cutover))  # BUG-QA-104 (a)
     out = []
     upstream_ok = True  # every promote item so far is READY
     bridge_ok = True  # BUG-QA-102: False once b0 is evaluated non-READY
-    for it in runbook_items(partial_cutover):
+    for it in items:
         d = {"live_type": objs.get(it.live), "cand_type": objs.get(it.candidate) if it.candidate else None}
         v3row = v3.get(it.live)
         d["v3_status"] = v3row.freeze_status if v3row else "NOT_IN_V3"
@@ -841,6 +929,10 @@ def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False
             verdict = "MISSING_CANDIDATE"
         elif d.get("live_drift"):
             verdict = "V3_FP_" + d["live_fp"]["status"][3:]  # e.g. V3_FP_MISMATCH (fail closed)
+        elif (it.action in ("promote", "conditional_promote") and it.candidate != SPAN_V4
+              and (cv := cand_fk_verdict(cand_fk, it.candidate)) is not None):
+            d["cand_fk"] = cand_fk.get("orphans", {}).get(it.candidate) or {"error": cand_fk.get("error")}
+            verdict = cv  # BUG-QA-104 (a): CAND_FK_ORPHANS / CAND_FK_UNREADABLE (fail closed)
         elif it.action == "repoint_view" and gates_open:
             verdict = "GATE_OPEN"
         elif it.action == "repoint_view":

@@ -1,6 +1,7 @@
 """P51-DEVOPS-V4-CUTOVER-RUNBOOK-DRYRUN: offline checks for ops/v4_cutover_runbook.py (no Spark needed)."""
 import ast
 import pathlib
+import re
 import sys
 
 import pytest
@@ -50,7 +51,9 @@ def test_dry_run_only_issues_read_statements():
             first = node.args[0]
             if isinstance(first, ast.Call):  # P65: spark.sql(fingerprint_sql(...)); builder checked below
                 # P71: bridge_orphan_sql is SELECT-only (test_p71_bridge_sql_is_read_only_and_unions_bridge)
-                assert getattr(first.func, "id", "") in ("fingerprint_sql", "bridge_orphan_sql"), ast.dump(first)
+                # BUG-QA-104: cand_fk_orphan_sql is SELECT-only (test_bug_qa_104_cand_fk_sql_read_only)
+                assert getattr(first.func, "id", "") in ("fingerprint_sql", "bridge_orphan_sql", "cand_fk_orphan_sql"), \
+                    ast.dump(first)
                 continue
             if isinstance(first, ast.Name):  # P71: only the bridge_integrity_sql() loop variable (all SELECT)
                 assert first.id == "q" and "for k, q in bridge_integrity_sql(span_source).items():" in SRC, ast.dump(first)
@@ -775,9 +778,166 @@ def test_bug_qa_102_dry_run_end_to_end(monkeypatch):
     monkeypatch.setattr(rb, "latest_data_version", lambda s, n: 1)
     monkeypatch.setattr(rb, "fingerprint_gate", lambda s, n, v, b=None: {"status": "FP_PASS"})
     monkeypatch.setattr(rb, "_decided", lambda c, code: True)
+    monkeypatch.setattr(rb, "cand_fk_check", lambda s, t, span_source=rb.SPAN_V4: {"span_cols": [], "orphans": {}})
     for partial in (True, False):
         f = {x.item.live: x.verdict for x in rb.dry_run(_Q102Spark(), None, verbose=False, partial_cutover=partial)}
         assert f[rb.BRIDGE_TABLE] == "BRIDGE_MISSING"
         assert f["physical_resource_conduit"] == "READY"
         assert f["physical_resource_span"] == "WAITS_UPSTREAM" and f["resource_alarm"] == "WAITS_UPSTREAM"
         assert "READY" not in [v for k, v in f.items() if k not in ("physical_resource_conduit",)]
+
+
+# ---------------------------------------------------------------- BUG-QA-104 candidate FK gate + schema-wide scan
+def _dry_run_fixture(monkeypatch, cand_fk):
+    """Every object present + FP_PASS, bridge READY, all decided; cand_fk_check returns the given dict."""
+    items = rb.runbook_items()
+    objs = {rb.BRIDGE_TABLE: "MANAGED"}
+    for i in items:
+        if i.action != "bridge_verify":
+            objs[i.live] = "MANAGED"
+            if i.candidate:
+                objs[i.candidate] = "MANAGED"
+    row = type("R", (), {"freeze_status": "FROZEN", "delta_version": 1, "restore_version": 1})
+    drow = type("D", (), {"freeze_status": "V4_CANDIDATE", "delta_version": 1, "restore_version": None})
+    monkeypatch.setattr(rb, "_objects", lambda s: objs)
+    monkeypatch.setattr(rb, "_manifest", lambda s, v: ({i.live: row for i in items} if v == rb.V3
+                                                       else {i.candidate: drow for i in items if i.candidate}))
+    monkeypatch.setattr(rb, "_comment_counts", lambda s: {})
+    monkeypatch.setattr(rb, "_fp_baselines", lambda s: {})
+    monkeypatch.setattr(rb, "_open_tasks", lambda c: set())
+    monkeypatch.setattr(rb, "latest_data_version", lambda s, n: 1)
+    monkeypatch.setattr(rb, "fingerprint_gate", lambda s, n, v, b=None: {"status": "FP_PASS"})
+    monkeypatch.setattr(rb, "_decided", lambda c, code: True)
+    monkeypatch.setattr(rb, "bridge_check", lambda s, o, span_source=rb.SPAN_V4, consumers=None: {"ok": True})
+    monkeypatch.setattr(rb, "bridge_verdict", lambda b, dec, gates=(): "READY")
+    seen = {}
+
+    def fake_check(spark, targets, span_source=rb.SPAN_V4):
+        seen.update(targets)
+        return cand_fk
+    monkeypatch.setattr(rb, "cand_fk_check", fake_check)
+    return seen
+
+
+def test_bug_qa_104_cand_fk_sql_read_only():
+    q = rb.cand_fk_orphan_sql("span_risk_predictions_v4_candidate")
+    assert q.startswith("SELECT") and "LEFT ANTI JOIN" in q and rb.SPAN_V4 in q
+    assert "UNION" not in q and rb.BRIDGE_TABLE not in q  # promoted candidates must match span_v4 alone
+    qb = rb.cand_fk_orphan_sql("x", allow_bridge=True)
+    assert "UNION" in qb and rb.BRIDGE_TABLE in qb and "bb_span_id" in qb
+    assert "`physical_resource_span`" in rb.cand_fk_orphan_sql("x", "physical_resource_span")
+
+
+def test_bug_qa_104_cand_fk_targets():
+    items = rb.runbook_items()
+    objs = {i.candidate: "MANAGED" for i in items if i.candidate}
+    full = rb.cand_fk_targets(items, objs)
+    assert rb.SPAN_V4 not in full  # the span candidate is the FK parent
+    assert {"span_risk_predictions_v4_candidate", "hazard_span_intersection_v4_candidate"} <= set(full)
+    assert not any(full.values())  # no promoted candidate may use the bridge
+    assert not any(rb._c(v) in full for v in ("unified_shared_risk_group", "kpi_delta_attribution"))  # views/report
+    part = rb.cand_fk_targets(items, objs, partial_cutover=True)
+    assert not any(t[:-len(rb.SUFFIX)] in rb.PARTIAL_KEEP_V3 for t in part)  # kept on v3 -> not promoted
+    assert "resource_alarm_v4_candidate" in part
+    assert rb.cand_fk_targets(items, {}) == {}  # candidate not in UC -> MISSING_CANDIDATE, not this gate
+
+
+class _CandSpark:
+    def __init__(self, cols, orphans, boom=False):
+        self.cols, self.orphans, self.boom, self.sql_log = cols, orphans, boom, []
+
+    def sql(self, q, args=None):
+        self.sql_log.append(q)
+        assert q.lstrip().upper().startswith("SELECT"), q
+        if self.boom:
+            raise RuntimeError("unreadable")
+        if "information_schema.columns" in q:
+            return _Res([_Row(table_name=t, column_name=c) for t, cs in self.cols.items() for c in cs])
+        t = next(t for t in self.cols if f"`{t}` c" in q)
+        n = self.orphans.get(t, 0)
+        return _Res([_Row(n=n, k=min(n, 92))])
+
+
+def test_bug_qa_104_injected_bb_key_in_candidate_fails_closed():
+    srp, hsp, cond = "span_risk_predictions_v4_candidate", "hazard_span_proximity_v4_candidate", rb._c("physical_resource_conduit")
+    targets = {srp: False, hsp: False, cond: False}
+    sp = _CandSpark({srp: {"span_id", "score"}, hsp: {"span_id"}, cond: {"conduit_id"}}, {srp: 1})  # 1 injected BB key
+    c = rb.cand_fk_check(sp, targets)
+    assert c["span_cols"] == sorted([srp, hsp]) and c["orphans"][srp]["rows"] == 1
+    assert rb.cand_fk_verdict(c, srp) == "CAND_FK_ORPHANS"
+    assert rb.cand_fk_verdict(c, hsp) is None and rb.cand_fk_verdict(c, cond) is None  # clean / no span_id
+    assert not any(f"`{cond}` c" in q for q in sp.sql_log)
+    boom = rb.cand_fk_check(_CandSpark({}, {}, boom=True), targets)
+    assert "error" in boom and rb.cand_fk_verdict(boom, cond) == "CAND_FK_UNREADABLE"
+    assert rb.cand_fk_verdict(None, srp) == "CAND_FK_UNREADABLE"
+    assert rb.cand_fk_verdict({"span_cols": [srp], "orphans": {}}, srp) == "CAND_FK_UNREADABLE"  # unchecked
+    assert rb.cand_fk_check(sp, {}) == {"span_source": rb.SPAN_V4, "span_cols": [], "orphans": {}}
+
+
+def test_bug_qa_104_dry_run_full_mode_cand_fk_orphans_block(monkeypatch):
+    srp, hsi = "span_risk_predictions_v4_candidate", "hazard_span_intersection_v4_candidate"
+    seen = _dry_run_fixture(monkeypatch, {"span_cols": [srp, hsi],
+                                          "orphans": {srp: {"rows": 92, "keys": 92}, hsi: {"rows": 18495, "keys": 92}}})
+    fs = rb.dry_run(object(), None, verbose=False)
+    f = {x.item.live: x for x in fs}
+    assert f["span_risk_predictions"].verdict == "CAND_FK_ORPHANS" and f["span_risk_predictions"].details["cand_fk"]["rows"] == 92
+    assert f["hazard_span_intersection"].verdict == "CAND_FK_ORPHANS"
+    assert f["physical_resource_span"].verdict == "READY" and f["resource_alarm"].verdict == "READY"
+    assert rb.SPAN_V4 not in seen
+    s = rb.summary(fs)
+    assert s["blocking"] >= 2 and not s["cutover_ready"]
+    # clean candidates: the same items go READY (the gate is the only thing that changed)
+    _dry_run_fixture(monkeypatch, {"span_cols": [srp, hsi], "orphans": {srp: {"rows": 0}, hsi: {"rows": 0}}})
+    f = {x.item.live: x.verdict for x in rb.dry_run(object(), None, verbose=False)}
+    assert f["span_risk_predictions"] == "READY" and f["hazard_span_intersection"] == "READY"
+    # unreadable check fails closed on every promote candidate
+    _dry_run_fixture(monkeypatch, {"error": "boom", "span_cols": [], "orphans": {}})
+    f = {x.item.live: x.verdict for x in rb.dry_run(object(), None, verbose=False)}
+    assert f["physical_resource_conduit"] == "CAND_FK_UNREADABLE"
+    assert f["physical_resource_span"] == "READY"  # the span candidate is the FK parent, never cand-FK gated
+
+
+def test_bug_qa_104_partial_mode_kept_candidates_unaffected(monkeypatch):
+    srp = "span_risk_predictions_v4_candidate"
+    seen = _dry_run_fixture(monkeypatch, {"span_cols": [srp], "orphans": {srp: {"rows": 92}}})
+    f = {x.item.live: x.verdict for x in rb.dry_run(object(), None, verbose=False, partial_cutover=True)}
+    assert f["span_risk_predictions"] == rb.PARTIAL_VERDICT and srp not in seen
+
+
+def test_bug_qa_104_schema_wide_unlisted_consumer_scan():
+    objs = {rb.BRIDGE_TABLE: "MANAGED"}
+    cons = rb.bridge_consumers(False)
+
+    class _ScanSpark(_BridgeSpark):
+        def sql(self, q, args=None):
+            if "information_schema.columns" in q and "table_name IN (" in q:  # honour the watch-list filter
+                self.sql_log.append(q)
+                names = set(re.findall(r"'(\w+)'", q.split("table_name IN (")[1]))
+                return _Res([_Row(table_name=t, column_name=c) for t, cs in self.cols.items() if t in names for c in cs])
+            if "AS n" in q and not any(f"`{t}` c" in q for t in rb.BRIDGE_FK_CONSUMERS):
+                self.sql_log.append(q)
+                t = next(t for t in self.cols if f"`{t}` c" in q)
+                n = self.orphans.get(t, 0)
+                return _Res([_Row(n=n, k=min(n, 92))])
+            return super().sql(q, args)
+
+    def spark(extra, **kw):
+        cols = {t: {"span_id"} for t in rb.BRIDGE_FK_CONSUMERS}  # promoted ones are skipped by the full-mode scan
+        cols[rb.BRIDGE_TABLE] = {"bb_span_id", "bbs_span_id"}
+        cols.update(extra)
+        return _ScanSpark(cols=cols, **kw)
+
+    extra = {"new_span_log": {"span_id"}, "logical_resource": {"span_id", "x"},
+             "hazard_span_intersection": {"span_id"},  # promoted in full mode: replaced, never scanned
+             "service_path_regen_candidate": {"span_id"}, "access_span_regen": {"span_id"},  # staging: exempt
+             rb.SPAN_V4: {"span_id"}, "physical_resource_span": {"span_id"}, "no_span": {"other"}}
+    ok = rb.bridge_check(spark(extra), objs, consumers=cons)
+    assert set(ok["scanned"]) == {"new_span_log", "logical_resource"} and ok["unlisted_consumers"] == []
+    assert ok["scan_exempt"] == ["access_span_regen", "service_path_regen_candidate"]
+    assert rb.bridge_verdict(ok, True) == "READY"
+    bad = rb.bridge_check(spark(extra, orphans={"new_span_log": 7}), objs, consumers=cons)
+    assert bad["unlisted_consumers"] == ["new_span_log"] and rb.bridge_verdict(bad, True) == "BRIDGE_CONSUMER_SET_DRIFT"
+    # partial mode: HSI is kept on v3, so it is a listed consumer, not an unlisted one
+    p = rb.bridge_check(spark(extra), objs)
+    assert "hazard_span_intersection" in p["orphans"] and "hazard_span_intersection" not in p["scanned"]
+    assert rb.bridge_verdict(p, True) == "READY"
