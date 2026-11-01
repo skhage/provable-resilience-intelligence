@@ -49,6 +49,14 @@ therefore restores from a fingerprint-gated DEEP CLONE backup <live>__v3_rollbac
 swap (option A; DEC-43 keeps the 7-day retention). dry_run reports rollback_ready per promote item (non-READY is
 blocking) and probes the gate-0 manifest restore_version readability (GATE0 unreadable fails closed).
 
+P79-DEVOPS-PIN-COMMIT-FREEZE-GUARD (DP P71 probe): 39 of 52 manifest pins are readable ONLY because restore_version
+is still the LATEST version and its commit is >168h old. ANY commit on such a table (COMMENT ON, ALTER TABLE ... SET
+TAGS / TBLPROPERTIES / CHANGE COLUMN, OPTIMIZE, incl. Predictive Optimization auto-OPTIMIZE) makes the pin unreadable
+at once (what happened to HSI v3 v23 and HSI v4 v33). pin_commit_guard(spark) classifies every pin read-only;
+check_commit(sql, guard) / assert_commit_allowed(...) BLOCK any statement that commits to a PIN_LATEST_ONLY table
+until its DEEP CLONE backup <name>__v3_rollback (DEC-46) exists. pin_backup_sql(guard) prints (never runs) those
+backups. dry_run reports the guard (non-blocking for the cutover itself: backup_sql() runs before every swap).
+
 Usage (notebook, read-only):
     import sys; sys.path.append('<project root>/ops')
     import v4_cutover_runbook as rb
@@ -58,6 +66,7 @@ Usage (notebook, read-only):
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 
 CATALOG = "cdm_tmforum"
@@ -328,6 +337,166 @@ def restore_version_audit(spark) -> dict:
     return out
 
 
+# P79-DEVOPS-PIN-COMMIT-FREEZE-GUARD: block/warn on commits to latest-only pinned tables until DEC-46 backups exist.
+PIN_GUARD_MANIFESTS = (V3, V4_DRAFT)
+PIN_WARN_HOURS = 120  # DP P71: pins older than ~120h are "at risk"
+PIN_BLOCK = "BLOCK"
+PIN_WARN = "WARN"
+PIN_ALLOW = "ALLOW"
+
+
+def pin_risk(restore_version, latest_version, restore_age_h, backed_up: bool = False) -> dict:
+    """Pure, fail-closed classification of ONE manifest pin.
+
+    PIN_EXPIRED             - restore_version superseded and its commit >168h old: already unreadable
+    PIN_LATEST_ONLY         - restore_version == LATEST and >168h old: the NEXT commit makes it unreadable at once
+    PIN_SUPERSEDED_EXPIRING - superseded, still readable for (168 - age) hours
+    PIN_OK                  - LATEST and <=168h old (becomes LATEST_ONLY after expires_in_h)
+    PIN_UNKNOWN             - missing version/age (treated like LATEST_ONLY: commits are blocked)
+    commit_guard: BLOCK (LATEST_ONLY/UNKNOWN without backup), WARN (backed up, expired, or age > PIN_WARN_HOURS), ALLOW.
+    """
+    if restore_version is None or latest_version is None or restore_age_h is None:
+        status = "PIN_UNKNOWN"
+        expires = None
+    else:
+        expires = round(RETENTION_HOURS - restore_age_h, 1)
+        is_latest = int(restore_version) == int(latest_version)
+        if restore_age_h > RETENTION_HOURS:
+            status = "PIN_LATEST_ONLY" if is_latest else "PIN_EXPIRED"
+        else:
+            status = "PIN_OK" if is_latest else "PIN_SUPERSEDED_EXPIRING"
+    if status in ("PIN_LATEST_ONLY", "PIN_UNKNOWN"):
+        guard = PIN_WARN if backed_up else PIN_BLOCK
+    elif status == "PIN_EXPIRED" or (restore_age_h is not None and restore_age_h > PIN_WARN_HOURS):
+        guard = PIN_WARN
+    else:
+        guard = PIN_ALLOW
+    return {"status": status, "commit_guard": guard, "expires_in_h": expires, "backed_up": bool(backed_up)}
+
+
+def _po_status(spark, name: str):
+    """Predictive Optimization (auto-OPTIMIZE/VACUUM commits) for one table; informational only."""
+    try:
+        for r in spark.sql(f"DESCRIBE TABLE EXTENDED {FQ}.`{name}`").collect():
+            if (r.col_name or "").strip().lower() == "predictive optimization":
+                return str(r.data_type)
+    except Exception:  # noqa: BLE001 - informational only
+        return None
+    return None
+
+
+def pin_commit_guard(spark, objs: dict | None = None, manifests=PIN_GUARD_MANIFESTS, check_po: bool = True) -> dict:
+    """Read-only (DESCRIBE HISTORY / information_schema / manifest SELECT). Classifies every manifest pin."""
+    objs = objs if objs is not None else _objects(spark)
+    now = spark.sql("SELECT current_timestamp() AS now").first().now
+    pins, by_object, po = {}, {}, {}
+    rank = {PIN_ALLOW: 0, PIN_WARN: 1, PIN_BLOCK: 2}
+    for mv in manifests:
+        for name, row in _manifest(spark, mv).items():
+            if row.restore_version is None:
+                continue
+            latest = age = None
+            try:
+                hist = spark.sql(f"DESCRIBE HISTORY {FQ}.`{name}`").select("version", "timestamp").collect()
+                latest = max(h.version for h in hist)
+                ts = {h.version: h.timestamp for h in hist}.get(int(row.restore_version))
+                age = round((now - ts).total_seconds() / 3600, 1) if ts is not None else None
+            except Exception:  # noqa: BLE001 - fail closed (PIN_UNKNOWN -> BLOCK)
+                pass
+            r = pin_risk(row.restore_version, latest, age, rollback_backup_name(name) in objs)
+            r.update(manifest_version=mv, object_name=name, restore_version=int(row.restore_version),
+                     latest_version=latest, restore_age_h=age)
+            pins[(mv, name)] = r
+            if name not in by_object or rank[r["commit_guard"]] > rank[by_object[name]["commit_guard"]]:
+                by_object[name] = r
+    if check_po:
+        po = {n: _po_status(spark, n) for n in by_object}
+    return {
+        "pins": pins,
+        "by_object": by_object,
+        "latest_only": sorted(k[1] for k, v in pins.items() if v["status"] == "PIN_LATEST_ONLY"),
+        "commit_blocked": sorted(n for n, v in by_object.items() if v["commit_guard"] == PIN_BLOCK),
+        "expired": sorted(k[1] for k, v in pins.items() if v["status"] == "PIN_EXPIRED"),
+        "predictive_optimization": po,
+        "po_enabled": sorted(n for n, s in po.items() if s and s.upper().startswith("ENABLE")),
+    }
+
+
+# P79 commit-target parser lives in the plan-builders section (it names write verbs; read helpers stay write-free).
+
+
+def _statements(sql: str) -> list:
+    text = "\n".join(ln for ln in sql.splitlines() if not ln.strip().startswith("--"))
+    return [s.strip() for s in text.split(";") if s.strip()]
+
+
+def commit_targets(sql: str) -> list:
+    """Tables in THIS schema that the SQL would commit to (unqualified names resolve to this schema)."""
+    out = []
+    for stmt in _statements(sql):
+        for rx, idx in _COMMIT_RES:
+            m = rx.match(stmt)
+            if not m:
+                continue
+            parts = [p.strip("`").lower() for p in re.findall(r"`[^`]+`|[\w$]+", m.group(1))]
+            tbl = parts[:-1] if idx == -2 else parts
+            qual = tbl[:-1]
+            if tbl and (qual in ([], [SCHEMA], [CATALOG, SCHEMA])):
+                out.append(tbl[-1])
+            break
+    return sorted(set(out))
+
+
+def check_commit(sql: str, guard: dict) -> dict:
+    """Pure. BLOCK if any target is a latest-only pin with no DEC-46 backup; WARN if at risk; else ALLOW."""
+    targets = commit_targets(sql)
+    hits = {t: guard["by_object"][t] for t in targets if t in guard.get("by_object", {})}
+    verdicts = {v["commit_guard"] for v in hits.values()}
+    verdict = PIN_BLOCK if PIN_BLOCK in verdicts else PIN_WARN if PIN_WARN in verdicts else PIN_ALLOW
+    blocked = sorted(t for t, v in hits.items() if v["commit_guard"] == PIN_BLOCK)
+    return {"verdict": verdict, "targets": targets, "blocked": blocked,
+            "warned": sorted(t for t, v in hits.items() if v["commit_guard"] == PIN_WARN),
+            "remedy": pin_backup_sql({"by_object": {t: hits[t] for t in blocked}})}
+
+
+class PinCommitBlocked(RuntimeError):
+    pass
+
+
+def assert_commit_allowed(spark, sql: str, guard: dict | None = None) -> dict:
+    """Call BEFORE any COMMENT ON / SET TAGS / ALTER / OPTIMIZE on this schema. Raises on BLOCK. Read-only."""
+    guard = guard if guard is not None else pin_commit_guard(spark, check_po=False)
+    res = check_commit(sql, guard)
+    if res["verdict"] == PIN_BLOCK:
+        raise PinCommitBlocked(f"P79 pin guard: commit to latest-only pinned {res['blocked']} needs DEC-46 DEEP CLONE "
+                               f"backup first: {res['remedy']}")
+    return res
+
+
+def pin_backup_sql(guard: dict) -> list:
+    """Text only (never executed here): DEC-46 DEEP CLONE backups that lift the guard for every BLOCKed object."""
+    out = []
+    for name, v in sorted(guard.get("by_object", {}).items()):
+        if v["commit_guard"] != PIN_BLOCK:
+            continue
+        bak = f"{FQ}.`{rollback_backup_name(name)}`"
+        out += [f"CREATE OR REPLACE TABLE {bak} DEEP CLONE {FQ}.`{name}`  -- P79/DEC-46 pre-commit backup "
+                f"(pin v{v.get('restore_version')}, {v.get('restore_age_h')}h)",
+                f"-- verify (fail closed): fingerprint(spark, '{rollback_backup_name(name)}') == {FP_GATE_TABLE} "
+                f"'{v.get('manifest_version')}' baseline of {name}"]
+    return out
+
+
+def print_pin_guard(guard: dict) -> None:
+    print(f"   PIN GUARD (P79): pins={len(guard['pins'])} latest_only={len(guard['latest_only'])} "
+          f"commit_blocked={len(guard['commit_blocked'])} expired={len(guard['expired'])} "
+          f"predictive_optimization_enabled={len(guard['po_enabled'])}")
+    for n in guard["commit_blocked"]:
+        v = guard["by_object"][n]
+        print(f"      COMMIT BLOCKED: {n:<34} {v['manifest_version']} rv={v['restore_version']} "
+              f"latest={v['latest_version']} age={v['restore_age_h']}h")
+
+
 def _objects(spark) -> dict:
     rows = spark.sql(
         f"SELECT table_name, table_type FROM {CATALOG}.information_schema.tables "
@@ -521,13 +690,21 @@ def rollback_readiness(item: Item, v3_pin, live_type, rollback: list, age_h=None
     return {"status": "ROLLBACK_READY_CLONE", "backup": rollback_backup_name(item.live), **info}
 
 
-def gate0_restore_sql(item: Item, restore_version, readable=None) -> list:
+def gate0_restore_sql(item: Item, restore_version, readable=None, backup_exists: bool = False) -> list:
     """P67-DE-RUNBOOK-RESTORE-VERSION (BUG-QA-095): gate-0 restore of a v3 FROZEN live table whose fingerprint
     drifted BEFORE the swap (verdict V3_FP_*). Target = demo_freeze_manifest.restore_version (readable Delta version),
     never delta_version (data-lineage pin, may be past the 7-day retention). Text builder only; never executed here."""
     live = f"{FQ}.`{item.live}`"
     if restore_version is None:
         return [f"-- {live}: no manifest restore_version; gate 0 cannot restore, escalate to @pm (fail closed)"]
+    if readable is False and backup_exists:  # P79: DEC-46 backup taken while the pin was still LATEST
+        bak = f"{FQ}.`{rollback_backup_name(item.live)}`"
+        return [
+            f"CREATE OR REPLACE TABLE {live} DEEP CLONE {bak}  -- gate 0 (P79): restore_version "
+            f"{int(restore_version)} not time-travelable; restore from DEC-46 backup",
+            f"-- verify (fail closed): fingerprint(spark, '{item.live}') == {FP_GATE_TABLE} '{V3}' baseline",
+            f"-- re-apply comments from freeze_v3_comment_snapshot WHERE table_name='{item.live}'",
+        ]
     if readable is False:  # BUG-QA-106: probed and not time-travelable
         return [f"-- {live}: manifest restore_version {int(restore_version)} is NOT time-travelable (BUG-QA-106); "
                 "gate 0 cannot restore, escalate to @pm (fail closed)"]
@@ -536,6 +713,21 @@ def gate0_restore_sql(item: Item, restore_version, readable=None) -> list:
         f"-- verify (fail closed): fingerprint(spark, '{item.live}') == {FP_GATE_TABLE} '{V3}' baseline",
         f"-- re-apply comments from freeze_v3_comment_snapshot WHERE table_name='{item.live}'",
     ]
+
+
+# P79: statements that create a Delta commit on their target table (pure text parsing; nothing is executed).
+_ID = r"((?:`[^`]+`|[\w$]+)(?:\s*\.\s*(?:`[^`]+`|[\w$]+))*)"
+# (regex, which identifier part is the table: -1 = last, -2 = second-to-last for COLUMN targets)
+_COMMIT_RES = (
+    (re.compile(r"COMMENT\s+ON\s+COLUMN\s+" + _ID, re.I), -2),
+    (re.compile(r"(?:UN)?SET\s+TAGS?\s+ON\s+COLUMN\s+" + _ID, re.I), -2),
+    (re.compile(r"COMMENT\s+ON\s+TABLE\s+" + _ID, re.I), -1),
+    (re.compile(r"(?:UN)?SET\s+TAGS?\s+ON\s+TABLE\s+" + _ID, re.I), -1),
+    (re.compile(r"ALTER\s+TABLE\s+" + _ID, re.I), -1),
+    (re.compile(r"(?:OPTIMIZE|VACUUM|REORG\s+TABLE|ANALYZE\s+TABLE|TRUNCATE\s+TABLE|DELETE\s+FROM|MERGE\s+INTO|UPDATE"
+                r"|INSERT\s+(?:INTO|OVERWRITE)(?:\s+TABLE)?|RESTORE(?:\s+TABLE)?|CREATE\s+OR\s+REPLACE\s+TABLE"
+                r"|REPLACE\s+TABLE)\s+" + _ID, re.I), -1),
+)
 
 
 # P60-DEVOPS-RUNBOOK-V4-COMMENT-SNAPSHOT: v4 comment snapshot + PK/FK placement. Text builders only.
@@ -959,13 +1151,14 @@ def pk_fk_plan(text: str | None = None, root: str | None = None, service_path_pr
 
 
 # ---------------------------------------------------------------- dry run
-def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False) -> list:
+def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False, pin_guard: bool = True) -> list:
     """Read-only evaluation of every runbook item. Executes NO plan SQL.
 
     partial_cutover=True (P68, DEC-41 option b; default OFF) keeps PARTIAL_KEEP_V3 on v3 behind the v3 fingerprint gate.
     """
     objs, v3, draft, ccount = _objects(spark), _manifest(spark, V3), _manifest(spark, V4_DRAFT), _comment_counts(spark)
     fp_base = _fp_baselines(spark)
+    guard = pin_commit_guard(spark, objs) if pin_guard else None  # P79 (informational, non-blocking)
     open_tasks = _open_tasks(cur)
     sp_status = {}
     if cur is not None:
@@ -988,6 +1181,8 @@ def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False
         d["v3_restore"] = v3row.restore_version if v3row else None  # P67: gate-0 restore target
         d["v3_comment_rows"] = ccount.get(it.live, 0)
         d["partial_cutover"] = bool(partial_cutover)
+        if guard is not None and it.live in guard["by_object"]:
+            d["pin_guard"] = guard["by_object"][it.live]  # P79
         if d["live_type"] == "MANAGED" and v3row is not None:
             d["live_data_ver"] = latest_data_version(spark, it.live)  # informational only (P65)
             d["live_fp"] = fingerprint_gate(spark, it.live, V3, fp_base)
@@ -1058,7 +1253,8 @@ def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False
         if d["live_type"] == "MANAGED" and d["v3_restore"] is not None:
             d["gate0_readable"] = version_readable(spark, it.live, d["v3_restore"])  # BUG-QA-106
         if d.get("live_drift"):
-            d["gate0_restore_sql"] = gate0_restore_sql(it, d["v3_restore"], d.get("gate0_readable", {}).get("readable"))
+            d["gate0_restore_sql"] = gate0_restore_sql(it, d["v3_restore"], d.get("gate0_readable", {}).get("readable"),
+                                                       rollback_backup_name(it.live) in objs)
         if it.action == "bridge_verify":  # P71: read-only verification, nothing to roll back
             f = Finding(it, verdict, d, bridge_plan_sql(bridge.get("consumers"), bridge_decision(partial_cutover)), [])
         elif pv is not None:  # kept on v3: no promote, nothing to roll back
@@ -1069,6 +1265,8 @@ def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False
         out.append(f)
     if verbose:
         print_report(out, cur)
+        if guard is not None:
+            print_pin_guard(guard)
     return out
 
 
@@ -1094,6 +1292,9 @@ def summary(findings: list, cur=None) -> dict:
         "rollback_not_ready": [f.item.live for f in findings
                                if f.details.get("rollback_ready", {}).get("status", "N/A") not in (*ROLLBACK_OK, "N/A")],
         "gate0_unreadable": [f.item.live for f in findings if f.details.get("gate0_readable", {}).get("readable") is False],
+        # P79: informational (non-blocking for the cutover; backup_sql() precedes every swap)
+        "pin_commit_blocked": [f.item.live for f in findings
+                               if f.details.get("pin_guard", {}).get("commit_guard") == PIN_BLOCK],
         "cutover_ready": not blocking and _decided(cur, GO_DECISION) and (not partial or _decided(cur, PARTIAL_DECISION)),
     }
 

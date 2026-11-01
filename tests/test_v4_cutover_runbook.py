@@ -849,7 +849,7 @@ def test_bug_qa_102_dry_run_end_to_end(monkeypatch):
     monkeypatch.setattr(rb, "_decided", lambda c, code: True)
     monkeypatch.setattr(rb, "cand_fk_check", lambda s, t, span_source=rb.SPAN_V4: {"span_cols": [], "orphans": {}})
     for partial in (True, False):
-        f = {x.item.live: x.verdict for x in rb.dry_run(_Q102Spark(), None, verbose=False, partial_cutover=partial)}
+        f = {x.item.live: x.verdict for x in rb.dry_run(_Q102Spark(), None, verbose=False, pin_guard=False, partial_cutover=partial)}
         assert f[rb.BRIDGE_TABLE] == "BRIDGE_MISSING"
         assert f["physical_resource_conduit"] == "READY"
         assert f["physical_resource_span"] == "WAITS_UPSTREAM" and f["resource_alarm"] == "WAITS_UPSTREAM"
@@ -947,7 +947,7 @@ def test_bug_qa_104_dry_run_full_mode_cand_fk_orphans_block(monkeypatch):
     srp, hsi = "span_risk_predictions_v4_candidate", "hazard_span_intersection_v4_candidate"
     seen = _dry_run_fixture(monkeypatch, {"span_cols": [srp, hsi],
                                           "orphans": {srp: {"rows": 92, "keys": 92}, hsi: {"rows": 18495, "keys": 92}}})
-    fs = rb.dry_run(object(), None, verbose=False)
+    fs = rb.dry_run(object(), None, verbose=False, pin_guard=False)
     f = {x.item.live: x for x in fs}
     assert f["span_risk_predictions"].verdict == "CAND_FK_ORPHANS" and f["span_risk_predictions"].details["cand_fk"]["rows"] == 92
     assert f["hazard_span_intersection"].verdict == "CAND_FK_ORPHANS"
@@ -957,11 +957,11 @@ def test_bug_qa_104_dry_run_full_mode_cand_fk_orphans_block(monkeypatch):
     assert s["blocking"] >= 2 and not s["cutover_ready"]
     # clean candidates: the same items go READY (the gate is the only thing that changed)
     _dry_run_fixture(monkeypatch, {"span_cols": [srp, hsi], "orphans": {srp: {"rows": 0}, hsi: {"rows": 0}}})
-    f = {x.item.live: x.verdict for x in rb.dry_run(object(), None, verbose=False)}
+    f = {x.item.live: x.verdict for x in rb.dry_run(object(), None, verbose=False, pin_guard=False)}
     assert f["span_risk_predictions"] == "READY" and f["hazard_span_intersection"] == "READY"
     # unreadable check fails closed on every promote candidate
     _dry_run_fixture(monkeypatch, {"error": "boom", "span_cols": [], "orphans": {}})
-    f = {x.item.live: x.verdict for x in rb.dry_run(object(), None, verbose=False)}
+    f = {x.item.live: x.verdict for x in rb.dry_run(object(), None, verbose=False, pin_guard=False)}
     assert f["physical_resource_conduit"] == "CAND_FK_UNREADABLE"
     assert f["physical_resource_span"] == "READY"  # the span candidate is the FK parent, never cand-FK gated
 
@@ -969,7 +969,7 @@ def test_bug_qa_104_dry_run_full_mode_cand_fk_orphans_block(monkeypatch):
 def test_bug_qa_104_partial_mode_kept_candidates_unaffected(monkeypatch):
     srp = "span_risk_predictions_v4_candidate"
     seen = _dry_run_fixture(monkeypatch, {"span_cols": [srp], "orphans": {srp: {"rows": 92}}})
-    f = {x.item.live: x.verdict for x in rb.dry_run(object(), None, verbose=False, partial_cutover=True)}
+    f = {x.item.live: x.verdict for x in rb.dry_run(object(), None, verbose=False, pin_guard=False, partial_cutover=True)}
     assert f["span_risk_predictions"] == rb.PARTIAL_VERDICT and srp not in seen
 
 
@@ -1010,3 +1010,141 @@ def test_bug_qa_104_schema_wide_unlisted_consumer_scan():
     p = rb.bridge_check(spark(extra), objs)
     assert "hazard_span_intersection" in p["orphans"] and "hazard_span_intersection" not in p["scanned"]
     assert rb.bridge_verdict(p, True) == "READY"
+
+
+# ---------------------------------------------------------------- P79 pin commit guard
+def test_p79_pin_risk_classification_fail_closed():
+    lo = rb.pin_risk(31, 31, 228.9)
+    assert lo["status"] == "PIN_LATEST_ONLY" and lo["commit_guard"] == rb.PIN_BLOCK
+    assert rb.pin_risk(31, 31, 228.9, backed_up=True)["commit_guard"] == rb.PIN_WARN  # backup lifts the block
+    assert rb.pin_risk(23, 24, 189.0)["status"] == "PIN_EXPIRED"  # HSI v3 v23 after the 10-31 CHANGE COLUMN
+    assert rb.pin_risk(23, 24, 189.0)["commit_guard"] == rb.PIN_WARN
+    ok = rb.pin_risk(5, 5, 25.0)
+    assert ok["status"] == "PIN_OK" and ok["commit_guard"] == rb.PIN_ALLOW and ok["expires_in_h"] == 143.0
+    assert rb.pin_risk(5, 5, 130.0)["commit_guard"] == rb.PIN_WARN  # > PIN_WARN_HOURS
+    assert rb.pin_risk(4, 5, 10.0)["status"] == "PIN_SUPERSEDED_EXPIRING"
+    for args in ((None, 5, 1.0), (5, None, 1.0), (5, 5, None)):
+        u = rb.pin_risk(*args)
+        assert u["status"] == "PIN_UNKNOWN" and u["commit_guard"] == rb.PIN_BLOCK
+
+
+def test_p79_commit_targets_cover_comment_tag_alter_optimize():
+    fq = rb.FQ
+    cases = {
+        f"COMMENT ON COLUMN {fq}.`customer`.`name` IS 'x'": ["customer"],
+        f"COMMENT ON TABLE {fq}.logical_resource IS 'x'": ["logical_resource"],
+        f"ALTER TABLE {fq}.`hazard_span_intersection` CHANGE COLUMN hazard_source_id COMMENT 'x'": ["hazard_span_intersection"],
+        f"ALTER TABLE {fq}.customer SET TAGS ('telco_project' = 'provable_resilience_intelligence')": ["customer"],
+        f"SET TAG ON TABLE {fq}.customer telco_project = provable_resilience_intelligence": ["customer"],
+        f"SET TAG ON COLUMN {fq}.customer.name pii": ["customer"],
+        "optimize provable_resilience_intelligence.customer": ["customer"],
+        "OPTIMIZE customer": ["customer"],  # unqualified -> this schema
+        f"CREATE OR REPLACE TABLE {fq}.`customer__v3_rollback` DEEP CLONE {fq}.`customer`": ["customer__v3_rollback"],
+        f"-- note\nVACUUM {fq}.a; UPDATE {fq}.b SET x = 1": ["a", "b"],
+        f"SELECT * FROM {fq}.customer": [],
+        f"DESCRIBE HISTORY {fq}.customer": [],
+        "COMMENT ON TABLE other_cat.other_schema.customer IS 'x'": [],  # other schema: not guarded
+        "ALTER TABLE other_schema.customer SET TAGS ('a' = 'b')": [],
+    }
+    for sql, want in cases.items():
+        assert rb.commit_targets(sql) == want, sql
+
+
+def _guard(**objs):
+    return {"by_object": {n: {**rb.pin_risk(*a), "restore_version": a[0], "restore_age_h": a[2],
+                              "manifest_version": rb.V3} for n, a in objs.items()}}
+
+
+def test_p79_check_commit_blocks_latest_only_until_backup(monkeypatch):
+    g = _guard(customer=(8, 8, 213.0), span_bb_route_bridge=(3, 3, 25.0))
+    r = rb.check_commit(f"COMMENT ON COLUMN {rb.FQ}.customer.name IS 'x'", g)
+    assert r["verdict"] == rb.PIN_BLOCK and r["blocked"] == ["customer"]
+    assert any(f"DEEP CLONE {rb.FQ}.`customer`" in s for s in r["remedy"])
+    assert rb.check_commit(f"OPTIMIZE {rb.FQ}.span_bb_route_bridge", g)["verdict"] == rb.PIN_ALLOW
+    assert rb.check_commit(f"OPTIMIZE {rb.FQ}.not_pinned", g)["verdict"] == rb.PIN_ALLOW
+    g2 = _guard(customer=(8, 8, 213.0, True))
+    assert rb.check_commit(f"ALTER TABLE {rb.FQ}.customer SET TAGS ('a'='b')", g2)["verdict"] == rb.PIN_WARN
+    with pytest.raises(rb.PinCommitBlocked):
+        rb.assert_commit_allowed(None, f"ALTER TABLE {rb.FQ}.customer SET TAGS ('a'='b')", g)
+    assert rb.assert_commit_allowed(None, "SELECT 1", g)["verdict"] == rb.PIN_ALLOW
+
+
+def test_p79_pin_backup_sql_is_text_only_dec46_names():
+    g = _guard(customer=(8, 8, 213.0), ok_tbl=(3, 3, 25.0), done=(8, 8, 213.0, True))
+    s = rb.pin_backup_sql(g)
+    clones = [x for x in s if not x.startswith("--")]
+    assert clones == [f"CREATE OR REPLACE TABLE {rb.FQ}.`customer{rb.ROLLBACK_BACKUP_SUFFIX}` DEEP CLONE "
+                      f"{rb.FQ}.`customer`  -- P79/DEC-46 pre-commit backup (pin v8, 213.0h)"]
+    assert not rb.uses_time_travel(s)
+
+
+class _PinRow(dict):
+    __getattr__ = dict.get
+
+
+class _PinDF:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def collect(self):
+        return self.rows
+
+    def first(self):
+        return self.rows[0]
+
+    def select(self, *_):
+        return self
+
+
+class _PinSpark:
+    def __init__(self, manifest, history, po="ENABLE (inherited from METASTORE m)"):
+        self.manifest, self.history, self.po, self.queries = manifest, history, po, []
+
+    def sql(self, q, args=None):
+        import datetime as dt
+        self.queries.append(q)
+        assert q.lstrip().upper().startswith(("SELECT", "DESCRIBE")), q
+        now = dt.datetime(2026, 11, 1, 12, 0)
+        if "current_timestamp" in q:
+            return _PinDF([_PinRow(now=now)])
+        if "demo_freeze_manifest" in q:
+            return _PinDF([_PinRow(object_name=n, delta_version=None, restore_version=rv, row_count=1, freeze_status="FROZEN")
+                        for (mv, n), rv in self.manifest.items() if mv == args["v"]])
+        if q.startswith("DESCRIBE HISTORY"):
+            name = q.split("`")[1]
+            if name not in self.history:
+                raise RuntimeError("TABLE_OR_VIEW_NOT_FOUND")
+            return _PinDF([_PinRow(version=v, timestamp=now - dt.timedelta(hours=h)) for v, h in self.history[name]])
+        if q.startswith("DESCRIBE TABLE EXTENDED"):
+            return _PinDF([_PinRow(col_name="Predictive Optimization", data_type=self.po)])
+        raise AssertionError(q)
+
+
+def test_p79_pin_commit_guard_read_only_and_reproduces_dp_probe():
+    manifest = {(rb.V3, "customer"): 8, (rb.V3, "hazard_span_intersection"): 24, (rb.V3, "span_bb_route_bridge"): 3,
+                (rb.V4_DRAFT, "hazard_span_intersection_v4_candidate"): 34, (rb.V3, "gone"): 2}
+    history = {"customer": [(8, 213.0), (7, 214.0)], "hazard_span_intersection": [(24, 23.0), (23, 189.0)],
+               "span_bb_route_bridge": [(3, 25.0)], "hazard_span_intersection_v4_candidate": [(34, 22.0)]}
+    sp = _PinSpark(manifest, history)
+    g = rb.pin_commit_guard(sp, objs={"customer": "MANAGED"})
+    assert g["latest_only"] == ["customer"]
+    assert g["commit_blocked"] == ["customer", "gone"]  # unreadable history fails closed (PIN_UNKNOWN)
+    assert g["by_object"]["hazard_span_intersection"]["commit_guard"] == rb.PIN_ALLOW
+    assert len(g["pins"]) == 5 and len(g["po_enabled"]) == 5
+    g2 = rb.pin_commit_guard(sp, objs={"customer": "MANAGED", "customer__v3_rollback": "MANAGED"}, check_po=False)
+    assert "customer" not in g2["commit_blocked"] and g2["predictive_optimization"] == {}
+
+
+def test_p79_gate0_falls_back_to_dec46_backup_when_pin_unreadable():
+    it = rb.Item("x", "customer", None, "", "keep_v3")
+    rs = rb.gate0_restore_sql(it, 8, readable=False, backup_exists=True)
+    assert rs[0].startswith(f"CREATE OR REPLACE TABLE {rb.FQ}.`customer` DEEP CLONE {rb.FQ}.`customer__v3_rollback`")
+    assert not rb.uses_time_travel(rs)
+    assert "escalate to @pm" in rb.gate0_restore_sql(it, 8, readable=False)[0]  # unchanged without a backup
+
+
+def test_p79_summary_reports_pin_commit_blocked_non_blocking():
+    it = rb.Item("x", "customer", None, "", "regenerate")
+    f = rb.Finding(it, "POST_CUTOVER", {"pin_guard": rb.pin_risk(8, 8, 213.0)})
+    s = rb.summary([f])
+    assert s["pin_commit_blocked"] == ["customer"] and s["blocking"] == 0
