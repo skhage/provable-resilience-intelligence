@@ -23,6 +23,8 @@ needs_node = pytest.mark.skipif(NODE is None, reason="node not installed")
 TOOLTIP = ("This map draws only tier 1 and tier 2 sites in the selected region. Hops to customer "
            "premises, hut sites, or other regions are counted but not drawn.")
 SUFFIX = ", others go to customer, hut, or other-region sites"
+# BUG-DW-121: drawn == 0 && total > 1 uses 'they', never 'others'.
+NONE_MANY_SUFFIX = ", they go to customer, hut, or other-region sites"
 
 
 def _node(body):
@@ -74,7 +76,7 @@ out = {hs, show: m.showHopsShown(hs), line: m.hopsShownLine(hs), spoken: m.hopsS
     assert out["hs"] == {"drawn": 0, "total": 6}
     assert out["show"] is True          # the note (and its Info tooltip) still renders
     assert out["line"] == "None of the 6 hops are drawn on this map"
-    assert out["spoken"] == "None of the 6 hops are drawn on this map" + SUFFIX
+    assert out["spoken"] == "None of the 6 hops are drawn on this map" + NONE_MANY_SUFFIX
 
 
 @needs_node
@@ -84,7 +86,7 @@ out = m.traceStatusText({mode: 'live', serviceId: 'SVC-00001', busy: false, retr
   diversityLabel: 'Partially diverse', workingHops: 4, protectHops: 2, hopsShown: hs});
 """)
     assert out == ("SVC-00001 traced: Partially diverse, 4 working hops, 2 protect hops. "
-                   "None of the 6 hops are drawn on this map" + SUFFIX + ".")
+                   "None of the 6 hops are drawn on this map" + NONE_MANY_SUFFIX + ".")
     assert out.count("hops are drawn on this map") == 1
     assert "0 of 6" not in out
 

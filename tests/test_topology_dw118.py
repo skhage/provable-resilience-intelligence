@@ -103,7 +103,8 @@ def test_zero_of_n_still_has_spoken_reason():
     # BUG-DW-120 item 3: 0-of-N uses 'None of the N hops' wording; spoken form carries the reason.
     out = _node("out = [m.hopsShownLine({drawn: 0, total: 6}), m.hopsShownSpoken({drawn: 0, total: 6})];")
     assert out[0] == "None of the 6 hops are drawn on this map"
-    assert out[1] == "None of the 6 hops are drawn on this map" + SUFFIX
+    # BUG-DW-121: 0-of-N suffix says 'they', not 'others'.
+    assert out[1] == "None of the 6 hops are drawn on this map, they go to customer, hut, or other-region sites"
 
 
 @needs_node

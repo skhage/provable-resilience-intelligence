@@ -199,8 +199,14 @@ export interface HopsShown {
 export const HOPS_SHOWN_TOOLTIP =
   "This map draws only tier 1 and tier 2 sites in the selected region. Hops to customer premises, hut sites, or other regions are counted but not drawn.";
 
-/** Reason suffix for the spoken form (Info aria-label + live announcement). */
+/** Reason suffix for the spoken form (Info aria-label + live announcement), drawn > 0. */
 export const HOPS_SHOWN_SPOKEN_SUFFIX = ", others go to customer, hut, or other-region sites";
+
+/** BUG-DW-121: spoken suffix when drawn == 0 and total == 1 (singular, no "others"). */
+export const HOPS_SHOWN_SPOKEN_SUFFIX_NONE_ONE = ", it goes to a customer, hut, or other-region site";
+
+/** BUG-DW-121: spoken suffix when drawn == 0 and total > 1 (no "others"). */
+export const HOPS_SHOWN_SPOKEN_SUFFIX_NONE_MANY = ", they go to customer, hut, or other-region sites";
 
 /** Same output as formatCount in bb-srlg-disclosure.ts (kept local: this module has no imports). */
 function fmt(n: number): string {
@@ -237,9 +243,11 @@ export function showHopsShown(hs: HopsShown | null | undefined): hs is HopsShown
 /**
  * Visible line: "4 of 6 hops shown on this map", or null when nothing is hidden.
  * BUG-DW-120 item 3: drawn == 0 -> "None of the 6 hops are drawn on this map".
+ * BUG-DW-121: drawn == 0 && total == 1 -> "The 1 hop is not drawn on this map".
  */
 export function hopsShownLine(hs: HopsShown | null | undefined): string | null {
   if (!showHopsShown(hs)) return null;
+  if (hs.drawn === 0 && hs.total === 1) return "The 1 hop is not drawn on this map";
   if (hs.drawn === 0) return `None of the ${fmt(hs.total)} hops are drawn on this map`;
   return `${fmt(hs.drawn)} of ${fmt(hs.total)} hops shown on this map`;
 }
@@ -247,5 +255,9 @@ export function hopsShownLine(hs: HopsShown | null | undefined): string | null {
 /** Spoken form (Info button aria-label + live announcement), no trailing period. */
 export function hopsShownSpoken(hs: HopsShown | null | undefined): string | null {
   const line = hopsShownLine(hs);
-  return line ? `${line}${HOPS_SHOWN_SPOKEN_SUFFIX}` : null;
+  if (!line || !hs) return null;
+  if (hs.drawn === 0) {
+    return `${line}${hs.total === 1 ? HOPS_SHOWN_SPOKEN_SUFFIX_NONE_ONE : HOPS_SHOWN_SPOKEN_SUFFIX_NONE_MANY}`;
+  }
+  return `${line}${HOPS_SHOWN_SPOKEN_SUFFIX}`;
 }
