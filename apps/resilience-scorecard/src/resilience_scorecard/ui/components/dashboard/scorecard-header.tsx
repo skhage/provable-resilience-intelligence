@@ -77,6 +77,11 @@ function ScorecardHeaderContent() {
   const highRisk = v4Kpis ? formatKpiCount(summary.high_risk_count) : summary.high_risk_count;
   // BUG-DW-126: Medium Risk follows the same pattern so the count row never mixes formats.
   const mediumRisk = v4Kpis ? formatKpiCount(summary.medium_risk_count) : summary.medium_risk_count;
+  // BUG-DW-127: the remaining count cards use the same flag-gated formatter (value + aria-label).
+  // SRLG Groups under the flag is formatted inside SrlgGroupsV4Card; its v3 branch is flag-off only.
+  const lowRisk = v4Kpis ? formatKpiCount(summary.low_risk_count) : summary.low_risk_count;
+  const singlePointFailures = v4Kpis ? formatKpiCount(summary.total_single_point_failures) : summary.total_single_point_failures;
+  const monitoredServices = v4Kpis ? formatKpiCount(summary.total_services) : summary.total_services;
 
   return (
     <div className="kpi-row">
@@ -123,14 +128,14 @@ function ScorecardHeaderContent() {
         <div className="kpi-value">{mediumRisk}</div>
       </div>
       <div className="kpi-card success"
-           role="group" aria-label={`Low Risk: ${summary.low_risk_count}`}>
+           role="group" aria-label={`Low Risk: ${lowRisk}`}>
         <div className="kpi-label">Low Risk</div>
-        <div className="kpi-value">{summary.low_risk_count}</div>
+        <div className="kpi-value">{lowRisk}</div>
       </div>
       <div className="kpi-card"
-           role="group" aria-label={`Single-Point Failures: ${summary.total_single_point_failures}`}>
+           role="group" aria-label={`Single-Point Failures: ${singlePointFailures}`}>
         <div className="kpi-label">Single-Point Failures</div>
-        <div className="kpi-value">{summary.total_single_point_failures}</div>
+        <div className="kpi-value">{singlePointFailures}</div>
       </div>
       {v4Kpis ? (
         <SrlgGroupsV4Card
@@ -145,9 +150,9 @@ function ScorecardHeaderContent() {
         </div>
       )}
       <div className="kpi-card"
-           role="group" aria-label={`Monitored Services: ${summary.total_services}`}>
+           role="group" aria-label={`Monitored Services: ${monitoredServices}`}>
         <div className="kpi-label">Monitored Services</div>
-        <div className="kpi-value">{summary.total_services}</div>
+        <div className="kpi-value">{monitoredServices}</div>
       </div>
       {/* UX-REVENUE-DISPLAY: Core business metric (~$47.7M/year project value) */}
       {summary.total_revenue_at_risk_usd != null && (
