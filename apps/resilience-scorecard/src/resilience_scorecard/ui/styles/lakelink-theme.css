@@ -2529,13 +2529,16 @@ select:focus-visible,
   outline-offset: 2px;
 }
 
-/* Opens above the trigger so it never covers the KPI value (SC 1.4.13) */
+/* Opens above the trigger so it never covers the KPI value (SC 1.4.13).
+   BUG-DW-093 (1): z-index 150 sits above the sticky .app-header (100) so the
+   tooltip is never clipped under the header after a scroll, and below
+   .skip-nav (200) and .toast-stack (1000). */
 .info-tooltip {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 50;
+  z-index: 150;
   width: max-content;
   max-width: 260px;
   padding: 8px 10px;
@@ -2569,6 +2572,26 @@ select:focus-visible,
 
 .info-tooltip[hidden] {
   display: none;
+}
+
+/* BUG-DW-093 (2): project mobile convention (BUG-QA-019) is a 44x44 target at
+   <=768px. A transparent ::before expands the hit area around the 24px
+   button; the visual size and layout stay at 24px. */
+@media (max-width: 768px) {
+  .info-btn {
+    position: relative;
+  }
+  .info-btn::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: transparent;
+  }
 }
 
 /* BUG-DW-092: same-size placeholder for the v4 MRC Protected card while its

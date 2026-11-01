@@ -108,7 +108,13 @@ function MrcProtectedCard() {
       <div className="kpi-value">
         {value}<span className="kpi-sub">/mo</span>
       </div>
-      <div className="kpi-caption">{services} services · {share}% of MRC</div>
+      {/* BUG-DW-093 (3): the middle dot is visual only; screen readers read
+          "4,625 services 57.8% of MRC", never "dot". The spaces stay OUTSIDE
+          the hidden span so the spoken text never runs together
+          ("services57.8%"). */}
+      <div className="kpi-caption">
+        {services} services{" "}<span aria-hidden="true">·</span>{" "}{share}% of MRC
+      </div>
     </div>
   );
 }
