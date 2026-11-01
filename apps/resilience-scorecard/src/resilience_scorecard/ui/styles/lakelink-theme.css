@@ -2730,6 +2730,36 @@ select:focus-visible,
   padding: 0 0 8px;
 }
 
+/* BUG-DW-125 (SC 1.4.13, 1.4.10): the caption is the first box inside .data-table, which keeps
+   overflow:hidden (rounded corners, BUG-DW-089 scroll). The default .info-tooltip opens ABOVE the
+   trigger and so landed fully outside the clip box. Caption-scoped variant:
+   (1) opens BELOW the trigger, over the thead (Esc-dismissable and hoverable, so covering is OK);
+   (2) anchors to the badge wrap's left edge (left:0, no centering transform), because a 260px
+       tooltip centred on an Info button ~110px from the table edge would be clipped on the left;
+   (3) caps width to the 320px content box (320 - 2 x 16px page padding = 288px >= 260px; the
+       calc() also holds under 200% zoom);
+   (4) mirrors the BUG-DW-092 hover bridge downward: the 8px ::after now sits ABOVE the tooltip
+       and spans the 6px gap to the trigger. The wrap is 24px tall (the Info button), so the
+       tooltip top is exactly 6px below the button's bottom edge.
+   Default .info-tooltip (KPI cards, /actions MRC) is unchanged. */
+.service-table-caption .interim-badge-wrap {
+  position: relative;
+}
+.service-table-caption .info-tip {
+  position: static;
+}
+.service-table-caption .info-tooltip {
+  top: calc(100% + 6px);
+  bottom: auto;
+  left: 0;
+  transform: none;
+  max-width: min(260px, calc(100vw - 48px));
+}
+.service-table-caption .info-tooltip::after {
+  top: auto;
+  bottom: 100%;
+}
+
 @media (forced-colors: active) {
   .provisional-page-note { color: CanvasText; }
 }
