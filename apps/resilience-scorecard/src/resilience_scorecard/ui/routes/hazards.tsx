@@ -14,7 +14,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { HazardCrosswalkKpis, HazardCrosswalkTable } from "@/components/hazards";
 import { useCutoverManifest, useV4Kpis } from "@/lib/api";
 import {
-  PROVISIONAL_PAGE_NOTE,
+  PROVISIONAL_NOTE_BODY,
+  PROVISIONAL_NOTE_LEAD,
   showProvisionalPageNote,
 } from "@/lib/provisional-disclosure";
 
@@ -37,7 +38,7 @@ function HazardExposurePage() {
             {/* P68-APP-PROVISIONAL-BADGE §7.4: page note under the h2 */}
             {showNote && (
               <p role="note" className="provisional-page-note">
-                <strong>Provisional:</strong> hazard exposure on this page uses the v3 hazard model. Topology and conduits use the v4 build.
+                <strong>{PROVISIONAL_NOTE_LEAD}</strong>{PROVISIONAL_NOTE_BODY}
               </p>
             )}
             <p className="section-subtitle">

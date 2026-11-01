@@ -19,10 +19,14 @@ export const PROVISIONAL_TOOLTIP =
   "These figures will be updated after the v4 hazard re-derive passes QA.";
 export const PROVISIONAL_INFO_LABEL = "About provisional figures";
 
-// §7.4 page note (verbatim)
-export const PROVISIONAL_PAGE_NOTE =
-  "Provisional: hazard exposure on this page uses the v3 hazard model. " +
+// §7.4 page note (verbatim). BUG-DW-123: split into a bold lead and a body so route
+// files render <strong>{LEAD}</strong>{BODY} without inline copy. BODY starts with
+// the single space that follows </strong>. LEAD + BODY === PROVISIONAL_PAGE_NOTE.
+export const PROVISIONAL_NOTE_LEAD = "Provisional:";
+export const PROVISIONAL_NOTE_BODY =
+  " hazard exposure on this page uses the v3 hazard model. " +
   "Topology and conduits use the v4 build.";
+export const PROVISIONAL_PAGE_NOTE = PROVISIONAL_NOTE_LEAD + PROVISIONAL_NOTE_BODY;
 
 // §7.2 topology legend line
 export const PROVISIONAL_HAZARD_LEGEND =

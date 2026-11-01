@@ -73,6 +73,8 @@ function ScorecardHeaderContent() {
   );
   const avgScore = v4Kpis ? formatScore(summary.avg_resilience_score) : summary.avg_resilience_score.toFixed(1);
   const critical = v4Kpis ? formatKpiCount(summary.critical_count) : summary.critical_count;
+  // BUG-DW-123 (§7.7 #4): High Risk uses the same thousands formatting as Critical under the flag.
+  const highRisk = v4Kpis ? formatKpiCount(summary.high_risk_count) : summary.high_risk_count;
 
   return (
     <div className="kpi-row">
@@ -101,7 +103,7 @@ function ScorecardHeaderContent() {
         <div className="kpi-value">{critical}</div>
       </div>
       <div className="kpi-card high"
-           role="group" aria-label={`High Risk: ${summary.high_risk_count}`}>
+           role="group" aria-label={`High Risk: ${highRisk}`}>
         {/* §7.2: High Risk also gets the PROVISIONAL badge in partial cutover */}
         {headerVariant === "provisional" ? (
           <div className="kpi-label kpi-label-row kpi-label-row--interim">
@@ -111,7 +113,7 @@ function ScorecardHeaderContent() {
         ) : (
           <div className="kpi-label">High Risk</div>
         )}
-        <div className="kpi-value">{summary.high_risk_count}</div>
+        <div className="kpi-value">{highRisk}</div>
       </div>
       <div className="kpi-card warning"
            role="group" aria-label={`Medium Risk: ${summary.medium_risk_count}`}>

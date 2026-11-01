@@ -13,7 +13,10 @@ import { LoadingRegion } from "@/components/ui/loading-region";
 // BUG-DW-118: Info control for the "{drawn} of {total} hops shown on this map" disclosure
 import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { useBbSrlgCoverage, useCutoverManifest, useV4Kpis } from "@/lib/api";
-import { showProvisionalHazardLegend } from "@/lib/provisional-disclosure";
+import {
+  PROVISIONAL_HAZARD_LEGEND,
+  showProvisionalHazardLegend,
+} from "@/lib/provisional-disclosure";
 import {
   BB_EDGE_CAVEAT,
   BB_LEGEND_COVERAGE_LINE,
@@ -710,7 +713,7 @@ function Legend({
         ))}
         {/* P68-APP-PROVISIONAL-BADGE §7.2: hazard overlay line */}
         {provisionalHazardLegend && (
-          <p className="legend-coverage-note">Hazard overlay: provisional (v3 hazard model)</p>
+          <p className="legend-coverage-note">{PROVISIONAL_HAZARD_LEGEND}</p>
         )}
       </div>
       </div>

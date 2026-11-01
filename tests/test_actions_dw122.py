@@ -82,8 +82,8 @@ def test_hazards_reference_structure_unchanged():
 def test_actions_note_copy_and_role_unchanged():
     src = open(ACTIONS, encoding="utf-8").read()
     assert '<p role="note" className="provisional-page-note">' in src
-    assert ("<strong>Provisional:</strong> hazard exposure on this page uses the v3 hazard model. "
-            "Topology and conduits use the v4 build.") in src
+    # BUG-DW-123: copy now comes from constants (byte-identity is checked in test_provisional_dw123.py).
+    assert "<strong>{PROVISIONAL_NOTE_LEAD}</strong>{PROVISIONAL_NOTE_BODY}" in src
     assert "showNote && (" in src
 
 

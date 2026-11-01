@@ -13,7 +13,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ActionQueueTable } from "@/components/actions/action-queue-table";
 import { useCutoverManifest, useV4Kpis } from "@/lib/api";
-import { showProvisionalPageNote } from "@/lib/provisional-disclosure";
+import {
+  PROVISIONAL_NOTE_BODY,
+  PROVISIONAL_NOTE_LEAD,
+  showProvisionalPageNote,
+} from "@/lib/provisional-disclosure";
 
 export const Route = createFileRoute("/actions")({
   component: ActionsPage,
@@ -35,7 +39,7 @@ function ActionsPage() {
           {/* P68-APP-PROVISIONAL-BADGE §7.4: page note under the h2 */}
           {showNote && (
             <p role="note" className="provisional-page-note">
-              <strong>Provisional:</strong> hazard exposure on this page uses the v3 hazard model. Topology and conduits use the v4 build.
+              <strong>{PROVISIONAL_NOTE_LEAD}</strong>{PROVISIONAL_NOTE_BODY}
             </p>
           )}
         </div>
