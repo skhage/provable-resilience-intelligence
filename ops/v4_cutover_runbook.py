@@ -41,6 +41,14 @@ full swap: optical_anomaly_detection and span_risk_inference_log (stay v3 PROVIS
 gate; re-keying is v4.1 ML scope), plus service_path while its DEC-39 conditional promote is SKIPPED.
 BUG-QA-102: a non-READY b0 makes every later promote/repoint WAITS_UPSTREAM (it no longer stays READY).
 
+BUG-QA-106 (rollback readability): Delta measures time-travel retention from the TARGET version's own commit
+timestamp. Once a version is no longer LATEST and its commit is >168h old, reads fail with
+DELTA_UNSUPPORTED_TIME_TRAVEL_BEYOND_DELETED_FILE_RETENTION_DURATION. Every v3 live table's LATEST commit is already
+>168h old, so a time-travel RESTORE to the pre-swap version would fail closed with no recovery path. ROLLBACK
+therefore restores from a fingerprint-gated DEEP CLONE backup <live>__v3_rollback, taken immediately before each
+swap (option A; DEC-43 keeps the 7-day retention). dry_run reports rollback_ready per promote item (non-READY is
+blocking) and probes the gate-0 manifest restore_version readability (GATE0 unreadable fails closed).
+
 Usage (notebook, read-only):
     import sys; sys.path.append('<project root>/ops')
     import v4_cutover_runbook as rb
@@ -65,6 +73,14 @@ FP_DECISION = "DEC-PRI-V4-PIN-FINGERPRINT-GATES"
 FP_GATE_TABLE = "freeze_pin_fingerprint_gate"
 FP_COMPONENTS = ("fp_row_count", "fp_sha2_v1_null_skip", "fp_sha2_v2_null_token", "fp_column_count")
 FP_NULL_TOKEN = "<NULL>"
+# BUG-QA-106: time-travel-free rollback (option A).
+RETENTION_HOURS = 168  # default delta.deletedFileRetentionDuration (DEC-43: no TBLPROPERTIES change)
+ROLLBACK_DECISION = "DEC-PRI-V4-ROLLBACK-DEEP-CLONE-BACKUP"  # id 46
+ROLLBACK_BACKUP_SUFFIX = "__v3_rollback"
+TAG_GATE_TASK = "P4-ADD-TAG-VALUE"
+TAG_KEY, TAG_VALUE = "telco_project", "provable_resilience_intelligence"
+ROLLBACK_OK = ("ROLLBACK_READY_CLONE", "ROLLBACK_DROP_NEW")
+_TIME_TRAVEL_TOKENS = ("VERSION AS OF", "TIMESTAMP AS OF")  # tt-scan tokens
 
 # Operations that do NOT change data (manifest delta_version rule since v3).
 _NON_DATA_PREFIXES = (
@@ -92,6 +108,7 @@ class Finding:
     details: dict = field(default_factory=dict)
     sql: list = field(default_factory=list)
     rollback_sql: list = field(default_factory=list)
+    backup_sql: list = field(default_factory=list)  # BUG-QA-106: pre-swap DEEP CLONE backup
 
 
 def _c(name: str) -> str:
@@ -281,6 +298,36 @@ def latest_data_version(spark, name: str):
     return max(data) if data else None
 
 
+def latest_commit_age_h(spark, name: str):
+    """BUG-QA-106: hours since the LATEST commit (once superseded, that version expires at RETENTION_HOURS)."""
+    try:
+        r = spark.sql(f"DESCRIBE HISTORY {FQ}.`{name}` LIMIT 1").select("timestamp").first()
+        n = spark.sql("SELECT current_timestamp() AS now").first().now
+        return round((n - r.timestamp).total_seconds() / 3600, 1)
+    except Exception:  # noqa: BLE001 - informational only
+        return None
+
+
+def version_readable(spark, name: str, version) -> dict:
+    """BUG-QA-106: read-only probe that the Delta version can still be time-travelled (gate-0 restore target)."""
+    if version is None:
+        return {"readable": False, "error": "no restore_version"}
+    try:
+        spark.sql(f"SELECT 1 FROM {FQ}.`{name}` VERSION AS OF {int(version)} LIMIT 1").collect()  # readability probe
+        return {"readable": True}
+    except Exception as e:  # noqa: BLE001 - fail closed
+        return {"readable": False, "error": str(e)[:200]}
+
+
+def restore_version_audit(spark) -> dict:
+    """BUG-QA-106 acceptance: probe every v3 manifest row that has a restore_version. Read-only."""
+    out = {}
+    for name, row in _manifest(spark, V3).items():
+        if row.restore_version is not None:
+            out[name] = {"restore_version": int(row.restore_version), **version_readable(spark, name, row.restore_version)}
+    return out
+
+
 def _objects(spark) -> dict:
     rows = spark.sql(
         f"SELECT table_name, table_type FROM {CATALOG}.information_schema.tables "
@@ -417,29 +464,73 @@ def promote_sql(item: Item, fp_status=None) -> list:
     return [f"-- {item.candidate} is an audit report; not promoted"]
 
 
+def rollback_backup_name(live: str) -> str:
+    return live + ROLLBACK_BACKUP_SUFFIX
+
+
+def backup_sql(item: Item, v3_pin) -> list:
+    """BUG-QA-106 / DEC-46 option A: time-travel-free rollback source, taken right before the swap. Text only."""
+    if v3_pin is None or item.action not in ("promote", "conditional_promote"):
+        return []
+    live, bak = f"{FQ}.`{item.live}`", f"{FQ}.`{rollback_backup_name(item.live)}`"
+    return [
+        "-- PRE-SWAP BACKUP (BUG-QA-106, fail closed): run after the FINGERPRINT GATE and before CREATE OR REPLACE",
+        f"CREATE OR REPLACE TABLE {bak} DEEP CLONE {live}",
+        f"-- tag (DEC-46: only once {TAG_GATE_TASK} lands): ALTER TABLE {bak} SET TAGS ('{TAG_KEY}' = '{TAG_VALUE}')",
+        f"-- verify (fail closed): fingerprint(spark, '{rollback_backup_name(item.live)}') == {FP_GATE_TABLE} '{V3}' "
+        f"baseline of {item.live}; else ABORT this swap (do not run CREATE OR REPLACE on {item.live})",
+        f"-- keep {bak} until FREEZE-v4 capture; drop at v4.1 cleanup",
+    ]
+
+
 def rollback_sql(item: Item, v3_pin) -> list:
     live = f"{FQ}.`{item.live}`"
     if v3_pin is None:
         if item.action in ("promote", "conditional_promote"):
             return [f"DROP TABLE IF EXISTS {live}  -- new in v4, no v3 pin"]
         return [f"-- {live}: restore previous view definition from v3 (no data pin)"]
-    # P65: <pre-cutover live version> is captured from DESCRIBE HISTORY at swap time (minutes old, well inside
-    # retention); it is NOT a freeze pin. The v3 manifest delta_version is informational only.
+    if item.action not in ("promote", "conditional_promote"):
+        return [f"-- {live}: restore previous view definition from v3 (no data pin)"]
+    # BUG-QA-106: NO time travel. The pre-swap version becomes unreadable the moment the swap commits, because its
+    # own commit is already >168h old. Restore from the fingerprint-verified DEEP CLONE taken by backup_sql().
+    bak = f"{FQ}.`{rollback_backup_name(item.live)}`"
     return [
-        f"RESTORE TABLE {live} TO VERSION AS OF <pre-cutover live version captured immediately before the swap>"
-        f"  -- manifest v{v3_pin} is informational only",
+        f"CREATE OR REPLACE TABLE {live} DEEP CLONE {bak}  -- BUG-QA-106 clone rollback; manifest v{v3_pin} is "
+        "informational only",
         f"-- verify (fail closed): fingerprint(spark, '{item.live}') == {FP_GATE_TABLE} '{V3}' baseline",
         f"-- re-apply comments from freeze_v3_comment_snapshot WHERE table_name='{item.live}'",
     ]
 
 
-def gate0_restore_sql(item: Item, restore_version) -> list:
+def uses_time_travel(statements: list) -> bool:
+    return any(t in s.upper() for s in statements for t in _TIME_TRAVEL_TOKENS)
+
+
+def rollback_readiness(item: Item, v3_pin, live_type, rollback: list, age_h=None) -> dict:
+    """BUG-QA-106: pure, fail-closed readiness of the ROLLBACK plan for one promote item."""
+    if item.action not in ("promote", "conditional_promote"):
+        return {"status": "N/A"}
+    info = {"live_latest_commit_age_h": age_h,
+            "time_travel_rollback_would_fail": None if age_h is None else age_h > RETENTION_HOURS}
+    if uses_time_travel(rollback):
+        return {"status": "ROLLBACK_TIME_TRAVEL", **info}
+    if v3_pin is None:
+        return {"status": "ROLLBACK_DROP_NEW", **info}
+    if live_type != "MANAGED":
+        return {"status": "ROLLBACK_NO_LIVE", **info}
+    return {"status": "ROLLBACK_READY_CLONE", "backup": rollback_backup_name(item.live), **info}
+
+
+def gate0_restore_sql(item: Item, restore_version, readable=None) -> list:
     """P67-DE-RUNBOOK-RESTORE-VERSION (BUG-QA-095): gate-0 restore of a v3 FROZEN live table whose fingerprint
     drifted BEFORE the swap (verdict V3_FP_*). Target = demo_freeze_manifest.restore_version (readable Delta version),
     never delta_version (data-lineage pin, may be past the 7-day retention). Text builder only; never executed here."""
     live = f"{FQ}.`{item.live}`"
     if restore_version is None:
         return [f"-- {live}: no manifest restore_version; gate 0 cannot restore, escalate to @pm (fail closed)"]
+    if readable is False:  # BUG-QA-106: probed and not time-travelable
+        return [f"-- {live}: manifest restore_version {int(restore_version)} is NOT time-travelable (BUG-QA-106); "
+                "gate 0 cannot restore, escalate to @pm (fail closed)"]
     return [
         f"RESTORE TABLE {live} TO VERSION AS OF {int(restore_version)}  -- gate 0: manifest restore_version (BUG-QA-095)",
         f"-- verify (fail closed): fingerprint(spark, '{item.live}') == {FP_GATE_TABLE} '{V3}' baseline",
@@ -711,7 +802,7 @@ BRIDGE_SCAN_EXEMPT = {
     # It needs its own runbook item before service_path_regen_candidate can be promoted.
     "access_span_regen": "BUG-DP-072 staging span source (ACC-* access legs)",
 }
-BRIDGE_SCAN_EXEMPT_SUFFIXES = ("_candidate",)
+BRIDGE_SCAN_EXEMPT_SUFFIXES = ("_candidate", ROLLBACK_BACKUP_SUFFIX)  # DEC-46: rollback backups are staging
 
 
 # BUG-QA-104 (a): candidate-side FK gate. In FULL mode a promote candidate whose span_id rows are missing from
@@ -948,6 +1039,13 @@ def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False
             verdict = "GATE_OPEN"
         else:
             verdict = "READY"
+        # BUG-QA-106: every promote item needs a time-travel-free rollback (non-READY rollback is blocking).
+        rb_plan = rollback_sql(it, d["v3_pin"])
+        if it.action in ("promote", "conditional_promote") and pv is None:
+            age = latest_commit_age_h(spark, it.live) if d["live_type"] == "MANAGED" else None
+            d["rollback_ready"] = rollback_readiness(it, d["v3_pin"], d["live_type"], rb_plan, age)
+            if verdict == "READY" and d["rollback_ready"]["status"] not in ROLLBACK_OK:
+                verdict = d["rollback_ready"]["status"]
         # BUG-QA-102: nothing after a non-READY b0 may report READY (an operator running READY items one by one
         # would otherwise swap span with no bridge).
         if it.action == "bridge_verify":
@@ -957,15 +1055,17 @@ def dry_run(spark, cur=None, verbose: bool = True, partial_cutover: bool = False
             verdict = "WAITS_UPSTREAM"
         if it.action in ("promote", "conditional_promote", "bridge_verify") and verdict not in ("READY", "SKIPPED_CONDITIONAL", *PARTIAL_OK_VERDICTS):
             upstream_ok = False
+        if d["live_type"] == "MANAGED" and d["v3_restore"] is not None:
+            d["gate0_readable"] = version_readable(spark, it.live, d["v3_restore"])  # BUG-QA-106
         if d.get("live_drift"):
-            d["gate0_restore_sql"] = gate0_restore_sql(it, d["v3_restore"])
+            d["gate0_restore_sql"] = gate0_restore_sql(it, d["v3_restore"], d.get("gate0_readable", {}).get("readable"))
         if it.action == "bridge_verify":  # P71: read-only verification, nothing to roll back
             f = Finding(it, verdict, d, bridge_plan_sql(bridge.get("consumers"), bridge_decision(partial_cutover)), [])
         elif pv is not None:  # kept on v3: no promote, nothing to roll back
             f = Finding(it, verdict, d, partial_sql(it, partial_cutover), [])
         else:
-            f = Finding(it, verdict, d, promote_sql(it, d.get("cand_fp", {}).get("status")),
-                        rollback_sql(it, d["v3_pin"]))
+            f = Finding(it, verdict, d, promote_sql(it, d.get("cand_fp", {}).get("status")), rb_plan,
+                        backup_sql(it, d["v3_pin"]))
         out.append(f)
     if verbose:
         print_report(out, cur)
@@ -990,6 +1090,10 @@ def summary(findings: list, cur=None) -> dict:
         "blocking": len(blocking),
         "go_decision": _decided(cur, GO_DECISION),
         "v3_drift": [f.item.live for f in findings if f.details.get("live_drift")],
+        "rollback_ready": sum(f.details.get("rollback_ready", {}).get("status") in ROLLBACK_OK for f in findings),
+        "rollback_not_ready": [f.item.live for f in findings
+                               if f.details.get("rollback_ready", {}).get("status", "N/A") not in (*ROLLBACK_OK, "N/A")],
+        "gate0_unreadable": [f.item.live for f in findings if f.details.get("gate0_readable", {}).get("readable") is False],
         "cutover_ready": not blocking and _decided(cur, GO_DECISION) and (not partial or _decided(cur, PARTIAL_DECISION)),
     }
 
@@ -1004,7 +1108,11 @@ def print_report(findings: list, cur=None) -> None:
               f"live_dv={d.get('live_data_ver')} "
               f"draft_pin={d.get('draft_pin')}({d.get('draft_status')}) cand_dv={d.get('cand_data_ver')} "
               f"comments={d.get('v3_comment_rows')} gates={d.get('open_gate_tasks')} "
-              f"live_fp={d.get('live_fp', {}).get('status')} cand_fp={d.get('cand_fp', {}).get('status')}")
+              f"live_fp={d.get('live_fp', {}).get('status')} cand_fp={d.get('cand_fp', {}).get('status')} "
+              f"rollback={d.get('rollback_ready', {}).get('status')} "
+              f"gate0_readable={d.get('gate0_readable', {}).get('readable')}")
+        for s in f.backup_sql:
+            print("      BACKUP   :", s)
         for s in f.sql:
             print("      WOULD RUN:", s)
         for s in f.rollback_sql:

@@ -123,16 +123,85 @@ def test_p65_only_fp_pass_is_non_blocking():
 
 
 def test_p65_no_freeze_pin_time_travel_left_in_runbook():
-    """Only the rollback RESTORE (to the pre-cutover version captured at swap time) may use VERSION AS OF."""
+    """Only the gate-0 RESTORE, its readability probe and the tt-scan token list may mention VERSION AS OF."""
     code = [ln for ln in SRC.splitlines() if "VERSION AS OF" in ln.upper()]
     offenders = [ln for ln in code if "RESTORE TABLE" not in ln and "VERSION AS OF pins" not in ln
-                 and "VERSION AS OF freeze pin" not in ln]
+                 and "VERSION AS OF freeze pin" not in ln and "readability probe" not in ln
+                 and "tt-scan" not in ln]
     assert offenders == [], offenders
     assert "PIN_DRIFT" not in SRC.split("def dry_run")[1]
+
+
+# ---------------------------------------------------------------- BUG-QA-106 rollback readability
+_PROMOTES = [i for i in rb.RUNBOOK if i.action in ("promote", "conditional_promote")]
+
+
+def test_bug_qa_106_rollback_never_time_travels():
+    """ROLLBACK must not depend on a time-travel target (any superseded version >168h old is unreadable)."""
+    assert _PROMOTES
     for it in rb.RUNBOOK:
+        for pin in (9, None):
+            rs = rb.rollback_sql(it, pin)
+            assert not rb.uses_time_travel(rs), (it.live, rs)
+            assert not any(s.upper().startswith("RESTORE") for s in rs), (it.live, rs)
+
+
+def test_bug_qa_106_rollback_restores_from_fingerprinted_deep_clone():
+    for it in _PROMOTES:
+        bak = f"{rb.FQ}.`{it.live}{rb.ROLLBACK_BACKUP_SUFFIX}`"
+        live = f"{rb.FQ}.`{it.live}`"
+        bs = rb.backup_sql(it, 9)
+        writes = [s for s in bs if not s.startswith("--")]
+        assert writes == [f"CREATE OR REPLACE TABLE {bak} DEEP CLONE {live}"], writes
+        # DEC-46: tagging is gated on P4-ADD-TAG-VALUE, so it stays a comment until then
+        assert any(s.startswith("-- tag") and rb.TAG_GATE_TASK in s and "SET TAGS ('telco_project'" in s for s in bs)
+        assert any(s.startswith("-- verify (fail closed)") and rb.FP_GATE_TABLE in s and "ABORT" in s for s in bs)
+        assert not rb.uses_time_travel(bs)
         rs = rb.rollback_sql(it, 9)
-        assert all("<pre-cutover live version captured immediately before the swap>" in s
-                   for s in rs if s.startswith("RESTORE"))
+        assert rs[0].startswith(f"CREATE OR REPLACE TABLE {live} DEEP CLONE {bak}"), rs
+        assert rs[1].startswith("-- verify (fail closed)") and "freeze_v3_comment_snapshot" in rs[2]
+        # new-in-v4 objects have no backup; rollback drops them
+        assert rb.backup_sql(it, None) == [] and rb.rollback_sql(it, None)[0].startswith("DROP TABLE IF EXISTS")
+    assert "physical_resource_span__v3_rollback".endswith(rb.BRIDGE_SCAN_EXEMPT_SUFFIXES)  # DEC-46 staging
+    assert rb.ROLLBACK_DECISION == "DEC-PRI-V4-ROLLBACK-DEEP-CLONE-BACKUP"
+    view = next(i for i in rb.RUNBOOK if i.action == "repoint_view")
+    assert rb.backup_sql(view, 9) == [] and all(s.startswith("--") for s in rb.rollback_sql(view, 9))
+
+
+def test_bug_qa_106_rollback_readiness_fail_closed():
+    it = next(i for i in rb.RUNBOOK if i.live == "physical_resource_span")
+    ok = rb.rollback_readiness(it, 20, "MANAGED", rb.rollback_sql(it, 20), 190.0)
+    assert ok["status"] == "ROLLBACK_READY_CLONE" and ok["backup"] == "physical_resource_span__v3_rollback"
+    assert ok["time_travel_rollback_would_fail"] is True
+    tt = ["RESTORE TABLE x TO " + "VERSION AS OF 19"]
+    assert rb.rollback_readiness(it, 20, "MANAGED", tt)["status"] == "ROLLBACK_TIME_TRAVEL"
+    assert rb.rollback_readiness(it, 20, None, rb.rollback_sql(it, 20))["status"] == "ROLLBACK_NO_LIVE"
+    assert rb.rollback_readiness(it, None, None, rb.rollback_sql(it, None))["status"] == "ROLLBACK_DROP_NEW"
+    for bad in ("ROLLBACK_TIME_TRAVEL", "ROLLBACK_NO_LIVE"):
+        f = rb.Finding(it, bad, {"rollback_ready": {"status": bad}})
+        s = rb.summary([f])
+        assert s["blocking"] == 1 and s["rollback_not_ready"] == ["physical_resource_span"], s
+    s = rb.summary([rb.Finding(it, "READY", {"rollback_ready": ok})])
+    assert s["blocking"] == 0 and s["rollback_ready"] == 1 and s["rollback_not_ready"] == []
+
+
+def test_bug_qa_106_gate0_unreadable_restore_version_fails_closed():
+    it = next(i for i in rb.RUNBOOK if i.live == "hazard_span_intersection")
+    rs = rb.gate0_restore_sql(it, 23, readable=False)
+    assert len(rs) == 1 and rs[0].startswith("--") and "NOT time-travelable" in rs[0] and "fail closed" in rs[0]
+    assert rb.gate0_restore_sql(it, 24, readable=True)[0].startswith("RESTORE TABLE")
+    s = rb.summary([rb.Finding(it, "READY", {"gate0_readable": {"readable": False}})])
+    assert s["gate0_unreadable"] == ["hazard_span_intersection"]
+
+
+def test_bug_qa_106_version_readable_probe_fails_closed():
+    class _Boom:
+        def sql(self, *a, **k):
+            raise RuntimeError("DELTA_UNSUPPORTED_TIME_TRAVEL_BEYOND_DELETED_FILE_RETENTION_DURATION")
+    r = rb.version_readable(_Boom(), "hazard_span_intersection", 23)
+    assert r["readable"] is False and "RETENTION" in r["error"]
+    assert rb.version_readable(_Boom(), "x", None)["readable"] is False
+    assert rb.latest_commit_age_h(_Boom(), "x") is None
 
 
 def test_p65_checklist_rebaseline_and_qa_gates():
