@@ -943,6 +943,39 @@ def test_bug_qa_104_injected_bb_key_in_candidate_fails_closed():
     assert rb.cand_fk_check(sp, {}) == {"span_source": rb.SPAN_V4, "span_cols": [], "orphans": {}}
 
 
+def test_bug_qa_107_cand_fk_targets_include_non_managed_candidates():
+    items = rb.runbook_items()
+    srp, hsi = "span_risk_predictions_v4_candidate", "hazard_span_intersection_v4_candidate"
+    for t in ("VIEW", "MATERIALIZED_VIEW", "METRIC_VIEW", "EXTERNAL", "STREAMING_TABLE"):
+        objs = {i.candidate: "MANAGED" for i in items if i.candidate}
+        objs[srp] = t
+        assert srp in rb.cand_fk_targets(items, objs), t  # was skipped (fail-open) before BUG-QA-107
+    objs = {i.candidate: "MANAGED" for i in items if i.candidate}
+    objs.pop(srp)
+    assert srp not in rb.cand_fk_targets(items, objs) and hsi in rb.cand_fk_targets(items, objs)  # missing -> MISSING_CANDIDATE
+
+
+class _HalfBoomSpark(_CandSpark):
+    """Orphan scan raises for one table (e.g. an unscannable MV/metric view); the others read fine."""
+    def __init__(self, cols, orphans, bad):
+        super().__init__(cols, orphans)
+        self.bad = bad
+
+    def sql(self, q, args=None):
+        if f"`{self.bad}` c" in q:
+            raise RuntimeError("METRIC_VIEW_NOT_SCANNABLE")
+        return super().sql(q, args)
+
+
+def test_bug_qa_107_unscannable_candidate_fails_closed_per_table():
+    srp, hsp = "span_risk_predictions_v4_candidate", "hazard_span_proximity_v4_candidate"
+    c = rb.cand_fk_check(_HalfBoomSpark({srp: {"span_id"}, hsp: {"span_id"}}, {}, bad=srp), {srp: False, hsp: False})
+    assert "error" not in c and "error" in c["orphans"][srp]
+    assert rb.cand_fk_verdict(c, srp) == "CAND_FK_UNREADABLE"
+    assert rb.cand_fk_verdict(c, hsp) is None  # a clean sibling is not masked by the bad one
+    assert rb.cand_fk_verdict({"span_cols": [srp], "orphans": {srp: {"keys": 0}}}, srp) == "CAND_FK_UNREADABLE"
+
+
 def test_bug_qa_104_dry_run_full_mode_cand_fk_orphans_block(monkeypatch):
     srp, hsi = "span_risk_predictions_v4_candidate", "hazard_span_intersection_v4_candidate"
     seen = _dry_run_fixture(monkeypatch, {"span_cols": [srp, hsi],

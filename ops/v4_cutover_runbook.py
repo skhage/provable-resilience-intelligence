@@ -1015,10 +1015,13 @@ def cand_fk_orphan_sql(candidate: str, span_source: str = SPAN_V4, allow_bridge:
 
 
 def cand_fk_targets(items, objs: dict, partial_cutover: bool = False) -> dict:
-    """Pure: {candidate: allow_bridge} for every promoted (not kept) MANAGED candidate, span candidate excluded."""
+    """Pure: {candidate: allow_bridge} for every promoted (not kept) candidate that EXISTS in UC, whatever its
+    table_type (MANAGED/EXTERNAL/VIEW/MATERIALIZED_VIEW/METRIC_VIEW/...). Span candidate excluded.
+    BUG-QA-107: filtering on MANAGED let a VIEW/MV candidate skip the gate (fail-open). A candidate that cannot
+    be scanned now fails closed per table (CAND_FK_UNREADABLE). Missing candidates stay MISSING_CANDIDATE."""
     return {it.candidate: it.live in FULL_MODE_PROVISIONAL for it in items
             if it.action in ("promote", "conditional_promote") and it.candidate and it.candidate != SPAN_V4
-            and objs.get(it.candidate) == "MANAGED" and not (partial_cutover and it.live in PARTIAL_KEEP_V3)}
+            and objs.get(it.candidate) is not None and not (partial_cutover and it.live in PARTIAL_KEEP_V3)}
 
 
 def cand_fk_check(spark, targets: dict, span_source: str = SPAN_V4) -> dict:
@@ -1034,8 +1037,11 @@ def cand_fk_check(spark, targets: dict, span_source: str = SPAN_V4) -> dict:
         ).collect()
         out["span_cols"] = sorted({r.table_name for r in rows if r.column_name.lower() == "span_id"} & set(targets))
         for t in out["span_cols"]:
-            r = spark.sql(cand_fk_orphan_sql(t, span_source, targets[t])).first()
-            out["orphans"][t] = {"rows": int(r.n), "keys": int(r.k), "allow_bridge": bool(targets[t])}
+            try:  # BUG-QA-107: per-table, so one unscannable VIEW/MV fails closed without masking the others
+                r = spark.sql(cand_fk_orphan_sql(t, span_source, targets[t])).first()
+                out["orphans"][t] = {"rows": int(r.n), "keys": int(r.k), "allow_bridge": bool(targets[t])}
+            except Exception as e:  # noqa: BLE001 - fail closed for this table
+                out["orphans"][t] = {"error": str(e)[:200], "allow_bridge": bool(targets[t])}
     except Exception as e:  # noqa: BLE001 - fail closed on any read error
         out["error"] = str(e)[:200]
     return out
@@ -1048,7 +1054,7 @@ def cand_fk_verdict(c: dict | None, candidate: str) -> str | None:
     if candidate not in c.get("span_cols", ()):
         return None
     o = c.get("orphans", {}).get(candidate)
-    if o is None:
+    if o is None or o.get("error") or "rows" not in o:
         return "CAND_FK_UNREADABLE"
     return "CAND_FK_ORPHANS" if o.get("rows", 1) != 0 else None
 
