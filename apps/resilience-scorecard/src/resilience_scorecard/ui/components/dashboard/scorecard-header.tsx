@@ -75,6 +75,8 @@ function ScorecardHeaderContent() {
   const critical = v4Kpis ? formatKpiCount(summary.critical_count) : summary.critical_count;
   // BUG-DW-123 (§7.7 #4): High Risk uses the same thousands formatting as Critical under the flag.
   const highRisk = v4Kpis ? formatKpiCount(summary.high_risk_count) : summary.high_risk_count;
+  // BUG-DW-126: Medium Risk follows the same pattern so the count row never mixes formats.
+  const mediumRisk = v4Kpis ? formatKpiCount(summary.medium_risk_count) : summary.medium_risk_count;
 
   return (
     <div className="kpi-row">
@@ -116,9 +118,9 @@ function ScorecardHeaderContent() {
         <div className="kpi-value">{highRisk}</div>
       </div>
       <div className="kpi-card warning"
-           role="group" aria-label={`Medium Risk: ${summary.medium_risk_count}`}>
+           role="group" aria-label={`Medium Risk: ${mediumRisk}`}>
         <div className="kpi-label">Medium Risk</div>
-        <div className="kpi-value">{summary.medium_risk_count}</div>
+        <div className="kpi-value">{mediumRisk}</div>
       </div>
       <div className="kpi-card success"
            role="group" aria-label={`Low Risk: ${summary.low_risk_count}`}>
