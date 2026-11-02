@@ -45,6 +45,13 @@ import {
   focusRequestFor,
   type FocusContext,
 } from "@/lib/action-queue-focus";
+import {
+  statusLabel,
+  statusToast,
+  formatHazardTime,
+  actionKpiSkeletonCount,
+  ACTION_QUEUE_LOAD_ERROR,
+} from "@/lib/action-queue-copy";
 
 /** Lucide icon per action type — brand guide §6: 1.5px stroke, 16px inline */
 const ICON_PROPS = { size: 16, strokeWidth: 1.5, "aria-hidden": true as const } as const;
@@ -295,8 +302,9 @@ function ActionTableContent() {
         });
         queryClient.invalidateQueries({ queryKey: ["getActionSummary"] });
         queryClient.invalidateQueries({ queryKey: ["getMrcProtected"] });
-        const label = variables.data.status.replace("_", " ");
-        addToast(`Action updated to ${label}`);
+        // BUG-DW-104 (1): one label map for filter, badge and toast.
+        const serviceName = actions.find((x) => x.action_id === variables.actionId)?.service_name;
+        addToast(statusToast(variables.data.status, serviceName));
       },
       onError: (_err, variables) => {
         // Button was never disabled, so focus stays on it; nothing to restore.
@@ -335,7 +343,7 @@ function ActionTableContent() {
             onClick={() => changeFilter(s)}
             aria-pressed={requestedFilter === s}
           >
-            {s ? s.replace("_", " ") : "All"}
+            {statusLabel(s)}
           </button>
         ))}
       </div>
@@ -391,7 +399,8 @@ function ActionTableContent() {
                   <Fragment key={a.action_id}>
                     <tr>
                       <td>
-                        <span title={a.action_type} className="action-type-cell">
+                        {/* BUG-DW-104 (2): no native title; it duplicated the visible label in snake_case. */}
+                        <span className="action-type-cell">
                           {(() => {
                             const Icon = ACTION_TYPE_ICONS[a.action_type] ?? HelpCircle;
                             return <Icon {...ICON_PROPS} />;
@@ -408,7 +417,9 @@ function ActionTableContent() {
                             aria-expanded={isExpanded}
                             aria-label={`${isExpanded ? "Collapse" : "Expand"} hazard details for ${a.service_name}`}
                           >
-                            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            {isExpanded
+                              ? <ChevronUp size={14} strokeWidth={1.5} aria-hidden="true" />
+                              : <ChevronDown size={14} strokeWidth={1.5} aria-hidden="true" />}
                           </button>
                         )}
                       </td>
@@ -418,7 +429,7 @@ function ActionTableContent() {
                       </td>
                       <td>
                         <span className={`badge ${a.status}`}>
-                          {a.status.replace("_", " ")}
+                          {statusLabel(a.status)}
                         </span>
                       </td>
                       <td>{a.assigned_to ?? "—"}</td>
@@ -494,7 +505,7 @@ function ActionTableContent() {
                                 <div className="detail-label">Last Update</div>
                                 <div className="detail-value">
                                   <time dateTime={String(a.hazard_last_update)}>
-                                    {new Date(String(a.hazard_last_update)).toLocaleString()}
+                                    {formatHazardTime(a.hazard_last_update)}
                                   </time>
                                 </div>
                               </div>
@@ -540,7 +551,8 @@ function ActionTableContent() {
                     aria-disabled={atFirst || undefined}
                     aria-label="Previous page"
                   >
-                    ‹ Prev
+                    {/* BUG-DW-104 (3) WCAG 2.5.3: visible 'Previous' is inside the name 'Previous page'. */}
+                    <span aria-hidden="true">‹</span> Previous
                   </button>
                   <span>Page {safeCurrentPage} of {totalPages}</span>
                   <button
@@ -549,7 +561,7 @@ function ActionTableContent() {
                     aria-disabled={atLast || undefined}
                     aria-label="Next page"
                   >
-                    Next ›
+                    Next <span aria-hidden="true">›</span>
                   </button>
                 </div>
               </nav>
@@ -590,14 +602,17 @@ function ActionTableContent() {
 }
 
 export function ActionQueueTable() {
+  // BUG-DW-104 (7): match the resolved KPI row (5 cards with the v4 MRC card) to avoid reflow.
+  const skeletonCards = actionKpiSkeletonCount(useV4Kpis());
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
         <ErrorBoundary
           onReset={reset}
           fallbackRender={({ resetErrorBoundary }) => (
-            <div className="error-fallback">
-              <p>Failed to load action queue</p>
+            // BUG-DW-104 (5) WCAG 4.1.3: announced on mount.
+            <div className="error-fallback" role="alert">
+              <p>{ACTION_QUEUE_LOAD_ERROR}</p>
               <button className="btn btn-outline" onClick={resetErrorBoundary}>
                 Retry
               </button>
@@ -608,7 +623,7 @@ export function ActionQueueTable() {
             fallback={
               <LoadingRegion label="Loading action queue">
                 <div className="kpi-row">
-                  {Array.from({ length: 4 }).map((_, i) => (
+                  {Array.from({ length: skeletonCards }).map((_, i) => (
                     <Skeleton key={i} className="h-24 w-full rounded-lg" />
                   ))}
                 </div>

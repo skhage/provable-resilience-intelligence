@@ -304,7 +304,8 @@ body {
 .badge.pending { background: #FEF3C7; color: #92400E; }
 .badge.in_progress { background: #DBEAFE; color: #1E40AF; }
 .badge.completed { background: #DCFCE7; color: #166534; }
-.badge.cancelled { background: var(--lf-platinum); color: var(--lf-iron); }
+/* BUG-DW-104 (8): platinum fill vanishes on even (platinum) zebra rows; 3.0:1 outline keeps the shape (same fix as BUG-DW-091 cov-inv). */
+.badge.cancelled { background: var(--lf-platinum); color: var(--lf-iron); border-color: var(--lf-platinum-shade); }
 
 /* Hazard type badges (HAZARD-VIS-SPEC §2) — tinted-bg + dark-text for WCAG AA */
 .badge.severe_weather { background: #FFF7ED; color: #7C2D12; } /* 8.83:1 ✅ AAA */
@@ -771,6 +772,14 @@ select:focus-visible,
 
 .expand-toggle:hover {
   background: rgba(0, 98, 114, 0.08);
+}
+
+/* BUG-DW-104 (4): house mobile touch-target rule (44x44px, same as .btn and pagination). */
+@media (max-width: 767px) {
+  .expand-toggle {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 /* === Pagination (UX-REM-TABLE-UX) === */

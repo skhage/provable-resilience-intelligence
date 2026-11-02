@@ -7,7 +7,7 @@
  * - dispatch: send field crew to inspect at-risk span
  * - notify: alert customer about potential service impact
  *
- * Status transitions: pending → in_progress → completed | dismissed
+ * Status transitions: pending → in_progress → completed | cancelled
  * Header/nav/skip-nav live in __root.tsx (UX-REM-LAYOUT-ROOT).
  */
 import { createFileRoute } from "@tanstack/react-router";
