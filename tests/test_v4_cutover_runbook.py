@@ -1031,7 +1031,22 @@ def test_bug_qa_104_injected_bb_key_in_candidate_fails_closed():
     assert "error" in boom and rb.cand_fk_verdict(boom, cond) == "CAND_FK_UNREADABLE"
     assert rb.cand_fk_verdict(None, srp) == "CAND_FK_UNREADABLE"
     assert rb.cand_fk_verdict({"span_cols": [srp], "orphans": {}}, srp) == "CAND_FK_UNREADABLE"  # unchecked
-    assert rb.cand_fk_check(sp, {}) == {"span_source": rb.SPAN_V4, "span_cols": [], "orphans": {}}
+    assert rb.cand_fk_check(sp, {}) == {"span_source": rb.SPAN_V4, "span_cols": [], "orphans": {}, "no_cols": []}
+
+
+def test_bug_qa_109_target_with_zero_column_rows_fails_closed():
+    """A target present in UC but with 0 information_schema.columns rows cannot be proven span_id-free."""
+    srp, hsp, cond = "span_risk_predictions_v4_candidate", "hazard_span_proximity_v4_candidate", rb._c("physical_resource_conduit")
+    # QA repro: every query returns [] -> was {'span_cols': [], 'orphans': {}} -> verdict None (fail-open)
+    empty = rb.cand_fk_check(_CandSpark({}, {}), {srp: False})
+    assert empty["no_cols"] == [srp] and rb.cand_fk_verdict(empty, srp) == "CAND_FK_UNREADABLE"
+    # Mixed: srp has no column rows; hsp clean with span_id; cond has columns but no span_id -> both still pass
+    sp = _CandSpark({hsp: {"span_id"}, cond: {"conduit_id"}}, {})
+    c = rb.cand_fk_check(sp, {srp: False, hsp: False, cond: False})
+    assert c["no_cols"] == [srp] and "error" not in c
+    assert rb.cand_fk_verdict(c, srp) == "CAND_FK_UNREADABLE"
+    assert rb.cand_fk_verdict(c, hsp) is None and rb.cand_fk_verdict(c, cond) is None  # siblings not masked
+    assert not any(f"`{srp}` c" in q for q in sp.sql_log)  # no orphan scan attempted for the unprovable target
 
 
 def test_bug_qa_107_cand_fk_targets_include_non_managed_candidates():

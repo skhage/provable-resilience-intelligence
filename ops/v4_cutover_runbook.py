@@ -1105,8 +1105,10 @@ def cand_fk_targets(items, objs: dict, partial_cutover: bool = False) -> dict:
 
 
 def cand_fk_check(spark, targets: dict, span_source: str = SPAN_V4) -> dict:
-    """Read-only: which targets have span_id, and their orphan counts. Never raises (error -> fail closed)."""
-    out = {"span_source": span_source, "span_cols": [], "orphans": {}}
+    """Read-only: which targets have span_id, and their orphan counts. Never raises (error -> fail closed).
+    BUG-QA-109: a target that returns 0 information_schema.columns rows (broken view, permission-filtered columns,
+    info_schema lag) cannot be proven span_id-free, so it is listed in out['no_cols'] and fails closed."""
+    out = {"span_source": span_source, "span_cols": [], "orphans": {}, "no_cols": []}
     if not targets:
         return out
     try:
@@ -1116,6 +1118,7 @@ def cand_fk_check(spark, targets: dict, span_source: str = SPAN_V4) -> dict:
             f"WHERE c.table_schema = '{SCHEMA}' AND c.table_name IN ({in_list})"
         ).collect()
         out["span_cols"] = sorted({r.table_name for r in rows if r.column_name.lower() == "span_id"} & set(targets))
+        out["no_cols"] = sorted(set(targets) - {r.table_name for r in rows})  # BUG-QA-109: unprovable -> fail closed
         for t in out["span_cols"]:
             try:  # BUG-QA-107: per-table, so one unscannable VIEW/MV fails closed without masking the others
                 r = spark.sql(cand_fk_orphan_sql(t, span_source, targets[t])).first()
@@ -1130,6 +1133,8 @@ def cand_fk_check(spark, targets: dict, span_source: str = SPAN_V4) -> dict:
 def cand_fk_verdict(c: dict | None, candidate: str) -> str | None:
     """Pure, fail closed. None = no candidate FK issue (no span_id column, or 0 orphans)."""
     if c is None or c.get("error"):
+        return "CAND_FK_UNREADABLE"
+    if candidate in c.get("no_cols", ()):  # BUG-QA-109: 0 column rows -> span_id absence not provable
         return "CAND_FK_UNREADABLE"
     if candidate not in c.get("span_cols", ()):
         return None
