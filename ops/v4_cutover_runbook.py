@@ -12,9 +12,19 @@ DESCRIBE HISTORY, demo_freeze_manifest, freeze_v3_comment_snapshot and Lakebase
 statement from the plan. `execute()` refuses unless ALL of these hold:
   * write_enabled=True is passed explicitly, AND
   * env PRI_V4_CUTOVER_WRITE == "1", AND
-  * Lakebase decisions has DEC-PRI-V4-CUTOVER-GO with status 'decided', AND
-  * the dry-run report shows every promotable step READY (no BLOCKED / MISSING / DRIFT).
+  * Lakebase decisions has the GO code for the mode with status 'decided': DEC-PRI-V4-CUTOVER-GO-PARTIAL (DEC-50)
+    for partial_cutover=True, DEC-PRI-V4-CUTOVER-GO for FULL (not recorded; deferred to v4.1 per DEC-52), AND
+  * the dry-run report shows every promotable step READY (no BLOCKED / MISSING / DRIFT), AND
+  * (P88 / DEC-52 item 4) an explicit CEO authorization naming P81-DEVOPS-PARTIAL-CUTOVER-EXECUTE exists.
 Until @pm records the GO decision, nothing in this file can write to a v3 FROZEN object.
+
+P88-DEVOPS-EXECUTE-IMPL-GO-CODE (DEC-PRI-V4-CUTOVER-EXECUTE-IMPL-AUTH, id 52): execute() now has a write path.
+In manifest order, per READY promote/repoint item: candidate fingerprint gate FP_PASS (re-checked right before the
+swap), DEC-46 backup fingerprint verify, CREATE OR REPLACE, post-swap fingerprint, v3 + v4 comment re-apply and
+the BUG-QA-108 coverage check, post-span bridge FK gate. The FIRST failure stops the run and restores every swapped
+object from <name>__v3_rollback (reverse order). Kept v3 objects are never written (DEC-48): their PROVISIONAL label
+is an execution-log row, and their v3 fingerprint is re-checked after the swap window. Every step writes a row to
+the Lakebase table cutover_execution_log; a re-run with the same run_id resumes after the PROMOTED objects.
 
 P65-DEVOPS-RUNBOOK-PIN-GATES (DEC-PRI-V4-PIN-FINGERPRINT-GATES, id 40): Delta 7-day retention expires
 the freeze VERSION AS OF pins before the 11-02 cutover, so NO freeze check in this runbook uses time
@@ -76,7 +86,15 @@ SUFFIX = "_v4_candidate"
 V3 = "PRI-DEMO-FREEZE-v3"
 V4_DRAFT = "PRI-DEMO-FREEZE-v4-DRAFT"
 V4 = "PRI-DEMO-FREEZE-v4"
-GO_DECISION = "DEC-PRI-V4-CUTOVER-GO"
+GO_DECISION = "DEC-PRI-V4-CUTOVER-GO"  # FULL path only; not recorded in Lakebase (deferred to v4.1, DEC-52)
+GO_PARTIAL_DECISION = "DEC-PRI-V4-CUTOVER-GO-PARTIAL"  # DEC-50 (id 50): GO for partial_cutover=True (DEC-52 item 1)
+
+
+def go_decision(partial_cutover: bool = False) -> str:
+    """P88 / DEC-52: the GO code execute() and summary() require for this mode."""
+    return GO_PARTIAL_DECISION if partial_cutover else GO_DECISION
+
+
 # P65: pin-free equivalence gates (replace every VERSION AS OF freeze pin check).
 FP_DECISION = "DEC-PRI-V4-PIN-FINGERPRINT-GATES"
 FP_GATE_TABLE = "freeze_pin_fingerprint_gate"
@@ -202,7 +220,7 @@ def checklist_status(cur) -> list:
     for order, phase, owner, action, gates in CHECKLIST:
         g = {c: status.get(c, "UNKNOWN") for c in gates}
         if order == 11:  # GO is a Lakebase decision, not a task
-            done = _decided(cur, GO_DECISION)
+            done = _decided(cur, GO_DECISION) or _decided(cur, GO_PARTIAL_DECISION)  # P88: either mode's GO
         else:  # no gate task = manual step, never auto-DONE (DEC-* gates alone do not count as a task)
             done = any(not c.startswith("DEC-") for c in g) and all(v == "completed" for v in g.values())
         out.append({"order": order, "phase": phase, "owner": owner, "action": action, "gates": g, "done": done})
@@ -1377,7 +1395,7 @@ def summary(findings: list, cur=None) -> dict:
                                 for f in findings if f.item.action == "bridge_verify"), None),
         "ready": sum(f.verdict == "READY" for f in findings),
         "blocking": len(blocking),
-        "go_decision": _decided(cur, GO_DECISION),
+        "go_decision": _decided(cur, go_decision(partial)),  # P88: mode-specific GO code (DEC-52)
         "v3_drift": [f.item.live for f in findings if f.details.get("live_drift")],
         "rollback_ready": sum(f.details.get("rollback_ready", {}).get("status") in ROLLBACK_OK for f in findings),
         "rollback_not_ready": [f.item.live for f in findings
@@ -1386,7 +1404,8 @@ def summary(findings: list, cur=None) -> dict:
         # P79: informational (non-blocking for the cutover; backup_sql() precedes every swap)
         "pin_commit_blocked": [f.item.live for f in findings
                                if f.details.get("pin_guard", {}).get("commit_guard") == PIN_BLOCK],
-        "cutover_ready": not blocking and _decided(cur, GO_DECISION) and (not partial or _decided(cur, PARTIAL_DECISION)),
+        "cutover_ready": (not blocking and _decided(cur, go_decision(partial))
+                          and (not partial or _decided(cur, PARTIAL_DECISION))),
     }
 
 
@@ -1434,19 +1453,369 @@ class CutoverRefused(RuntimeError):
     pass
 
 
-def execute(spark, cur, write_enabled: bool = False, partial_cutover: bool = False):
-    """Refuses unless explicitly enabled, env-armed, GO-decided and fully READY.
+class CutoverAborted(RuntimeError):
+    """P88: a write step failed mid-run. Every swapped object was rolled back; .report has the per-object outcome."""
 
-    P68: partial_cutover=True (default OFF) additionally requires a decided DEC-41 (PARTIAL_DECISION).
+    def __init__(self, msg: str, report: dict | None = None):
+        super().__init__(msg)
+        self.report = report or {}
+
+
+# P88-DEVOPS-EXECUTE-IMPL-GO-CODE (DEC-PRI-V4-CUTOVER-EXECUTE-IMPL-AUTH, id 52).
+EXECUTE_IMPL_DECISION = "DEC-PRI-V4-CUTOVER-EXECUTE-IMPL-AUTH"
+EXECUTE_TASK = "P81-DEVOPS-PARTIAL-CUTOVER-EXECUTE"  # DEC-52 item 4: the CEO authorization must name this task
+EXEC_ENV = "PRI_V4_CUTOVER_WRITE"
+EXEC_LOG_TABLE = "cutover_execution_log"  # Lakebase (task-board DB), one row per object per step
+EXEC_LOG_DDL = (f"CREATE TABLE IF NOT EXISTS {EXEC_LOG_TABLE} (id BIGSERIAL PRIMARY KEY, run_id TEXT NOT NULL, "
+                "step TEXT, object_name TEXT NOT NULL, action TEXT, status TEXT NOT NULL, detail TEXT, "
+                "created_at TIMESTAMPTZ NOT NULL DEFAULT now())")
+EXEC_PROMOTED = "PROMOTED"
+EXEC_ACTIONS = ("promote", "conditional_promote", "repoint_view")
+SPAN_LIVE = "physical_resource_span"
+
+
+def ceo_authorized(cur, task: str = EXECUTE_TASK) -> bool:
+    """DEC-52 item 4 (read-only): an active ceo_directives row, or a decided decisions row with decided_by='CEO',
+    that names the execution task code. A @pm decision does not count."""
+    if cur is None:
+        return False
+    cur.execute("SELECT 1 FROM ceo_directives WHERE is_active = TRUE AND position(%s in directive) > 0 LIMIT 1", (task,))
+    if cur.fetchone() is not None:
+        return True
+    cur.execute("SELECT 1 FROM decisions WHERE decided_by = 'CEO' AND status = 'decided' "
+                "AND position(%s in decision_text) > 0 LIMIT 1", (task,))
+    return cur.fetchone() is not None
+
+
+def strip_inline_comment(s: str) -> str:
+    """Pure: drop a trailing `-- ...` comment that sits outside a '...' literal (rollback_sql lines carry one, and it
+    can contain ';'). Executed statements are always comment-free."""
+    q = esc = False
+    for i, ch in enumerate(s):
+        if esc:
+            esc = False
+        elif ch == "\\" and q:
+            esc = True
+        elif ch == "'":
+            q = not q
+        elif not q and s.startswith("--", i):
+            return s[:i].rstrip()
+    return s.rstrip()
+
+
+def _plan_writes(sql: list) -> list:
+    """Executable statements of a plan (comment-only lines dropped, inline comments stripped)."""
+    return [strip_inline_comment(s) for s in sql if not s.lstrip().startswith("--")]
+
+
+def _has_bare_semicolon(s: str) -> bool:
+    """True if s has a ';' outside a '...' string literal (backslash escapes honoured)."""
+    q = esc = False
+    for ch in s:
+        if esc:
+            esc = False
+        elif ch == "\\" and q:
+            esc = True
+        elif ch == "'":
+            q = not q
+        elif ch == ";" and not q:
+            return True
+    return q  # an unterminated literal is rejected too
+
+
+def safe_comment_stmt(sql: str, live: str) -> str:
+    """Pure, fail closed. Accepts ONLY a single COMMENT ON TABLE / ALTER COLUMN ... COMMENT on this exact live table
+    (the freeze_v3_comment_snapshot.reapply_sql shape). Returns it without the trailing ';'."""
+    s = (sql or "").strip()
+    s = s[:-1].rstrip() if s.endswith(";") else s
+    t = f"{FQ}.`{live}`"
+    ok = (s.startswith(f"COMMENT ON TABLE {t} IS '") and s.endswith("'")) or (
+        s.startswith(f"ALTER TABLE {t} ALTER COLUMN `") and " COMMENT '" in s and s.endswith("'"))
+    if not ok or _has_bare_semicolon(s):
+        raise CutoverRefused(f"unsafe comment statement for {live}: {s[:160]}")
+    return s
+
+
+def column_comment_sql(live: str, column: str, comment: str) -> str:
+    col = str(column).replace("`", "``")
+    return f"ALTER TABLE {FQ}.`{live}` ALTER COLUMN `{col}` COMMENT {_lit(comment)}"
+
+
+_CREATE_VIEW = re.compile(r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+", re.I)
+
+
+def _or_replace_view(ddl: str) -> str:
+    if not _CREATE_VIEW.match(ddl or ""):
+        raise CutoverRefused(f"not a CREATE VIEW statement: {(ddl or '')[:120]}")
+    return _CREATE_VIEW.sub("CREATE OR REPLACE VIEW ", ddl, count=1)
+
+
+def repoint_view_sql(candidate_ddl: str, item: Item) -> str:
+    """Pure: SHOW CREATE TABLE of the candidate view with every *_v4_candidate reference rewritten to the live name.
+    Fails closed unless the result targets the live view and no candidate reference remains."""
+    out = re.sub(r"([A-Za-z0-9_$]+)" + re.escape(SUFFIX) + r"\b", r"\1", _or_replace_view(candidate_ddl))
+    head = out[:300].replace("`", "").lower()
+    if SUFFIX in out or f"{FQ}.{item.live}".lower() not in head:
+        raise CutoverRefused(f"repoint DDL for {item.live} does not target the live view cleanly")
+    return out
+
+
+def _show_create(spark, name: str) -> str:
+    return spark.sql(f"SHOW CREATE TABLE {FQ}.`{name}`").first()[0]
+
+
+def _reapply_rows(spark, live: str) -> list:
+    rows = spark.sql(
+        f"SELECT comment_level, column_name, reapply_sql FROM {FQ}.{V3_COMMENT_SNAPSHOT} "
+        "WHERE manifest_version = :v AND table_name = :t AND reapply_sql IS NOT NULL ORDER BY ordinal_position",
+        args={"v": V3, "t": live}).collect()
+    return [(r.comment_level, r.column_name, r.reapply_sql) for r in rows]
+
+
+def _column_comments(spark, name: str) -> list:
+    rows = spark.sql(
+        f"SELECT column_name, comment FROM {CATALOG}.information_schema.columns WHERE table_schema = '{SCHEMA}' "
+        f"AND table_name = :t AND {_HAS_COMMENT} ORDER BY ordinal_position", args={"t": name}).collect()
+    return [(r.column_name, r.comment) for r in rows]
+
+
+def _safe_fp(spark, name: str):
+    try:
+        return fingerprint(spark, name)
+    except Exception:  # noqa: BLE001 - fail closed (compare_fingerprint -> FP_UNREADABLE)
+        return None
+
+
+class _Armed:
+    """Write handle. Built only inside execute() after every gate passed. Every write goes through _write()."""
+
+    def __init__(self, spark, guard=None):
+        self.spark, self.guard, self.statements = spark, guard, []
+
+
+def _write(armed: _Armed, stmt: str):
+    if not isinstance(armed, _Armed):
+        raise CutoverRefused("write attempted outside an armed execute()")
+    if armed.guard is not None:
+        assert_commit_allowed(armed.spark, stmt, armed.guard)  # P79 / DEC-48: never commit to an unbacked pin
+    armed.statements.append(stmt)
+    return armed.spark.sql(stmt)
+
+
+def _commit(cur) -> None:
+    conn = getattr(cur, "connection", None)
+    if conn is not None and not getattr(conn, "autocommit", True):
+        conn.commit()
+
+
+def _log(cur, run_id: str, item: Item, status: str, detail: str = "") -> None:
+    cur.execute(f"INSERT INTO {EXEC_LOG_TABLE} (run_id, step, object_name, action, status, detail) "
+                "VALUES (%s, %s, %s, %s, %s, %s)", (run_id, item.step, item.live, item.action, status, str(detail)[:4000]))
+    _commit(cur)
+
+
+def _log_state(cur, run_id: str) -> dict:
+    """Latest logged status per object for this run (resume support)."""
+    cur.execute(f"SELECT DISTINCT ON (object_name) object_name, status FROM {EXEC_LOG_TABLE} WHERE run_id = %s "
+                "ORDER BY object_name, id DESC", (run_id,))
+    return dict(cur.fetchall())
+
+
+def execution_plan(findings: list, partial_cutover: bool = False) -> list:
+    """Pure: the findings execute() writes, in manifest order. READY promote/repoint items only. In partial mode a
+    PARTIAL_KEEP_V3 object is never in the plan (HSI / predictions v4 are PROVISIONAL / DEFERRED_V4_1)."""
+    plan = [f for f in findings if f.item.action in EXEC_ACTIONS and f.verdict == "READY"]
+    bad = [f.item.live for f in plan if partial_cutover and f.item.live in PARTIAL_KEEP_V3]
+    if bad:
+        raise CutoverRefused(f"partial plan contains PARTIAL_KEEP_V3 objects {bad}")
+    return plan
+
+
+def resume_blockers(findings: list, done: set) -> dict:
+    """Pure: summary-style blockers that remain once objects already PROMOTED in this run are set aside. A resumed
+    object's dry-run verdict (V3_FP_* after its swap) is re-verified separately; a repoint that only WAITS on those
+    objects is not blocking."""
+    ok = ("READY", "POST_CUTOVER", "REPORT_ONLY", "SKIPPED_CONDITIONAL", *PARTIAL_OK_VERDICTS)
+    blocking, other_block = [], False
+    for f in findings:
+        if f.item.live in done or f.verdict in ok:
+            continue
+        if f.verdict == "WAITS_UPSTREAM" and f.item.action == "repoint_view" and done and not other_block:
+            continue
+        blocking.append(f.item.live)
+        other_block = True
+    return {
+        "blocking": blocking,
+        "rollback_not_ready": [f.item.live for f in findings if f.item.live not in done
+                               and f.details.get("rollback_ready", {}).get("status", "N/A") not in (*ROLLBACK_OK, "N/A")],
+        "gate0_unreadable": [f.item.live for f in findings if f.item.live not in done
+                             and f.details.get("gate0_readable", {}).get("readable") is False],
+    }
+
+
+class _StepFailed(RuntimeError):
+    def __init__(self, reason: str, swapped: bool):
+        super().__init__(reason)
+        self.reason, self.swapped = reason, swapped
+
+
+def _reapply_v3_comments(armed: _Armed, live: str) -> dict:
+    cols = set(_columns(armed.spark, live))
+    applied, skipped = 0, []
+    for level, column, sql in _reapply_rows(armed.spark, live):
+        if level == "COLUMN" and column not in cols:
+            skipped.append(column)  # column not in the v4 schema
+            continue
+        _write(armed, safe_comment_stmt(sql, live))
+        applied += 1
+    return {"applied": applied, "skipped": skipped}
+
+
+def _swap(armed: _Armed, f: Finding, base: dict, view_ddl: dict) -> dict:
+    """One object. Raises _StepFailed (swapped=False before the CREATE OR REPLACE, True after)."""
+    it, spark = f.item, armed.spark
+    if it.action == "repoint_view":
+        view_ddl[it.live] = _show_create(spark, it.live) if f.details.get("live_type") else None
+        stmt = repoint_view_sql(_show_create(spark, it.candidate), it)
+        _write(armed, stmt)
+        cc = comment_coverage_check(spark, it.live, it.candidate)
+        if cc["status"] != COMMENTS_OK:
+            raise _StepFailed("VIEW_" + cc["status"], swapped=True)
+        return {"repointed": True, "comments": cc["status"]}
+    gate = fingerprint_gate(spark, it.candidate, V4_DRAFT, base)  # criterion 4: re-check right before the swap
+    if gate["status"] != "FP_PASS":
+        raise _StepFailed("CAND_" + gate["status"], swapped=False)
+    if f.details.get("v3_pin") is not None:
+        bak = rollback_backup_name(it.live)
+        if not any(f"`{bak}`" in s for s in _plan_writes(f.rollback_sql)):
+            raise _StepFailed("ROLLBACK_PLAN_NOT_CLONE", swapped=False)
+        bst = compare_fingerprint(_safe_fp(spark, bak), base.get((V3, it.live)))["status"]
+        if bst != "FP_PASS":  # the DEC-46 / BUG-QA-110 clone must equal the v3 baseline
+            raise _StepFailed("BACKUP_" + bst, swapped=False)
+    for stmt in _plan_writes(promote_sql(it, gate["status"])):
+        _write(armed, stmt)
+    post = compare_fingerprint(_safe_fp(spark, it.live), base.get((V4_DRAFT, it.candidate)))["status"]
+    if post != "FP_PASS":
+        raise _StepFailed("POST_SWAP_" + post, swapped=True)
+    v3c = _reapply_v3_comments(armed, it.live)
+    for column, comment in _column_comments(spark, it.candidate):  # v4 column comments win (DEC-PRI-FREEZE-COMMENTS)
+        _write(armed, column_comment_sql(it.live, column, comment))
+    cc = comment_coverage_check(spark, it.live, it.candidate)
+    if cc["status"] != COMMENTS_OK:
+        raise _StepFailed("POST_SWAP_" + cc["status"], swapped=True)
+    return {"fp": post, "v3_comments": v3c, "comments": cc["status"]}
+
+
+def _rollback_one(armed: _Armed, f: Finding, base: dict, view_ddl: dict) -> str:
+    it, spark = f.item, armed.spark
+    if it.action == "repoint_view":
+        old = view_ddl.get(it.live)
+        _write(armed, _or_replace_view(old) if old else f"DROP VIEW IF EXISTS {FQ}.`{it.live}`")
+        return "ROLLED_BACK"
+    for stmt in _plan_writes(f.rollback_sql):  # DEEP CLONE from <live>__v3_rollback, or DROP for v4-new tables
+        _write(armed, stmt)
+    if f.details.get("v3_pin") is None:
+        return "ROLLED_BACK"
+    st = compare_fingerprint(_safe_fp(spark, it.live), base.get((V3, it.live)))["status"]
+    if st != "FP_PASS":
+        return "ROLLBACK_FAILED_" + st
+    _reapply_v3_comments(armed, it.live)  # a DEEP CLONE drops the table COMMENT (BUG-QA-108)
+    cc = comment_coverage_check(spark, it.live)
+    return "ROLLED_BACK" if cc["status"] == COMMENTS_OK else "ROLLBACK_" + cc["status"]
+
+
+def _post_span_bridge(spark, partial_cutover: bool, findings: list) -> str:
+    """b0 FK gate re-run against the LIVE span right after step (b) (P71 / DEC-44/45)."""
+    sp_met = any(f.item.action == "conditional_promote" and f.verdict == "READY" for f in findings)
+    consumers = None if partial_cutover else bridge_consumers(False, sp_met)
+    b = bridge_check(spark, _objects(spark), span_source=SPAN_LIVE, consumers=consumers)
+    return bridge_verdict(b, True)
+
+
+def execute(spark, cur, write_enabled: bool = False, partial_cutover: bool = False, run_id: str | None = None,
+            pin_guard: bool = True) -> dict:
+    """Guarded cutover. Refuses unless explicitly enabled, env-armed, GO-decided for the mode (DEC-52), CEO-authorized
+    for P81 (DEC-52 item 4) and READY in a fresh dry run. P68: partial mode also needs DEC-41 (PARTIAL_DECISION).
+
+    Write path (P88): see the module docstring. run_id makes the run resumable: objects whose latest log row for
+    the run is PROMOTED are re-verified (live fingerprint == candidate baseline) and skipped.
     """
-    if not write_enabled or os.environ.get("PRI_V4_CUTOVER_WRITE") != "1":
-        raise CutoverRefused("write-disabled: pass write_enabled=True AND set PRI_V4_CUTOVER_WRITE=1")
-    if not _decided(cur, GO_DECISION):
-        raise CutoverRefused(f"no decided {GO_DECISION} row in Lakebase decisions")
+    if not write_enabled or os.environ.get(EXEC_ENV) != "1":
+        raise CutoverRefused(f"write-disabled: pass write_enabled=True AND set {EXEC_ENV}=1")
+    go = go_decision(partial_cutover)
+    if not _decided(cur, go):
+        raise CutoverRefused(f"no decided {go} row in Lakebase decisions")
     if partial_cutover and not _decided(cur, PARTIAL_DECISION):
         raise CutoverRefused(f"partial cutover needs a decided {PARTIAL_DECISION} row in Lakebase decisions")
-    findings = dry_run(spark, cur, verbose=False, partial_cutover=partial_cutover)
-    s = summary(findings, cur)
-    if not s["cutover_ready"]:
-        raise CutoverRefused(f"dry run not READY: {s}")
-    raise CutoverRefused("execution intentionally not implemented in P51; @pm must assign the cutover task")
+    if not _decided(cur, EXECUTE_IMPL_DECISION):
+        raise CutoverRefused(f"no decided {EXECUTE_IMPL_DECISION} row in Lakebase decisions")
+    if not ceo_authorized(cur):
+        raise CutoverRefused(f"no explicit CEO authorization naming {EXECUTE_TASK} (DEC-52 item 4)")
+    run_id = run_id or f"{EXECUTE_TASK}-{_dt.date.today().isoformat()}"
+    cur.execute(EXEC_LOG_DDL)
+    _commit(cur)
+    done = {o for o, st in _log_state(cur, run_id).items() if st == EXEC_PROMOTED}
+    findings = dry_run(spark, cur, verbose=False, partial_cutover=partial_cutover, pin_guard=False)
+    rb_state = resume_blockers(findings, done)
+    if any(rb_state.values()):
+        raise CutoverRefused(f"dry run not READY: {rb_state}")
+    base = _fp_baselines(spark)
+    resumed = []
+    for f in findings:
+        if f.item.live in done and f.item.action != "repoint_view":
+            st = compare_fingerprint(_safe_fp(spark, f.item.live), base.get((V4_DRAFT, f.item.candidate)))["status"]
+            if st != "FP_PASS":
+                raise CutoverRefused(f"resume: {f.item.live} is logged {EXEC_PROMOTED} but live fingerprint is {st}")
+        if f.item.live in done:
+            resumed.append(f.item.live)
+    plan = [f for f in execution_plan(findings, partial_cutover) if f.item.live not in done]
+    armed = _Armed(spark, pin_commit_guard(spark, check_po=False) if pin_guard else None)
+    report = {"run_id": run_id, "partial_cutover": partial_cutover, "go_decision": go, "resumed": resumed,
+              "promoted": [], "rolled_back": {}, "kept_v3_provisional": [], "failed": None}
+    swapped, view_ddl, current = [], {}, None
+    try:
+        for f in plan:
+            current = f
+            _log(cur, run_id, f.item, "STARTED")
+            try:
+                info = _swap(armed, f, base, view_ddl)
+            except _StepFailed as e:
+                if e.swapped:
+                    swapped.append(f)
+                raise
+            except Exception as e:  # noqa: BLE001 - any SQL error is a step failure (state unknown -> roll back)
+                swapped.append(f)
+                raise _StepFailed(f"ERROR {type(e).__name__}: {str(e)[:300]}", swapped=True) from e
+            swapped.append(f)
+            if f.item.live == SPAN_LIVE:
+                bv = _post_span_bridge(spark, partial_cutover, findings)
+                if bv != "READY":
+                    raise _StepFailed("POST_SPAN_BRIDGE_" + bv, swapped=True)
+            _log(cur, run_id, f.item, EXEC_PROMOTED, info)
+            report["promoted"].append(f.item.live)
+        for f in findings:  # kept v3 objects: never written (DEC-48); re-check after the swap window
+            if f.verdict != PARTIAL_VERDICT or f.details.get("live_type") != "MANAGED":
+                continue
+            current = f
+            st = fingerprint_gate(spark, f.item.live, V3, base)["status"]
+            if st != "FP_PASS":
+                raise _StepFailed(f"KEPT_V3_{f.item.live}_{st}", swapped=False)
+        for f in findings:
+            if f.verdict == PARTIAL_VERDICT:
+                _log(cur, run_id, f.item, PARTIAL_VERDICT, "PROVISIONAL label (log only, no UC commit: DEC-48)")
+                report["kept_v3_provisional"].append(f.item.live)
+    except _StepFailed as e:
+        failed = current.item.live
+        report["failed"] = {"object": failed, "reason": e.reason}
+        _log(cur, run_id, current.item, "FAILED", e.reason)
+        for g in reversed(swapped):
+            try:
+                st = _rollback_one(armed, g, base, view_ddl)
+            except Exception as ex:  # noqa: BLE001 - keep restoring the rest; report every failure
+                st = f"ROLLBACK_ERROR {type(ex).__name__}: {str(ex)[:200]}"
+            report["rolled_back"][g.item.live] = st
+            _log(cur, run_id, g.item, st)
+        report["statements"] = len(armed.statements)
+        raise CutoverAborted(f"cutover aborted at {failed}: {e.reason}; rollback={report['rolled_back']}", report) from e
+    report["statements"] = len(armed.statements)
+    return report

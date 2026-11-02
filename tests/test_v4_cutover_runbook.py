@@ -59,12 +59,16 @@ def test_dry_run_only_issues_read_statements():
                 assert rb.comment_coverage_sql("x").startswith("SELECT")
                 assert rb.comment_expectation_sql("x").startswith("SELECT")
                 continue
+            if isinstance(first, ast.Name) and first.id == "stmt":  # P88: the ONE armed write sink (_write)
+                assert SRC.count("armed.spark.sql(stmt)") == 1 and "def _write(armed: _Armed, stmt: str):" in SRC
+                assert "if not isinstance(armed, _Armed):" in SRC.split("def _write(")[1].split("\ndef ")[0]
+                continue
             if isinstance(first, ast.Name):  # P71: only the bridge_integrity_sql() loop variable (all SELECT)
                 assert first.id == "q" and "for k, q in bridge_integrity_sql(span_source).items():" in SRC, ast.dump(first)
                 assert all(s.startswith("SELECT") for s in rb.bridge_integrity_sql().values())
                 continue
             text = first.values[0].value if isinstance(first, ast.JoinedStr) else first.value
-            assert text.lstrip().upper().startswith(("SELECT", "DESCRIBE")), text
+            assert text.lstrip().upper().startswith(("SELECT", "DESCRIBE", "SHOW CREATE TABLE")), text
     assert "cur.execute(\"SELECT" in SRC and "INSERT" not in SRC.split("# ---------------------------------------------------------------- read helpers")[1].split("# ---------------------------------------------------------------- plan builders")[0]
 
 
@@ -631,7 +635,7 @@ def test_p69_summary_deferred_is_non_blocking():
     fs = [rb.Finding(i, rb.PARTIAL_DEFERRED_VERDICT if i.live == "mv_mrc_protected" else
                      (rb.PARTIAL_VERDICT if i.live in rb.PARTIAL_KEEP_V3 else "READY"), {"partial_cutover": True})
           for i in rb.RUNBOOK]
-    s = rb.summary(fs, _GateCur({}, decided={rb.GO_DECISION, rb.PARTIAL_DECISION}))
+    s = rb.summary(fs, _GateCur({}, decided={rb.go_decision(True), rb.PARTIAL_DECISION}))
     assert s["blocking"] == 0 and s["deferred_v4_1"] == ["mv_mrc_protected"] and s["cutover_ready"] is True
     assert len(s["kept_v3_provisional"]) == 10
 
@@ -657,14 +661,14 @@ def test_p68_summary_and_execute_gate_on_dec41(monkeypatch):
     s = rb.summary(keep + rest, _GateCur({}, decided={rb.GO_DECISION}))
     assert s["blocking"] == 0 and s["partial_cutover"] and sorted(s["kept_v3_provisional"]) == sorted(rb.PARTIAL_KEEP_V3_ITEMS)
     assert s["cutover_ready"] is False  # GO alone is not enough in partial mode
-    assert rb.summary(keep + rest, _GateCur({}, decided={rb.GO_DECISION, rb.PARTIAL_DECISION}))["cutover_ready"] is True
+    assert rb.summary(keep + rest, _GateCur({}, decided={rb.go_decision(True), rb.PARTIAL_DECISION}))["cutover_ready"] is True
     bad = [rb.Finding(keep[0].item, "V3_FP_MISMATCH", {"partial_cutover": True})] + keep[1:] + rest
-    assert rb.summary(bad, _GateCur({}, decided={rb.GO_DECISION, rb.PARTIAL_DECISION}))["blocking"] == 1
+    assert rb.summary(bad, _GateCur({}, decided={rb.go_decision(True), rb.PARTIAL_DECISION}))["blocking"] == 1
     full = rb.summary([rb.Finding(i, "READY") for i in rb.RUNBOOK], _GateCur({}, decided={rb.GO_DECISION}))
     assert full["partial_cutover"] is False and full["partial_decision"] is None
     monkeypatch.setenv("PRI_V4_CUTOVER_WRITE", "1")
     with pytest.raises(rb.CutoverRefused, match=rb.PARTIAL_DECISION):
-        rb.execute(None, _GateCur({}, decided={rb.GO_DECISION}), write_enabled=True, partial_cutover=True)
+        rb.execute(None, _GateCur({}, decided={rb.go_decision(True)}), write_enabled=True, partial_cutover=True)
 
 
 def test_p68_pk_fk_partial_defers_kept_tables():
@@ -797,7 +801,7 @@ def test_p71_summary_bridge_blocks_partial_cutover():
             out.append(rb.Finding(i, v, {"partial_cutover": True, "bridge": {"orphans": {"service_path": {"rows": 0}}}}))
         return out
 
-    dec = {rb.GO_DECISION, rb.PARTIAL_DECISION}
+    dec = {rb.go_decision(True), rb.PARTIAL_DECISION}
     good = rb.summary(fs("READY"), _GateCur({}, decided=dec))
     assert good["blocking"] == 0 and good["bridge"] == "READY" and good["bridge_orphans"] == 0 and good["cutover_ready"]
     assert set(rb.PARTIAL_KEEP_V3_FK_CONSUMERS) <= set(good["kept_v3_provisional"])
@@ -1287,3 +1291,337 @@ def test_p79_summary_reports_pin_commit_blocked_non_blocking():
     f = rb.Finding(it, "POST_CUTOVER", {"pin_guard": rb.pin_risk(8, 8, 213.0)})
     s = rb.summary([f])
     assert s["pin_commit_blocked"] == ["customer"] and s["blocking"] == 0
+
+
+# ---------------------------------------------------------------- P88 execute() write path (DEC-52)
+# QA criterion 1: decision codes as RECORDED in Lakebase `decisions` (status='decided'), copied by @devops S82
+# (2026-11-02) from ids 39-52. Literal strings on purpose: tests must NOT derive them from rb.* constants.
+LAKEBASE_DECIDED = {
+    39: "DEC-PRI-V4-SERVICE-PATH-PROMOTE-CONDITIONAL",
+    40: "DEC-PRI-V4-PIN-FINGERPRINT-GATES",
+    41: "DEC-PRI-V4-073-SECOND-MISS-PARTIAL-CUTOVER",
+    42: "DEC-PRI-V4-PARTIAL-KEEP-V3-EXPAND",
+    44: "DEC-PRI-V4-PARTIAL-SPAN-GRAIN-BRIDGE",
+    45: "DEC-PRI-V4-BRIDGE-RETAIN-BOTH-MODES",
+    46: "DEC-PRI-V4-ROLLBACK-DEEP-CLONE-BACKUP",
+    48: "DEC-PRI-V4-PIN-COMMIT-FREEZE",
+    50: "DEC-PRI-V4-CUTOVER-GO-PARTIAL",
+    51: "DEC-PRI-V4-CANDIDATE-PIN-BACKUP-GATE",
+    52: "DEC-PRI-V4-CUTOVER-EXECUTE-IMPL-AUTH",
+}
+
+
+def test_p88_decision_literals_match_lakebase_codes():
+    """Fails on the pre-P88 runbook: partial mode required 'DEC-PRI-V4-CUTOVER-GO', which Lakebase does not have."""
+    rec = set(LAKEBASE_DECIDED.values())
+    assert rb.go_decision(True) == LAKEBASE_DECIDED[50] and rb.GO_PARTIAL_DECISION in rec
+    assert rb.PARTIAL_DECISION == LAKEBASE_DECIDED[41] and rb.FP_DECISION == LAKEBASE_DECIDED[40]
+    assert rb.ROLLBACK_DECISION == LAKEBASE_DECIDED[46] and rb.EXECUTE_IMPL_DECISION == LAKEBASE_DECIDED[52]
+    assert rb.BRIDGE_DECISION == LAKEBASE_DECIDED[44] and rb.BRIDGE_FULL_DECISION == LAKEBASE_DECIDED[45]
+    assert rb.SERVICE_PATH_DECISION == LAKEBASE_DECIDED[39] and rb.PARTIAL_EXPAND_DECISION == LAKEBASE_DECIDED[42]
+    # criterion 2: the FULL GO code is NOT recorded, so full mode must refuse
+    assert rb.go_decision(False) == "DEC-PRI-V4-CUTOVER-GO" and rb.go_decision(False) not in rec
+
+
+class _ExecCur:
+    """Fake Lakebase cursor for execute(): decisions / ceo_directives lookups + cutover_execution_log."""
+
+    def __init__(self, decided=(), ceo=False, log=None):
+        self.decided, self.ceo, self.log, self._one, self._all = set(decided), ceo, log if log is not None else [], None, []
+        self.sql = []
+
+    def execute(self, sql, params=None):
+        self.sql.append(sql)
+        s = " ".join(sql.split())
+        if s.startswith("SELECT 1 FROM ceo_directives"):
+            self._one = (1,) if self.ceo and params[0] == rb.EXECUTE_TASK else None
+        elif s.startswith("SELECT 1 FROM decisions WHERE decided_by = 'CEO'"):
+            self._one = None
+        elif s.startswith("SELECT 1 FROM decisions"):
+            self._one = (1,) if params[0] in self.decided else None
+        elif s.startswith(f"CREATE TABLE IF NOT EXISTS {rb.EXEC_LOG_TABLE}"):
+            pass
+        elif s.startswith(f"INSERT INTO {rb.EXEC_LOG_TABLE}"):
+            self.log.append(params)
+        elif s.startswith("SELECT DISTINCT ON (object_name)"):
+            latest = {}
+            for run_id, _step, obj, _act, status, _d in self.log:
+                if run_id == params[0]:
+                    latest[obj] = status
+            self._all = list(latest.items())
+        else:
+            raise AssertionError(f"unexpected Lakebase SQL: {s[:120]}")
+
+    def fetchone(self):
+        return self._one
+
+    def fetchall(self):
+        return self._all
+
+
+ARMED = set(LAKEBASE_DECIDED.values())
+
+
+def test_p88_execute_gates_go_code_mode_and_ceo_auth(monkeypatch):
+    monkeypatch.setenv("PRI_V4_CUTOVER_WRITE", "1")
+    with pytest.raises(rb.CutoverRefused, match="no decided DEC-PRI-V4-CUTOVER-GO row"):  # full: no GO recorded
+        rb.execute(None, _ExecCur(ARMED, ceo=True), write_enabled=True, partial_cutover=False)
+    with pytest.raises(rb.CutoverRefused, match=rb.EXECUTE_TASK):  # partial: GO-PARTIAL ok, CEO auth missing
+        rb.execute(None, _ExecCur(ARMED, ceo=False), write_enabled=True, partial_cutover=True)
+    with pytest.raises(rb.CutoverRefused, match="DEC-PRI-V4-073-SECOND-MISS-PARTIAL-CUTOVER"):
+        rb.execute(None, _ExecCur(ARMED - {LAKEBASE_DECIDED[41]}, ceo=True), write_enabled=True, partial_cutover=True)
+    with pytest.raises(rb.CutoverRefused, match="DEC-PRI-V4-CUTOVER-EXECUTE-IMPL-AUTH"):
+        rb.execute(None, _ExecCur(ARMED - {LAKEBASE_DECIDED[52]}, ceo=True), write_enabled=True, partial_cutover=True)
+
+    class _Reached(Exception):
+        pass
+
+    def _dry(*a, **k):
+        raise _Reached
+    monkeypatch.setattr(rb, "dry_run", _dry)
+    with pytest.raises(_Reached):  # every gate passes with ONLY the Lakebase-recorded codes + CEO auth
+        rb.execute(None, _ExecCur(ARMED, ceo=True), write_enabled=True, partial_cutover=True)
+    monkeypatch.delenv("PRI_V4_CUTOVER_WRITE")
+    with pytest.raises(rb.CutoverRefused, match="write-disabled"):  # criterion 7: default stays write-disabled
+        rb.execute(None, _ExecCur(ARMED, ceo=True), write_enabled=True, partial_cutover=True)
+
+
+def _name(ref):
+    return ref.split(".")[-1].strip("`")
+
+
+class _ScratchSpark:
+    """In-memory scratch schema: each table holds a fingerprint token; writes are parsed and applied."""
+
+    def __init__(self, tables, views):
+        self.tables, self.views, self.writes, self.comments = dict(tables), dict(views), [], []
+        self.fail_on = None  # substring: raise when a write contains it
+
+    def sql(self, stmt, args=None):
+        if stmt.startswith("SHOW CREATE TABLE"):
+            ddl = self.views[_name(stmt.split()[-1])]
+            return type("R", (), {"first": lambda s: (ddl,)})()
+        self.writes.append(stmt)
+        if self.fail_on and self.fail_on in stmt:
+            raise RuntimeError("simulated SQL failure")
+        if m := re.match(r"CREATE OR REPLACE TABLE (\S+) (?:AS SELECT \* FROM|DEEP CLONE) (\S+)$", stmt):
+            self.tables[_name(m.group(1))] = self.tables[_name(m.group(2))]
+        elif m := re.match(r"DROP TABLE IF EXISTS (\S+)", stmt):
+            self.tables.pop(_name(m.group(1)), None)
+        elif m := re.match(r"CREATE OR REPLACE VIEW (\S+)", stmt):
+            self.views[_name(m.group(1))] = stmt
+        elif stmt.startswith(("COMMENT ON TABLE", "ALTER TABLE")):
+            self.comments.append(stmt)
+        else:
+            raise AssertionError(f"unexpected write: {stmt}")
+
+
+PROMOTE_LIVES = [i.live for i in rb.RUNBOOK if i.action == "promote" and i.live not in rb.PARTIAL_KEEP_V3]
+
+
+def _scratch(monkeypatch, corrupt_backup=None, cand_override=None):
+    """Partial-mode findings as a live dry run reports them today, plus a scratch catalog and patched readers."""
+    items = rb.runbook_items(True)
+    tables, views, fs, base = {}, {}, [], {}
+    for it in items:
+        d = {"partial_cutover": True, "live_type": "MANAGED", "v3_pin": 1}
+        if it.action == "bridge_verify":
+            v = "READY"
+        elif it.live in rb.PARTIAL_KEEP_V3:
+            v = rb.PARTIAL_VERDICT
+            tables[it.live] = f"v3:{it.live}"
+            base[(rb.V3, it.live)] = f"v3:{it.live}"
+        elif it.action == "conditional_promote":
+            v = "SKIPPED_CONDITIONAL"
+        elif it.action in ("regenerate", "report_only"):
+            v = "POST_CUTOVER" if it.action == "regenerate" else "REPORT_ONLY"
+        elif it.action == "repoint_view":
+            v, d["live_type"] = "READY", "VIEW"
+            views[it.live] = f"CREATE VIEW {rb.FQ}.`{it.live}` AS SELECT * FROM {rb.FQ}.`derived_srlg_shared_conduit`"
+            views[it.candidate] = (f"CREATE VIEW {rb.FQ}.`{it.candidate}` AS SELECT * FROM "
+                                   f"{rb.FQ}.`derived_srlg_shared_conduit_v4_candidate`")
+        else:
+            v = "READY"
+            tables[it.live] = base[(rb.V3, it.live)] = f"v3:{it.live}"
+            tables[it.candidate] = base[(rb.V4_DRAFT, it.candidate)] = f"v4:{it.live}"
+            tables[rb.rollback_backup_name(it.live)] = f"v3:{it.live}"
+        fs.append(rb.Finding(it, v, d, [], rb.rollback_sql(it, d["v3_pin"]) if v == "READY" else []))
+    if corrupt_backup:
+        tables[rb.rollback_backup_name(corrupt_backup)] = "stale"
+    if cand_override:
+        tables.update(cand_override)
+    for k, val in list(base.items()):
+        base[k] = {"gate_status": "PASS", "fp_row_count": 1, "fp_sha2_v1_null_skip": val,
+                   "fp_sha2_v2_null_token": val, "fp_column_count": 2}
+    sp = _ScratchSpark(tables, views)
+
+    def fp(spark, name):
+        tok = spark.tables[name]  # KeyError -> FP_UNREADABLE via fingerprint_gate / _safe_fp
+        return {"fp_row_count": 1, "fp_sha2_v1_null_skip": tok, "fp_sha2_v2_null_token": tok, "fp_column_count": 2}
+    monkeypatch.setattr(rb, "dry_run", lambda *a, **k: fs)
+    monkeypatch.setattr(rb, "_fp_baselines", lambda spark: base)
+    monkeypatch.setattr(rb, "fingerprint", fp)
+    monkeypatch.setattr(rb, "_columns", lambda spark, n: ["a", "b"])
+    monkeypatch.setattr(rb, "_reapply_rows", lambda spark, live: [
+        ("TABLE", None, f"COMMENT ON TABLE {rb.FQ}.`{live}` IS 'v3 table';"),
+        ("COLUMN", "a", f"ALTER TABLE {rb.FQ}.`{live}` ALTER COLUMN `a` COMMENT 'v3 a';"),
+        ("COLUMN", "dropped_in_v4", f"ALTER TABLE {rb.FQ}.`{live}` ALTER COLUMN `dropped_in_v4` COMMENT 'x';")])
+    monkeypatch.setattr(rb, "_column_comments", lambda spark, n: [("b", "v4 b's comment")])
+    monkeypatch.setattr(rb, "comment_coverage_check", lambda spark, live, candidate=None: {"status": rb.COMMENTS_OK})
+    monkeypatch.setattr(rb, "_post_span_bridge", lambda spark, partial, findings: "READY")
+    monkeypatch.setenv("PRI_V4_CUTOVER_WRITE", "1")
+    return sp, fs, tables
+
+
+def _run(sp, cur, **k):
+    return rb.execute(sp, cur, write_enabled=True, partial_cutover=True, run_id="T1", pin_guard=False, **k)
+
+
+def test_p88_partial_write_path_promotes_only_pass_candidates(monkeypatch):
+    sp, fs, before = _scratch(monkeypatch)
+    cur = _ExecCur(ARMED, ceo=True)
+    rep = _run(sp, cur)
+    assert rep["promoted"] == PROMOTE_LIVES + ["unified_shared_risk_group"] and len(PROMOTE_LIVES) == 9
+    assert rep["failed"] is None and rep["go_decision"] == LAKEBASE_DECIDED[50]
+    for live in PROMOTE_LIVES:  # live now holds the v4 candidate data
+        assert sp.tables[live] == f"v4:{live}"
+    swaps = [w for w in sp.writes if w.startswith("CREATE OR REPLACE TABLE")]
+    assert [_name(w.split()[4]) for w in swaps] == PROMOTE_LIVES  # manifest order
+    touched = {_name(w.split()[4] if w.startswith("CREATE") else w.split()[3 if w.startswith("COMMENT") else 2])
+               for w in sp.writes}
+    assert not touched & set(rb.PARTIAL_KEEP_V3)  # criterion 3: KEEP_V3 untouched (HSI / predictions never promoted)
+    assert not any(t.endswith(rb.ROLLBACK_BACKUP_SUFFIX) for t in touched)  # backups are never overwritten
+    for live in rb.PARTIAL_KEEP_V3:
+        assert sp.tables[live] == before[live] == f"v3:{live}"
+    v = sp.views["unified_shared_risk_group"]
+    assert v.startswith("CREATE OR REPLACE VIEW") and rb.SUFFIX not in v
+    # v3 table + column comments re-applied, the column missing in v4 skipped, v4 column comment applied (escaped)
+    c = [w for w in sp.comments if "`physical_resource_conduit`" in w]
+    assert len(c) == 3 and "dropped_in_v4" not in " ".join(c) and "'v4 b\\'s comment'" in c[-1]
+    status = [(r[2], r[4]) for r in cur.log]
+    assert all((live, rb.EXEC_PROMOTED) in status for live in rep["promoted"])
+    kept = sorted(r[2] for r in cur.log if r[4] == rb.PARTIAL_VERDICT)
+    assert kept == sorted(rb.PARTIAL_KEEP_V3) and len(rep["kept_v3_provisional"]) == 13
+
+
+def test_p88_candidate_mismatch_aborts_and_rolls_back_from_clones(monkeypatch):
+    third = PROMOTE_LIVES[2]  # resource_alarm
+    sp, fs, before = _scratch(monkeypatch, cand_override={third + rb.SUFFIX: "drifted"})
+    cur = _ExecCur(ARMED, ceo=True)
+    with pytest.raises(rb.CutoverAborted) as ei:
+        _run(sp, cur)
+    rep = ei.value.report
+    assert rep["failed"] == {"object": third, "reason": "CAND_FP_MISMATCH"}
+    assert rep["promoted"] == PROMOTE_LIVES[:2]
+    assert rep["rolled_back"] == {PROMOTE_LIVES[1]: "ROLLED_BACK", PROMOTE_LIVES[0]: "ROLLED_BACK"}
+    assert list(rep["rolled_back"]) == PROMOTE_LIVES[1::-1]  # reverse order
+    assert not any(f"`{third}` AS SELECT" in w for w in sp.writes)  # never swapped
+    for live in PROMOTE_LIVES:  # every live table is back on v3 data
+        assert sp.tables[live] == f"v3:{live}"
+    clones = [w for w in sp.writes if "DEEP CLONE" in w]
+    assert clones == [f"CREATE OR REPLACE TABLE {rb.FQ}.`{t}` DEEP CLONE {rb.FQ}.`{t}{rb.ROLLBACK_BACKUP_SUFFIX}`"
+                      for t in PROMOTE_LIVES[1::-1]]
+    assert (third, "FAILED") in [(r[2], r[4]) for r in cur.log]
+
+
+def test_p88_post_swap_failure_rolls_back_current_object(monkeypatch):
+    sp, fs, _ = _scratch(monkeypatch)
+    sp.fail_on = f"ALTER TABLE {rb.FQ}.`{PROMOTE_LIVES[1]}` ALTER COLUMN `b`"  # v4 comment step on span fails
+    with pytest.raises(rb.CutoverAborted) as ei:
+        _run(sp, _ExecCur(ARMED, ceo=True))
+    rep = ei.value.report
+    assert rep["failed"]["object"] == PROMOTE_LIVES[1] and rep["failed"]["reason"].startswith("ERROR RuntimeError")
+    assert list(rep["rolled_back"]) == [PROMOTE_LIVES[1], PROMOTE_LIVES[0]]
+    assert all(sp.tables[t] == f"v3:{t}" for t in PROMOTE_LIVES)
+
+
+def test_p88_bad_backup_aborts_before_any_swap_of_that_object(monkeypatch):
+    sp, fs, _ = _scratch(monkeypatch, corrupt_backup=PROMOTE_LIVES[0])
+    with pytest.raises(rb.CutoverAborted, match="BACKUP_FP_MISMATCH") as ei:
+        _run(sp, _ExecCur(ARMED, ceo=True))
+    assert ei.value.report["rolled_back"] == {} and not any("AS SELECT" in w for w in sp.writes)
+
+
+def test_p88_kept_v3_drift_after_window_rolls_back_everything(monkeypatch):
+    sp, fs, _ = _scratch(monkeypatch)
+    orig = rb._post_span_bridge
+
+    def drift_then_ready(spark, partial, findings):
+        spark.tables["hazard_span_intersection"] = "someone-wrote-here"
+        return "READY"
+    monkeypatch.setattr(rb, "_post_span_bridge", drift_then_ready)
+    with pytest.raises(rb.CutoverAborted, match="KEPT_V3_hazard_span_intersection_FP_MISMATCH") as ei:
+        _run(sp, _ExecCur(ARMED, ceo=True))
+    assert len(ei.value.report["rolled_back"]) == 10 and orig is not None
+    assert all(sp.tables[t] == f"v3:{t}" for t in PROMOTE_LIVES)
+
+
+def test_p88_resume_and_idempotent_rerun(monkeypatch):
+    third = PROMOTE_LIVES[2]
+    log = []
+    # run 1: candidate 3 drifted -> abort; rollback leaves nothing PROMOTED as the latest state
+    sp, fs, _ = _scratch(monkeypatch, cand_override={third + rb.SUFFIX: "drifted"})
+    with pytest.raises(rb.CutoverAborted):
+        _run(sp, _ExecCur(ARMED, ceo=True, log=log))
+    # run 2 (same run_id), fixed candidate, but stop after 4 objects to simulate a crash
+    sp, fs, _ = _scratch(monkeypatch)
+    real_swap, n = rb._swap, {"k": 0}
+
+    def crash_after_4(armed, f, base, view_ddl):
+        if n["k"] == 4:
+            raise KeyboardInterrupt  # process dies: no rollback, no FAILED row
+        n["k"] += 1
+        return real_swap(armed, f, base, view_ddl)
+    monkeypatch.setattr(rb, "_swap", crash_after_4)
+    with pytest.raises(KeyboardInterrupt):
+        _run(sp, _ExecCur(ARMED, ceo=True, log=log))
+    monkeypatch.setattr(rb, "_swap", real_swap)
+    sp.writes.clear()
+    rep = _run(sp, _ExecCur(ARMED, ceo=True, log=log))  # run 3 resumes after the 4 PROMOTED objects
+    assert rep["resumed"] == PROMOTE_LIVES[:4] and rep["promoted"] == PROMOTE_LIVES[4:] + ["unified_shared_risk_group"]
+    assert not any(f"`{t}` AS SELECT" in w for t in PROMOTE_LIVES[:4] for w in sp.writes)
+    sp.writes.clear()
+    rep = _run(sp, _ExecCur(ARMED, ceo=True, log=log))  # run 4: everything done -> zero writes
+    assert rep["promoted"] == [] and sp.writes == [] and len(rep["resumed"]) == 10
+    # a PROMOTED object whose live data changed since is refused on resume (fail closed)
+    sp.tables[PROMOTE_LIVES[0]] = "tampered"
+    with pytest.raises(rb.CutoverRefused, match="resume"):
+        _run(sp, _ExecCur(ARMED, ceo=True, log=log))
+
+
+def test_p88_resume_blockers_and_plan_guards():
+    span = next(i for i in rb.RUNBOOK if i.live == "physical_resource_span")
+    view = next(i for i in rb.RUNBOOK if i.live == "unified_shared_risk_group")
+    hsi = next(i for i in rb.RUNBOOK if i.live == "hazard_span_intersection")
+    fs = [rb.Finding(span, "V3_FP_MISMATCH", {"gate0_readable": {"readable": False}}), rb.Finding(view, "WAITS_UPSTREAM")]
+    assert rb.resume_blockers(fs, {"physical_resource_span"}) == {"blocking": [], "rollback_not_ready": [],
+                                                                    "gate0_unreadable": []}
+    assert rb.resume_blockers(fs, set())["blocking"] == ["physical_resource_span", "unified_shared_risk_group"]
+    with pytest.raises(rb.CutoverRefused, match="PARTIAL_KEEP_V3"):
+        rb.execution_plan([rb.Finding(hsi, "READY")], partial_cutover=True)
+    assert rb.execution_plan([rb.Finding(hsi, rb.PARTIAL_VERDICT)], partial_cutover=True) == []
+
+
+def test_p88_comment_and_view_builders_fail_closed():
+    t = f"{rb.FQ}.`physical_resource_span`"
+    assert rb.safe_comment_stmt(f"COMMENT ON TABLE {t} IS 'it\\'s; fine';", "physical_resource_span").endswith("fine'")
+    for bad in (f"COMMENT ON TABLE {t} IS 'x'; DROP TABLE {t}",
+                f"COMMENT ON TABLE {rb.FQ}.`customer` IS 'x'",
+                f"DROP TABLE {t}", f"ALTER TABLE {t} SET TBLPROPERTIES ('a'='b')", None):
+        with pytest.raises(rb.CutoverRefused):
+            rb.safe_comment_stmt(bad, "physical_resource_span")
+    assert rb.column_comment_sql("s", "c`x", "o'k") == f"ALTER TABLE {rb.FQ}.`s` ALTER COLUMN `c``x` COMMENT 'o\\'k'"
+    view = next(i for i in rb.RUNBOOK if i.live == "unified_shared_risk_group")
+    out = rb.repoint_view_sql(f"CREATE VIEW {rb.FQ}.`{view.candidate}` AS SELECT * FROM {rb.FQ}.`a_v4_candidate`", view)
+    assert out == f"CREATE OR REPLACE VIEW {rb.FQ}.`{view.live}` AS SELECT * FROM {rb.FQ}.`a`"
+    with pytest.raises(rb.CutoverRefused):
+        rb.repoint_view_sql(f"CREATE VIEW {rb.FQ}.`other_v4_candidate` AS SELECT 1", view)
+    with pytest.raises(rb.CutoverRefused):
+        rb.repoint_view_sql("DROP VIEW x", view)
+    with pytest.raises(rb.CutoverRefused, match="outside an armed"):
+        rb._write(None, "DROP TABLE x")
+    assert rb.strip_inline_comment("DROP TABLE x  -- new in v4; no pin") == "DROP TABLE x"
+    assert rb.strip_inline_comment("COMMENT ON TABLE x IS 'a -- b'") == "COMMENT ON TABLE x IS 'a -- b'"
+    span = next(i for i in rb.RUNBOOK if i.live == "physical_resource_span")
+    w = rb._plan_writes(rb.rollback_sql(span, 7))
+    assert w == [f"CREATE OR REPLACE TABLE {rb.FQ}.`{span.live}` DEEP CLONE {rb.FQ}.`{span.live}__v3_rollback`"]
