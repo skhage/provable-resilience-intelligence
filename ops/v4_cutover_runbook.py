@@ -624,6 +624,7 @@ def promote_sql(item: Item, fp_status=None) -> list:
             f"-- re-apply v3 comments: SELECT reapply_sql FROM {FQ}.freeze_v3_comment_snapshot "
             f"WHERE manifest_version='{V3}' AND table_name='{item.live}' ORDER BY ordinal_position",
             f"-- then apply new v4 column comments copied from {item.candidate} (DEC-PRI-FREEZE-COMMENTS)",
+            comment_verify_line(item.live, item.candidate),
         ]
     if item.action == "repoint_view":
         return [f"-- re-create {live} from the {item.candidate} definition with *{SUFFIX} references "
@@ -668,6 +669,7 @@ def rollback_sql(item: Item, v3_pin) -> list:
         "informational only",
         f"-- verify (fail closed): fingerprint(spark, '{item.live}') == {FP_GATE_TABLE} '{V3}' baseline",
         f"-- re-apply comments from freeze_v3_comment_snapshot WHERE table_name='{item.live}'",
+        comment_verify_line(item.live),
     ]
 
 
@@ -704,6 +706,7 @@ def gate0_restore_sql(item: Item, restore_version, readable=None, backup_exists:
             f"{int(restore_version)} not time-travelable; restore from DEC-46 backup",
             f"-- verify (fail closed): fingerprint(spark, '{item.live}') == {FP_GATE_TABLE} '{V3}' baseline",
             f"-- re-apply comments from freeze_v3_comment_snapshot WHERE table_name='{item.live}'",
+            comment_verify_line(item.live),
         ]
     if readable is False:  # BUG-QA-106: probed and not time-travelable
         return [f"-- {live}: manifest restore_version {int(restore_version)} is NOT time-travelable (BUG-QA-106); "
@@ -712,6 +715,7 @@ def gate0_restore_sql(item: Item, restore_version, readable=None, backup_exists:
         f"RESTORE TABLE {live} TO VERSION AS OF {int(restore_version)}  -- gate 0: manifest restore_version (BUG-QA-095)",
         f"-- verify (fail closed): fingerprint(spark, '{item.live}') == {FP_GATE_TABLE} '{V3}' baseline",
         f"-- re-apply comments from freeze_v3_comment_snapshot WHERE table_name='{item.live}'",
+        comment_verify_line(item.live),
     ]
 
 
@@ -736,6 +740,82 @@ V3_COMMENT_SNAPSHOT = "freeze_v3_comment_snapshot"
 COMMENT_SNAPSHOT_COLUMNS = ("manifest_version", "table_name", "column_name", "ordinal_position",
                             "comment_level", "comment", "reapply_sql", "snapshot_ts")
 PK_FK_DDL_PATH = "runbooks/P43_v4_pk_fk_constraints.sql"  # @data-engineer P43-DE-V4-PK-FK-CONSTRAINTS
+
+# BUG-QA-108: post-rollback / post-promote COMMENT coverage check. A DEEP CLONE rollback restores data + column
+# comments but NOT the table-level COMMENT, and the data fingerprint cannot see that. Read-only; fail closed.
+COMMENTS_OK = "COMMENTS_OK"
+COMMENT_FAIL_VERDICTS = ("COMMENTS_TABLE_MISSING", "COMMENTS_COLUMNS_SHORT", "COMMENTS_COLUMNS_MISMATCH",
+                         "COMMENTS_NO_EXPECTATION", "COMMENTS_UNREADABLE")
+_HAS_COMMENT = "length(trim(coalesce(comment, ''))) > 0"
+
+
+def _lit(s: str) -> str:
+    return "'" + str(s).replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def comment_coverage_sql(name: str) -> str:
+    """Actual coverage of the CURRENT table (one SELECT over information_schema): table comment present (1/0,
+    NULL if the table does not exist) + number of columns with a non-empty comment."""
+    t = _lit(name)
+    return (f"SELECT (SELECT max(CASE WHEN {_HAS_COMMENT} THEN 1 ELSE 0 END) FROM {CATALOG}.information_schema.tables "
+            f"WHERE table_schema = '{SCHEMA}' AND table_name = {t}) AS table_comment_present, "
+            f"(SELECT count(*) FROM {CATALOG}.information_schema.columns WHERE table_schema = '{SCHEMA}' "
+            f"AND table_name = {t} AND {_HAS_COMMENT}) AS column_comment_count")
+
+
+def comment_expectation_sql(name: str, manifest_version: str = V3) -> str:
+    """Expected coverage from freeze_v3_comment_snapshot (one SELECT): table-comment row present + COLUMN rows."""
+    return (f"SELECT max(CASE WHEN comment_level = 'TABLE' AND {_HAS_COMMENT} THEN 1 ELSE 0 END) AS table_comment_present, "
+            f"count(CASE WHEN comment_level = 'COLUMN' AND {_HAS_COMMENT} THEN 1 END) AS column_comment_count "
+            f"FROM {FQ}.{V3_COMMENT_SNAPSHOT} WHERE manifest_version = {_lit(manifest_version)} "
+            f"AND table_name = {_lit(name)}")
+
+
+def comment_coverage_verdict(actual: dict | None, expected: dict | None, strict: bool = True) -> dict:
+    """Pure, fail closed. strict (rollback / gate 0): column count must EQUAL the v3 snapshot rows.
+    non-strict (promote): live must carry at least the candidate's commented columns. Table comment always required."""
+    out = {"actual": actual, "expected": expected, "strict": strict}
+    if not actual or actual.get("table_comment_present") is None:
+        return {"status": "COMMENTS_UNREADABLE", **out}
+    if not expected or (not expected.get("table_comment_present") and not expected.get("column_comment_count")):
+        return {"status": "COMMENTS_NO_EXPECTATION", **out}
+    if not actual["table_comment_present"]:
+        return {"status": "COMMENTS_TABLE_MISSING", **out}
+    a, e = int(actual.get("column_comment_count") or 0), int(expected.get("column_comment_count") or 0)
+    if a < e:
+        return {"status": "COMMENTS_COLUMNS_SHORT", "missing": e - a, **out}
+    if strict and a != e:
+        return {"status": "COMMENTS_COLUMNS_MISMATCH", "extra": a - e, **out}
+    return {"status": COMMENTS_OK, **out}
+
+
+def _coverage_row(spark, coverage_q: str) -> dict | None:
+    """coverage_q is ALWAYS comment_coverage_sql() or comment_expectation_sql() output (SELECT-only, tested)."""
+    r = spark.sql(coverage_q).first()
+    if r is None:
+        return None
+    return {"table_comment_present": None if r.table_comment_present is None else int(r.table_comment_present),
+            "column_comment_count": int(r.column_comment_count or 0)}
+
+
+def comment_coverage_check(spark, live: str, candidate: str | None = None) -> dict:
+    """BUG-QA-108 verify (read-only). candidate=None: post-rollback / gate-0 check against the v3 snapshot (strict).
+    candidate given: post-promote check against the candidate's own comments. Any error -> COMMENTS_UNREADABLE."""
+    try:
+        actual = _coverage_row(spark, comment_coverage_sql(live))
+        expected = _coverage_row(spark, comment_coverage_sql(candidate) if candidate
+                                 else comment_expectation_sql(live))
+    except Exception as e:  # fail closed
+        return {"status": "COMMENTS_UNREADABLE", "error": str(e)[:300], "live": live, "candidate": candidate}
+    return {**comment_coverage_verdict(actual, expected, strict=candidate is None), "live": live, "candidate": candidate}
+
+
+def comment_verify_line(live: str, candidate: str | None = None) -> str:
+    src = f"candidate='{candidate}'" if candidate else f"{V3_COMMENT_SNAPSHOT} '{V3}' (strict ==)"
+    return (f"-- COMMENT COVERAGE (BUG-QA-108, fail closed): after the comment re-apply, "
+            f"comment_coverage_check(spark, '{live}'{', candidate=' + repr(candidate) if candidate else ''})"
+            f"['status'] must be {COMMENTS_OK} vs {src} (table comment present + column comment count); "
+            "a data-fingerprint pass alone is NOT sufficient. Else re-run the reapply_sql lines and re-check")
 
 
 def promoted_tables(include_conditional: bool = False, partial_cutover: bool = False) -> list:

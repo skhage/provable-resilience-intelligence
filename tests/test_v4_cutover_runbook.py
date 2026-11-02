@@ -55,6 +55,10 @@ def test_dry_run_only_issues_read_statements():
                 assert getattr(first.func, "id", "") in ("fingerprint_sql", "bridge_orphan_sql", "cand_fk_orphan_sql"), \
                     ast.dump(first)
                 continue
+            if isinstance(first, ast.Name) and first.id == "coverage_q":  # BUG-QA-108: comment-coverage builders
+                assert rb.comment_coverage_sql("x").startswith("SELECT")
+                assert rb.comment_expectation_sql("x").startswith("SELECT")
+                continue
             if isinstance(first, ast.Name):  # P71: only the bridge_integrity_sql() loop variable (all SELECT)
                 assert first.id == "q" and "for k, q in bridge_integrity_sql(span_source).items():" in SRC, ast.dump(first)
                 assert all(s.startswith("SELECT") for s in rb.bridge_integrity_sql().values())
@@ -183,6 +187,93 @@ def test_bug_qa_106_rollback_readiness_fail_closed():
         assert s["blocking"] == 1 and s["rollback_not_ready"] == ["physical_resource_span"], s
     s = rb.summary([rb.Finding(it, "READY", {"rollback_ready": ok})])
     assert s["blocking"] == 0 and s["rollback_ready"] == 1 and s["rollback_not_ready"] == []
+
+
+# ---------------------------------------------------------------- BUG-QA-108 comment coverage
+_WRITE_WORDS = ("CREATE ", "INSERT ", "MERGE ", "DROP ", "DELETE ", "ALTER ", "COMMENT ON", "UPDATE ", "SET TAGS")
+
+
+def test_bug_qa_108_comment_sql_is_read_only_and_scoped():
+    for q in (rb.comment_coverage_sql("derived_srlg_common_site"), rb.comment_expectation_sql("derived_srlg_common_site")):
+        assert q.startswith("SELECT") and not any(w in q.upper() for w in _WRITE_WORDS), q
+        assert "'derived_srlg_common_site'" in q and not rb.uses_time_travel([q])
+    cov = rb.comment_coverage_sql("t")
+    assert "information_schema.tables" in cov and "information_schema.columns" in cov
+    assert f"table_schema = '{rb.SCHEMA}'" in cov  # never an unscoped information_schema scan
+    exp = rb.comment_expectation_sql("t")
+    assert rb.V3_COMMENT_SNAPSHOT in exp and f"'{rb.V3}'" in exp and "comment_level = 'TABLE'" in exp
+    assert "\\'" in rb.comment_coverage_sql("a'b")  # literal is escaped
+
+
+def test_bug_qa_108_verdict_fail_closed():
+    v = rb.comment_coverage_verdict
+    exp = {"table_comment_present": 1, "column_comment_count": 11}
+    assert v({"table_comment_present": 1, "column_comment_count": 11}, exp)["status"] == rb.COMMENTS_OK
+    # the QA S67 rehearsal: data FP + column comments OK, table comment missing after DEEP CLONE rollback
+    assert v({"table_comment_present": 0, "column_comment_count": 11}, exp)["status"] == "COMMENTS_TABLE_MISSING"
+    short = v({"table_comment_present": 1, "column_comment_count": 9}, exp)
+    assert short["status"] == "COMMENTS_COLUMNS_SHORT" and short["missing"] == 2
+    assert v({"table_comment_present": 1, "column_comment_count": 12}, exp)["status"] == "COMMENTS_COLUMNS_MISMATCH"
+    assert v({"table_comment_present": 1, "column_comment_count": 12}, exp, strict=False)["status"] == rb.COMMENTS_OK
+    assert v({"table_comment_present": 1, "column_comment_count": 9}, exp, strict=False)["status"] == "COMMENTS_COLUMNS_SHORT"
+    assert v({"table_comment_present": None, "column_comment_count": 0}, exp)["status"] == "COMMENTS_UNREADABLE"
+    assert v(None, exp)["status"] == "COMMENTS_UNREADABLE"
+    for empty in (None, {"table_comment_present": 0, "column_comment_count": 0}):
+        assert v({"table_comment_present": 1, "column_comment_count": 3}, empty)["status"] == "COMMENTS_NO_EXPECTATION"
+    assert set(rb.COMMENT_FAIL_VERDICTS) >= {"COMMENTS_TABLE_MISSING", "COMMENTS_COLUMNS_SHORT", "COMMENTS_UNREADABLE"}
+
+
+class _CovRow:
+    def __init__(self, t, c):
+        self.table_comment_present, self.column_comment_count = t, c
+
+
+class _CovSpark:
+    """Fake spark: answers coverage SELECTs by the table literal; records every query."""
+    def __init__(self, rows, fail=False):
+        self.rows, self.fail, self.queries = rows, fail, []
+
+    def sql(self, q, **_):
+        self.queries.append(q)
+        if self.fail:
+            raise RuntimeError("boom")
+        key = ("snap" if rb.V3_COMMENT_SNAPSHOT in q else "live", re.findall(r"table_name = '([^']+)'", q)[0])
+        r = self.rows.get(key)
+        return type("_DF", (), {"first": lambda _s: r})()
+
+
+def test_bug_qa_108_comment_coverage_check_rollback_and_promote():
+    t, c = "derived_srlg_common_site", "derived_srlg_common_site_v4_candidate"
+    sp = _CovSpark({("live", t): _CovRow(0, 11), ("snap", t): _CovRow(1, 11)})
+    r = rb.comment_coverage_check(sp, t)
+    assert r["status"] == "COMMENTS_TABLE_MISSING" and r["strict"] is True and len(sp.queries) == 2
+    assert all(q.startswith("SELECT") for q in sp.queries)
+    sp = _CovSpark({("live", t): _CovRow(1, 11), ("snap", t): _CovRow(1, 11)})
+    assert rb.comment_coverage_check(sp, t)["status"] == rb.COMMENTS_OK
+    sp = _CovSpark({("live", t): _CovRow(1, 13), ("live", c): _CovRow(1, 12)})
+    p = rb.comment_coverage_check(sp, t, candidate=c)
+    assert p["status"] == rb.COMMENTS_OK and p["strict"] is False
+    assert not any(rb.V3_COMMENT_SNAPSHOT in q for q in sp.queries)  # promote compares to the candidate
+    assert rb.comment_coverage_check(_CovSpark({}), t)["status"] == "COMMENTS_UNREADABLE"  # no rows at all
+    e = rb.comment_coverage_check(_CovSpark({}, fail=True), t)
+    assert e["status"] == "COMMENTS_UNREADABLE" and "boom" in e["error"]
+
+
+def test_bug_qa_108_verify_lines_in_rollback_gate0_and_promote_plans():
+    """Every plan that ends with a comment re-apply must end with the fail-closed COMMENT COVERAGE line."""
+    assert _PROMOTES
+    for it in _PROMOTES:
+        rs = rb.rollback_sql(it, 9)
+        assert rs[-1].startswith("-- COMMENT COVERAGE (BUG-QA-108, fail closed)"), rs
+        assert f"comment_coverage_check(spark, '{it.live}')" in rs[-1] and "strict ==" in rs[-1]
+        assert "freeze_v3_comment_snapshot" in rs[-2]  # after the re-apply
+        ps = rb.promote_sql(it, "FP_PASS")
+        assert ps[-1].startswith("-- COMMENT COVERAGE") and f"candidate='{it.candidate}'" in ps[-1], ps
+        for g in (rb.gate0_restore_sql(it, 20), rb.gate0_restore_sql(it, 8, readable=False, backup_exists=True)):
+            assert g[-1].startswith("-- COMMENT COVERAGE") and "freeze_v3_comment_snapshot" in g[-2], g
+        assert rb.rollback_sql(it, None)[-1].startswith("DROP TABLE IF EXISTS")  # new-in-v4: nothing to verify
+        assert len(rb.gate0_restore_sql(it, 8, readable=False)) == 1  # escalate path unchanged
+    assert all(not s.upper().startswith("COMMENT ON") for it in _PROMOTES for s in rb.rollback_sql(it, 9))
 
 
 def test_bug_qa_106_gate0_unreadable_restore_version_fails_closed():

@@ -13,7 +13,7 @@ import re
 
 import pytest
 
-from test_scorecard_dw126 import HEADER, FMT_TS, UI, _card_block, _node_ts, _src
+from test_scorecard_dw126 import FMT_TS, UI, _card_block, _node_ts, _src
 
 DISCLOSURE_TS = os.path.join(UI, "lib", "bb-srlg-disclosure.ts")
 
