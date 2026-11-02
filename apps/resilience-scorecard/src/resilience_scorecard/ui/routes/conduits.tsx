@@ -21,6 +21,12 @@ import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import {
+  ALL_REGIONS_LABEL,
+  CONDUITS_FAILED_MSG,
+  CONDUITS_LOADING_MSG,
+  conduitResultMessage,
+} from "@/lib/conduits-status";
+import {
   useGetConduitCoverageSummarySuspense,
   useListConduitCoverageSuspense,
   type ConduitCoverage,
@@ -361,10 +367,7 @@ function ConduitListAndMap({
   });
   // BUG-DW-090 (WCAG 4.1.3): announce the filtered result count through the page-level status region.
   useEffect(() => {
-    const n = conduits.length;
-    onResult(
-      `${n.toLocaleString()} conduit${n === 1 ? "" : "s"} match. Coverage: ${FILTER_LABELS[coverage].replace(" (default)", "")}. Region: ${region ?? "all regions"}.`,
-    );
+    onResult(conduitResultMessage(conduits.length, FILTER_LABELS[coverage], region));
   }, [conduits, coverage, region, onResult]);
   const includesSynthetic = coverage === "BB_SEGMENTED" || coverage === "BB_ONLY" || coverage === "ALL";
   return (
@@ -382,12 +385,30 @@ function ConduitListAndMap({
   );
 }
 
-function Boundary({ label, children }: { label: string; children: ReactNode }) {
+function Boundary({
+  label,
+  children,
+  resetKeys,
+  onError,
+  onRetry,
+}: {
+  label: string;
+  children: ReactNode;
+  /** BUG-DW-095: a filter change clears a stale error fallback so the status never lies. */
+  resetKeys?: unknown[];
+  onError?: () => void;
+  onRetry?: () => void;
+}) {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
         <ErrorBoundary
-          onReset={reset}
+          resetKeys={resetKeys}
+          onError={onError ? () => onError() : undefined}
+          onReset={() => {
+            reset();
+            onRetry?.();
+          }}
           fallbackRender={({ resetErrorBoundary }) => (
             <div className="data-table error-fallback" role="alert">
               <p>Failed to load {label.toLowerCase()}</p>
@@ -420,6 +441,10 @@ function ConduitCoveragePage() {
   const navigate = useNavigate({ from: "/conduits" });
   // Stable setter (useState) so the child effect does not re-run on every page render.
   const [resultMessage, setResultMessage] = useState("");
+  // BUG-DW-095 (WCAG 4.1.3 / 3.3.1): never leave the previous filter's count beside a skeleton or
+  // an error. Cached results re-run the child effect and overwrite this with the new count.
+  const announceLoading = () => setResultMessage(CONDUITS_LOADING_MSG);
+  const announceFailure = () => setResultMessage(CONDUITS_FAILED_MSG);
 
   return (
     <>
@@ -447,9 +472,10 @@ function ConduitCoveragePage() {
             id="coverage-filter"
             className="filter-select"
             value={coverage}
-            onChange={(e) =>
-              navigate({ search: (prev) => ({ ...prev, coverage: e.target.value as CoverageFilter }) })
-            }
+            onChange={(e) => {
+              announceLoading();
+              navigate({ search: (prev) => ({ ...prev, coverage: e.target.value as CoverageFilter }) });
+            }}
           >
             {COVERAGE_FILTERS.map((f) => (
               <option key={f} value={f}>
@@ -464,11 +490,12 @@ function ConduitCoveragePage() {
             id="region-filter"
             className="filter-select"
             value={region ?? ""}
-            onChange={(e) =>
-              navigate({ search: (prev) => ({ ...prev, region: e.target.value || undefined }) })
-            }
+            onChange={(e) => {
+              announceLoading();
+              navigate({ search: (prev) => ({ ...prev, region: e.target.value || undefined }) });
+            }}
           >
-            <option value="">All regions</option>
+            <option value="">{ALL_REGIONS_LABEL}</option>
             {REGIONS.map((r) => (
               <option key={r} value={r}>
                 {r}
@@ -480,7 +507,12 @@ function ConduitCoveragePage() {
             {resultMessage}
           </p>
         </div>
-        <Boundary label="Conduits">
+        <Boundary
+          label="Conduits"
+          resetKeys={[coverage, region]}
+          onError={announceFailure}
+          onRetry={announceLoading}
+        >
           <ConduitListAndMap coverage={coverage} region={region} onResult={setResultMessage} />
         </Boundary>
       </section>

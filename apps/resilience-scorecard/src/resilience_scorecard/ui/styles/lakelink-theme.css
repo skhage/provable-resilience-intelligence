@@ -2423,6 +2423,11 @@ select:focus-visible,
   pointer-events: auto;
 }
 .corridor-summary { margin: var(--space-xs) 0 0; }
+/* BUG-DW-095 (1.4.4 polish): at <=480px the 13-unit label scales to ~4px and is illegible over the
+   lines. The HTML .corridor-summary caption carries the same information, so drop the SVG labels. */
+@media (max-width: 480px) {
+  .corridor-count { display: none; }
+}
 .filter-result-count { margin: 0; color: var(--lf-iron); min-height: 1.2em; }
 
 .coverage-warning {
