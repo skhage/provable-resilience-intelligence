@@ -124,7 +124,8 @@ def test_banner_never_shows_snapshot_score():
 def test_shared_conduit_stat_in_stats_with_formatcount():
     b = _banner_src()
     stats = b[b.index('className="path-trace-stats"'):]
-    stats = stats[:stats.index("</span>")]
+    # BUG-DW-101: the stats span now has nested qualifier spans; cut at its own closing line
+    stats = stats[:stats.index("\n        </span>\n")]
     assert "sharedConduitStat(diversity.shared_conduit_count, formatCount)" in stats
 
 

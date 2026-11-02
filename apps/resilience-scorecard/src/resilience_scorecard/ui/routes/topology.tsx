@@ -1091,7 +1091,18 @@ function PathTraceBanner({
           {protectHops.length > 0 ? ` · ${protectHops.length} protect hops` : " · no protect path"}
           {diversity && diversity.shared_srlg_count > 0
             ? bbCoverage
-              ? ` · ${formatCount(diversity.shared_srlg_count)} shared SRLGs${bbCoverage === "partial" ? `\u00A0${METRO_ACCESS}` : ""}`
+              ? (
+                  /* BUG-DW-101 (§6.3): visual '(metro/access)' is aria-hidden; speech says 'metro and access' */
+                  <>
+                    {` · ${formatCount(diversity.shared_srlg_count)} shared SRLGs`}
+                    {bbCoverage === "partial" && (
+                      <>
+                        <span aria-hidden="true">{`\u00A0${METRO_ACCESS}`}</span>
+                        <span className="sr-only">{` ${METRO_ACCESS_SPOKEN}`}</span>
+                      </>
+                    )}
+                  </>
+                )
               : ` · ${diversity.shared_srlg_count} shared SRLGs`
             : ""}
           {/* BUG-DW-099: partially_diverse can mean shared conduit; show the reason in text */}
