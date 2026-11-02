@@ -39,6 +39,7 @@ import {
   RETRYING_LABEL,
   countHopsShown,
   fetchWithState,
+  hopCount,
   hopsShownLine,
   hopsShownSpoken,
   showHopsShown,
@@ -1087,8 +1088,9 @@ function PathTraceBanner({
           {serviceId}
         </span>
         <span className="path-trace-stats">
-          {workingHops.length} working hops
-          {protectHops.length > 0 ? ` · ${protectHops.length} protect hops` : " · no protect path"}
+          {/* BUG-DW-108 (1): shared singular/plural with the live summary ('1 working hop') */}
+          {hopCount(workingHops.length, "working")}
+          {protectHops.length > 0 ? ` · ${hopCount(protectHops.length, "protect")}` : " · no protect path"}
           {diversity && diversity.shared_srlg_count > 0
             ? bbCoverage
               ? (
@@ -1103,7 +1105,7 @@ function PathTraceBanner({
                     )}
                   </>
                 )
-              : ` · ${diversity.shared_srlg_count} shared SRLGs`
+              : ` · ${formatCount(diversity.shared_srlg_count)} shared SRLGs` /* BUG-DW-108 (3) */
             : ""}
           {/* BUG-DW-099: partially_diverse can mean shared conduit; show the reason in text */}
           {diversity ? sharedConduitStat(diversity.shared_conduit_count, formatCount) : ""}
@@ -1918,8 +1920,9 @@ function MobileTreeView({
           color: style.text,
           borderColor: style.border,
         }}
-        aria-label={`Diversity: ${label}`}
       >
+        {/* BUG-DW-108 (4): no aria-label on a generic span (same as DW-107); spoken prefix is sr-only text */}
+        <span className="sr-only">Diversity: </span>
         {label}
       </span>
     );

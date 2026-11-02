@@ -196,7 +196,7 @@ def test_css_header_qualifier_fits_mobile():
     css = _read("styles", "lakelink-theme.css")
     q = css[css.index(".data-table th .th-qualifier {"):]
     q = q[:q.index("}")]
-    for decl in ("display: block", "text-transform: none", "letter-spacing: 0", "font-size: 11px"):
+    for decl in ("display: block", "text-transform: none", "letter-spacing: 0", "font-size: 12px"):  # BUG-DW-108: 12px floor
         assert decl in q
     assert ".data-table th.th-path-div { white-space: normal; }" in css
     assert ".rating-pill { position: relative; }" in css

@@ -53,8 +53,8 @@ def test_qualifier_only_when_partial_and_count_preserved():
     block = _stats_block(_src())
     assert 'bbCoverage === "partial" && (' in block
     assert "{` · ${formatCount(diversity.shared_srlg_count)} shared SRLGs`}" in block
-    # v3 (no coverage flag) branch unchanged
-    assert "` · ${diversity.shared_srlg_count} shared SRLGs`" in block
+    # v3 (no coverage flag) branch: same text, now formatCount'd (BUG-DW-108 item 3)
+    assert "` · ${formatCount(diversity.shared_srlg_count)} shared SRLGs` /* BUG-DW-108 (3) */" in block
 
 
 def test_spoken_form_constant():

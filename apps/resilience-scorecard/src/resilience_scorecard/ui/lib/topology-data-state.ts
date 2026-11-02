@@ -127,7 +127,8 @@ export function noTracedPathMsg(serviceId: string): string {
   return `No traced path for ${serviceId}.`;
 }
 
-function hopCount(n: number, kind: string): string {
+/** "1 working hop" / "3 protect hops". BUG-DW-108: exported so the visible banner and the live summary pluralize identically. */
+export function hopCount(n: number, kind: string): string {
   return `${n.toLocaleString("en-US")} ${kind} hop${n === 1 ? "" : "s"}`;
 }
 
