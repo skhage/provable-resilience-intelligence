@@ -137,7 +137,7 @@ def test_status_region_stays_persistent_and_outside_boundary():
 # ---------- (2) mobile corridor labels ----------
 
 def _media_blocks(css, query):
-    out, i = [], 0
+    out = []
     pat = re.compile(r"@media\s*" + re.escape(query) + r"\s*\{")
     for m in pat.finditer(css):
         depth, j = 1, m.end()
