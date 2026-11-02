@@ -66,7 +66,7 @@ def test_status_constants():
 
 
 @pytest.mark.parametrize("args,expected", [
-    ('1, "Real segmented (default)", undefined', "1 conduit match. Coverage: Real segmented. Region: All regions."),
+    ('1, "Real segmented (default)", undefined', "1 conduit matches. Coverage: Real segmented. Region: All regions."),
     ('0, "All", null', "0 conduits match. Coverage: All. Region: All regions."),
     ('1914, "Inventory only", "Central"', "1,914 conduits match. Coverage: Inventory only. Region: Central."),
     ('2, "All", ""', "2 conduits match. Coverage: All. Region: All regions."),

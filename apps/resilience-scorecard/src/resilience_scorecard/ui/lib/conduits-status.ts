@@ -17,9 +17,12 @@ export const CONDUITS_LOADING_MSG = "Loading conduits\u2026";
 /** Announced when the conduit list query fails and the error fallback is shown. */
 export const CONDUITS_FAILED_MSG = "Conduits failed to load.";
 
-/** "12 conduits match. Coverage: Real segmented. Region: All regions." */
+/**
+ * "12 conduits match. Coverage: Real segmented. Region: All regions."
+ * BUG-DW-128: subject-verb agreement, so 1 reads "1 conduit matches." and 0/N read "N conduits match."
+ */
 export function conduitResultMessage(n: number, coverageLabel: string, region?: string | null): string {
-  const noun = n === 1 ? "conduit" : "conduits";
+  const subjectVerb = n === 1 ? "conduit matches" : "conduits match";
   const coverage = coverageLabel.replace(" (default)", "");
-  return `${n.toLocaleString("en-US")} ${noun} match. Coverage: ${coverage}. Region: ${region || ALL_REGIONS_LABEL}.`;
+  return `${n.toLocaleString("en-US")} ${subjectVerb}. Coverage: ${coverage}. Region: ${region || ALL_REGIONS_LABEL}.`;
 }

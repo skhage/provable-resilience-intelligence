@@ -9,6 +9,10 @@
  * the label is injected after ANNOUNCE_DELAY_MS, because a live region that appears with its
  * content already present is often not announced (same root cause as BUG-DW-074).
  * If aria-busy is wanted, put it on the persistent parent card/section, never on this region.
+ *
+ * BUG-DW-128: announce={false} renders only the skeleton wrapper (no role=status, no sr-only text).
+ * Use it only where a persistent page status region already announces loading (/conduits list),
+ * so screen readers hear one "Loading…" message instead of two. Default stays announced.
  */
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -21,17 +25,24 @@ type LoadingRegionProps = {
   /** Optional layout class (e.g. "kpi-row") applied to the region itself. */
   className?: string;
   children?: ReactNode;
+  /** BUG-DW-128: false = silent skeleton; a persistent status region elsewhere announces loading. */
+  announce?: boolean;
 };
 
-export function LoadingRegion({ label, className, children }: LoadingRegionProps) {
+export function LoadingRegion({ label, className, children, announce = true }: LoadingRegionProps) {
   const [announcement, setAnnouncement] = useState("");
 
   useEffect(() => {
+    if (!announce) return;
     // Start empty, then set text on a later tick so the change is announced once per fallback.
     setAnnouncement("");
     const timer = setTimeout(() => setAnnouncement(`${label}\u2026`), ANNOUNCE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [label]);
+  }, [label, announce]);
+
+  if (!announce) {
+    return <div className={className}>{children}</div>;
+  }
 
   return (
     <div role="status" aria-live="polite" aria-atomic="true" className={className}>

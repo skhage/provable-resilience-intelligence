@@ -391,9 +391,15 @@ function Boundary({
   resetKeys,
   onError,
   onRetry,
+  announce = true,
 }: {
   label: string;
   children: ReactNode;
+  /**
+   * BUG-DW-128 (WCAG 4.1.3): false = the page status region is the single announcer. The loading
+   * skeleton drops role=status and the error fallback drops role=alert; visible text and Retry stay.
+   */
+  announce?: boolean;
   /** BUG-DW-095: a filter change clears a stale error fallback so the status never lies. */
   resetKeys?: unknown[];
   onError?: () => void;
@@ -410,7 +416,7 @@ function Boundary({
             onRetry?.();
           }}
           fallbackRender={({ resetErrorBoundary }) => (
-            <div className="data-table error-fallback" role="alert">
+            <div className="data-table error-fallback" role={announce ? "alert" : undefined}>
               <p>Failed to load {label.toLowerCase()}</p>
               <button className="btn btn-outline" onClick={resetErrorBoundary}>
                 Retry
@@ -420,7 +426,7 @@ function Boundary({
         >
           <Suspense
             fallback={
-              <LoadingRegion label={`Loading ${label.toLowerCase()}`}>
+              <LoadingRegion label={`Loading ${label.toLowerCase()}`} announce={announce}>
                 <Skeleton className="h-48 w-full rounded-lg" />
               </LoadingRegion>
             }
@@ -512,6 +518,7 @@ function ConduitCoveragePage() {
           resetKeys={[coverage, region]}
           onError={announceFailure}
           onRetry={announceLoading}
+          announce={false}
         >
           <ConduitListAndMap coverage={coverage} region={region} onResult={setResultMessage} />
         </Boundary>
