@@ -162,9 +162,14 @@ def _node_is_provisional(surface, objs):
     return json.loads(subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout)
 
 
-@pytest.mark.parametrize("obj", ["revenue_at_risk", "diversity_coverage", "resilience_score_snapshot"])
-def test_header_provisional_for_headline_kpi_sources(obj):
-    assert _node_is_provisional("scorecard_header", [obj]) is True
+@pytest.mark.parametrize("obj,expected", [
+    ("resilience_score_snapshot", True),
+    # BUG-DW-124: no header card reads these MVs (they stay in the backend list for Genie/DEC-42).
+    ("revenue_at_risk", False),
+    ("diversity_coverage", False),
+])
+def test_header_provisional_for_headline_kpi_sources(obj, expected):
+    assert _node_is_provisional("scorecard_header", [obj]) is expected
 
 
 def test_ui_sources_are_all_keep_v3_candidates():

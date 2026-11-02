@@ -37,8 +37,11 @@ export type BadgeVariant = "interim" | "provisional";
 
 // §7.2 surface-to-source-object mapping
 const SURFACE_SOURCES: Record<string, string[]> = {
-  // BUG-QA-100: the header Revenue at Risk card reads revenue_at_risk, and diversity coverage reads diversity_coverage.
-  scorecard_header: ["resilience_score_snapshot", "revenue_at_risk", "diversity_coverage"],
+  // BUG-DW-124 (§7.2): every header card, Revenue at Risk included, is computed by _SUMMARY_SQL
+  // from resilience_score_snapshot (SUM(revenue_at_risk_usd)). The revenue_at_risk and
+  // diversity_coverage MVs have no UI consumer, so they stay in the backend list (Genie, DEC-42)
+  // but never drive a UI badge. Each surface lists only the objects it actually reads (§7.1/§7.3).
+  scorecard_header: ["resilience_score_snapshot"],
   service_table: ["resilience_score_snapshot"],
   hazards_page: ["hazard_span_proximity", "hazard_span_intersection"],
   actions_page: ["proactive_action", "hazard_span_proximity", "hazard_span_intersection"],
