@@ -1862,22 +1862,28 @@ select:focus-visible,
 }
 
 /* BUG-DW-117: keyboard-focus callout for hazard markers (aria-hidden; parity with the hover
-   tooltip). White box, 1px iron border, iron 12px Inter text = 8.45:1 on white. */
+   tooltip). White box, 1px iron border, iron 12px text = 8.45:1 on white.
+   BUG-DW-119: HTML overlay inside .topo-canvas-wrap (position: relative), not SVG text, so the
+   12px floor holds at every canvas width (SVG text scaled to ~7.4px at a 736px canvas).
+   left/top/width/height come inline from hazardCalloutOverlay() in wrap CSS px. */
 .hazard-focus-callout {
+  position: absolute;
+  z-index: 5;
   pointer-events: none;
-}
-
-.hazard-focus-callout-box {
-  fill: #FFFFFF;
-  stroke: var(--lf-iron, #4D4D4D);
-  stroke-width: 1;
-}
-
-.hazard-focus-callout-text {
-  fill: var(--lf-iron, #4D4D4D);
-  font-family: 'Inter', sans-serif;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  background: #FFFFFF;
+  border: 1px solid var(--lf-iron, #4D4D4D);
+  border-radius: 4px;
+  color: var(--lf-iron, #4D4D4D);
+  font-family: var(--font-primary);
   font-size: 12px;
   font-weight: 400;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 /* ===================================================================
@@ -2305,14 +2311,11 @@ select:focus-visible,
     outline-offset: 2px;
   }
 
-  /* BUG-DW-117: hazard focus callout uses system colors */
-  .hazard-focus-callout-box {
-    fill: Canvas;
-    stroke: CanvasText;
-  }
-
-  .hazard-focus-callout-text {
-    fill: CanvasText;
+  /* BUG-DW-117/119: hazard focus callout (HTML overlay) uses system colors */
+  .hazard-focus-callout {
+    background: Canvas;
+    color: CanvasText;
+    border-color: CanvasText;
   }
 
   /* --- General: ensure badges & buttons show system borders --- */

@@ -187,10 +187,11 @@ def _src():
 
 
 def _callout_block():
+    # BUG-DW-119: the callout is an HTML overlay after </svg> (inside the SiteGraph fragment)
     t = _src()
     start = t.index('className="hazard-focus-callout"')
-    start = t.rindex("{focusedHazard && (", 0, start)
-    end = t.index("BUG-DW-056: sr-only hazard summary", start)
+    start = t.rindex("{focusedHazard && calloutFrame && (", 0, start)
+    end = t.index("</>", start)
     return t[start:end]
 
 
@@ -207,20 +208,22 @@ def test_callout_rendered_once_outside_marker_map():
     map_start = t.index("overlays.hazard && hazards.map(")
     callout = t.index('className="hazard-focus-callout"')
     sr_only = t.index("BUG-DW-056: sr-only hazard summary")
-    assert map_start < callout < sr_only
-    # rendered after the map closes, i.e. once and on top of every marker
+    # BUG-DW-119: HTML overlay after the SVG closes, so it paints on top of every marker
+    assert map_start < sr_only < t.index("</svg>", sr_only) < callout
     assert t.rindex("})}", map_start, callout) > map_start
-    assert "const focusedHazard = focusedHazardFor(hazards, focusedHazardId, overlays.hazard);" in t
+    assert re.search(r"const focusedHazard = focusedHazardFor\(\s*hazards,\s*focusedHazardId,\s*"
+                     r"overlays\.hazard,", t)
 
 
 def test_callout_is_aria_hidden_and_inert():
     block = _callout_block()
     assert 'aria-hidden="true"' in block
-    assert 'pointerEvents="none"' in block
+    # BUG-DW-119: HTML overlay; pointer-events: none lives in the .hazard-focus-callout rule
+    assert "pointer-events: none" in _rule(_read(CSS), ".hazard-focus-callout")
     for banned in ("tabIndex", "<title", "aria-describedby", "role=", "aria-label", "aria-live"):
         assert banned not in block, banned
     assert "data-hazard-id={focusedHazard.hazard_id}" in block
-    assert "hazardCalloutText(focusedHazard)" in block and "{box.text}" in block
+    assert "hazardCalloutOverlay(\n        focusedHazard," in block and "{box.text}" in block
 
 
 def test_marker_handlers_wired():
@@ -281,19 +284,21 @@ def _rel_lum(hexcol):
 
 def test_css_base_style_matches_spec():
     css = _read(CSS)
-    box = _rule(css, ".hazard-focus-callout-box")
-    assert "fill: #FFFFFF" in box and "#4D4D4D" in box and "stroke-width: 1" in box
-    txt = _rule(css, ".hazard-focus-callout-text")
-    assert "12px" in txt and "Inter" in txt and "#4D4D4D" in txt
+    # BUG-DW-119: one HTML rule (box + text); font via var(--font-primary), which is Inter
+    box = _rule(css, ".hazard-focus-callout")
+    assert "background: #FFFFFF" in box and "border: 1px solid var(--lf-iron, #4D4D4D)" in box
+    assert "font-size: 12px" in box and "font-family: var(--font-primary)" in box
+    assert "color: var(--lf-iron, #4D4D4D)" in box
+    assert re.search(r"--font-primary:\s*'Inter'", css)
     ratio = (1.05) / (_rel_lum("#4D4D4D") + 0.05)
     assert round(ratio, 2) == 8.45
 
 
 def test_css_forced_colors():
     css = _read(CSS)
-    box = _rule(css, ".hazard-focus-callout-box", forced=True)
-    assert "fill: Canvas" in box and "stroke: CanvasText" in box
-    assert "fill: CanvasText" in _rule(css, ".hazard-focus-callout-text", forced=True)
+    box = _rule(css, ".hazard-focus-callout", forced=True)
+    assert "background: Canvas" in box and "color: CanvasText" in box
+    assert "border-color: CanvasText" in box
 
 
 # --- branding -------------------------------------------------------------------------------

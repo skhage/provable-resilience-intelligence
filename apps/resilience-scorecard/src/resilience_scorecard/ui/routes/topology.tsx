@@ -7,7 +7,7 @@
  * SRLG overlay with pulsing glow (§3), hazard overlay (§4),
  * edge detail panel (§5.2), cross-view navigation (§9.2).
  */
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
 import { LoadingRegion } from "@/components/ui/loading-region";
 // BUG-DW-118: Info control for the "{drawn} of {total} hops shown on this map" disclosure
@@ -56,14 +56,17 @@ import {
   type TraceBannerMode,
 } from "@/lib/topology-data-state";
 // BUG-DW-117: visible keyboard-focus callout for hazard markers (aria-hidden, label unchanged)
+// BUG-DW-119: rendered as an HTML overlay in wrap CSS px (12px floor at every canvas width)
 import {
+  activeHazardIdOf,
   focusedHazardFor,
-  hazardCalloutBox,
-  hazardCalloutText,
+  hazardCalloutOverlay,
   hazardMarkerPos,
   hazardRingRadius,
   isKeyboardFocus,
+  meetViewBoxMap,
   nextFocusedHazard,
+  viewBoxToWrap,
 } from "@/lib/hazard-callout";
 // BUG-DW-099: one sentence-case label map for banner, legend and mobile badge
 import {
@@ -1336,7 +1339,59 @@ function SiteGraph({
 }) {
   // BUG-DW-117: hazard marker with keyboard focus (drives the aria-hidden visible callout)
   const [focusedHazardId, setFocusedHazardId] = useState<string | null>(null);
-  const focusedHazard = focusedHazardFor(hazards, focusedHazardId, overlays.hazard);
+  // BUG-DW-119: the stale-id guard reads the real focused element (data-hazard-id), so a
+  // marker removed by the 'h' overlay toggle can never leave a callout behind.
+  const focusedHazard = focusedHazardFor(
+    hazards,
+    focusedHazardId,
+    overlays.hazard,
+    activeHazardIdOf(typeof document !== "undefined" ? document : null),
+  );
+  // BUG-DW-119: overlay off unmounts the markers; onBlur is not guaranteed for removed nodes.
+  useEffect(() => {
+    if (!overlays.hazard) setFocusedHazardId(null);
+  }, [overlays.hazard]);
+
+  // BUG-DW-119: viewBox -> wrap CSS px mapping for the HTML callout, measured while a hazard
+  // has keyboard focus and re-measured when the wrap resizes.
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [calloutFrame, setCalloutFrame] = useState<{
+    map: ReturnType<typeof viewBoxToWrap>;
+    wrapW: number;
+    wrapH: number;
+  } | null>(null);
+  const focusedHazardKey = focusedHazard?.hazard_id ?? null;
+  useLayoutEffect(() => {
+    const svg = svgRef.current;
+    const wrap = svg?.parentElement ?? null;
+    if (!focusedHazardKey || !svg || !wrap) {
+      setCalloutFrame(null);
+      return;
+    }
+    const measure = () => {
+      const wr = wrap.getBoundingClientRect();
+      const ctm = svg.getScreenCTM();
+      let map: ReturnType<typeof viewBoxToWrap>;
+      if (ctm) {
+        map = viewBoxToWrap(ctm, wr, wrap.clientLeft, wrap.clientTop);
+      } else {
+        const sr = svg.getBoundingClientRect();
+        map = meetViewBoxMap(
+          sr.width, sr.height, CANVAS_W, CANVAS_H,
+          sr.left - wr.left - wrap.clientLeft, sr.top - wr.top - wrap.clientTop,
+        );
+      }
+      setCalloutFrame({ map, wrapW: wrap.clientWidth, wrapH: wrap.clientHeight });
+    };
+    measure();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(wrap);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [focusedHazardKey]);
 
   // Build lookup sets for path trace
   const pathSiteIds = useMemo(() => {
@@ -1393,7 +1448,9 @@ function SiteGraph({
   const regionName = sites[0]?.region ?? "Region";
 
   return (
+    <>
     <svg
+      ref={svgRef}
       viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
       role="img"
       aria-label={`${regionName} topology: ${totalSites} sites (${t1Count} backbone, ${t2Count} regional), ${conduits.length} conduits`}
@@ -1635,6 +1692,7 @@ function SiteGraph({
             </title>
           <g
             className="hazard-overlay-marker"
+            data-hazard-id={h.hazard_id}
             role="img"
             aria-label={`${h.hazard_type.replace(/_/g, " ")} hazard: ${h.name}, severity ${h.severity}, ${h.direct_impact_spans} direct impact spans, ${h.near_impact_spans} near impact spans`}
             tabIndex={0}
@@ -1697,43 +1755,6 @@ function SiteGraph({
         );
       })}
 
-      {/* BUG-DW-117: visible callout for the keyboard-focused hazard only. aria-hidden because
-          the marker aria-label already carries the same facts; rendered after all markers so it
-          paints on top; never focusable, no <title>. */}
-      {focusedHazard && (() => {
-        const pos = hazardMarkerPos(focusedHazard.hazard_id, CANVAS_W, CANVAS_H);
-        const box = hazardCalloutBox(
-          pos.x, pos.y, hazardRingRadius(focusedHazard), hazardCalloutText(focusedHazard),
-          CANVAS_W, CANVAS_H,
-        );
-        return (
-          <g
-            className="hazard-focus-callout"
-            aria-hidden="true"
-            pointerEvents="none"
-            data-hazard-id={focusedHazard.hazard_id}
-            data-placement={box.placement}
-          >
-            <rect
-              className="hazard-focus-callout-box"
-              x={box.x}
-              y={box.y}
-              width={box.width}
-              height={box.height}
-              rx={4}
-            />
-            <text
-              className="hazard-focus-callout-text"
-              x={box.textX}
-              y={box.textY}
-              dominantBaseline="central"
-            >
-              {box.text}
-            </text>
-          </g>
-        );
-      })()}
-
       {/* BUG-DW-056: sr-only hazard summary for screen readers (WCAG 4.1.2) */}
       {overlays.hazard && hazards.length > 0 && (
         <foreignObject x="0" y="0" width="1" height="1" overflow="visible">
@@ -1744,6 +1765,28 @@ function SiteGraph({
         </foreignObject>
       )}
     </svg>
+    {/* BUG-DW-117/119: visible callout for the keyboard-focused hazard only. HTML overlay (not
+        SVG text) so the font stays 12 CSS px at any canvas width; positioned in wrap px from
+        the measured viewBox mapping and clamped to the wrap. aria-hidden because the marker
+        aria-label already carries the same facts; never focusable, no <title>. */}
+    {focusedHazard && calloutFrame && (() => {
+      const box = hazardCalloutOverlay(
+        focusedHazard, calloutFrame.map, calloutFrame.wrapW, calloutFrame.wrapH,
+        CANVAS_W, CANVAS_H,
+      );
+      return (
+        <div
+          className="hazard-focus-callout"
+          aria-hidden="true"
+          data-hazard-id={focusedHazard.hazard_id}
+          data-placement={box.placement}
+          style={{ left: box.x, top: box.y, width: box.width, height: box.height, fontSize: box.fontPx }}
+        >
+          {box.text}
+        </div>
+      );
+    })()}
+    </>
   );
 }
 
