@@ -1326,17 +1326,27 @@ def test_p88_decision_literals_match_lakebase_codes():
 class _ExecCur:
     """Fake Lakebase cursor for execute(): decisions / ceo_directives lookups + cutover_execution_log."""
 
-    def __init__(self, decided=(), ceo=False, log=None):
-        self.decided, self.ceo, self.log, self._one, self._all = set(decided), ceo, log if log is not None else [], None, []
+    DEC52_AT = 52  # stand-in timestamp for the DEC-52 row (ints compare like timestamps here)
+
+    def __init__(self, decided=(), ceo=False, log=None, directives=None, ceo_decisions=()):
+        self.decided, self.log, self._one, self._all = set(decided), log if log is not None else [], None, []
+        # ceo=True -> one fresh, explicit authorization directive (BUG-QA-114 shape)
+        self.directives = list(directives) if directives is not None else (
+            [(rb.auth_token(), self.DEC52_AT + 1)] if ceo else [])
+        self.ceo_decisions = list(ceo_decisions)  # (text, created_at); SQL already filters decided_by='CEO'
         self.sql = []
 
     def execute(self, sql, params=None):
         self.sql.append(sql)
         s = " ".join(sql.split())
-        if s.startswith("SELECT 1 FROM ceo_directives"):
-            self._one = (1,) if self.ceo and params[0] == rb.EXECUTE_TASK else None
-        elif s.startswith("SELECT 1 FROM decisions WHERE decided_by = 'CEO'"):
-            self._one = None
+        if s.startswith("SELECT created_at FROM decisions WHERE decision_code"):
+            self._one = (self.DEC52_AT,) if params[0] in self.decided else None
+        elif s.startswith("SELECT directive FROM ceo_directives"):
+            self._all = [(t,) for t, at in self.directives if at >= params[0]]
+        elif s.startswith("SELECT decision_text FROM decisions WHERE decided_by = 'CEO'"):
+            self._all = [(t,) for t, at in self.ceo_decisions if at >= params[0]]
+        elif s.startswith(f"SELECT object_name, detail FROM {rb.EXEC_LOG_TABLE}"):
+            self._all = [(r[2], r[5]) for r in self.log if r[0] == params[0] and r[4] == params[1]]
         elif s.startswith("SELECT 1 FROM decisions"):
             self._one = (1,) if params[0] in self.decided else None
         elif s.startswith(f"CREATE TABLE IF NOT EXISTS {rb.EXEC_LOG_TABLE}"):
@@ -1587,6 +1597,135 @@ def test_p88_resume_and_idempotent_rerun(monkeypatch):
     sp.tables[PROMOTE_LIVES[0]] = "tampered"
     with pytest.raises(rb.CutoverRefused, match="resume"):
         _run(sp, _ExecCur(ARMED, ceo=True, log=log))
+
+
+def test_bug_qa_114_ceo_authorized_requires_explicit_fresh_token():
+    tok, at = rb.auth_token(), _ExecCur.DEC52_AT
+    assert tok == "AUTHORIZE P81-DEVOPS-PARTIAL-CUTOVER-EXECUTE"
+    for bad in ("P81-DEVOPS-PARTIAL-CUTOVER-EXECUTE is still blocked", f"Do NOT {tok}", f"{tok}-DRY", f"{tok}_X",
+                "authorize P81-DEVOPS-PARTIAL-CUTOVER-EXECUTE", "", None):
+        assert not rb.is_authorization(bad), bad
+    for good in (tok, f"  {tok}  ", f"{tok}: partial mode per DEC-50", f"{tok}."):
+        assert rb.is_authorization(good), good
+    armed = set(LAKEBASE_DECIDED.values())
+    # negative / unrelated mentions are not authorization (old substring match accepted these)
+    assert not rb.ceo_authorized(_ExecCur(armed, directives=[(f"Do NOT {tok} yet", at + 1),
+                                                            ("P81-DEVOPS-PARTIAL-CUTOVER-EXECUTE blocked", at + 1)]))
+    assert not rb.ceo_authorized(_ExecCur(armed, directives=[(tok, at - 1)]))  # stale: before DEC-52
+    assert not rb.ceo_authorized(_ExecCur(armed - {LAKEBASE_DECIDED[52]}, ceo=True))  # no freshness anchor
+    assert not rb.ceo_authorized(_ExecCur(armed, ceo_decisions=[(tok, at - 5)]))
+    assert rb.ceo_authorized(_ExecCur(armed, directives=[(tok, at)]))  # same instant as DEC-52 counts
+    assert rb.ceo_authorized(_ExecCur(armed, ceo_decisions=[(f"{tok} (CEO, 11-03)", at + 2)]))
+    assert not rb.ceo_authorized(None)
+
+
+def test_bug_qa_112_resumed_abort_rolls_back_prior_run_promotions(monkeypatch):
+    log = []
+    sp, fs, _ = _scratch(monkeypatch)
+    real_swap, n = rb._swap, {"k": 0}
+
+    def crash_after_4(armed, f, base, view_ddl):
+        if n["k"] == 4:
+            raise KeyboardInterrupt  # run 1 dies: 4 PROMOTED, no rollback
+        n["k"] += 1
+        return real_swap(armed, f, base, view_ddl)
+    monkeypatch.setattr(rb, "_swap", crash_after_4)
+    with pytest.raises(KeyboardInterrupt):
+        _run(sp, _ExecCur(ARMED, ceo=True, log=log))
+    monkeypatch.setattr(rb, "_swap", real_swap)
+    assert all(sp.tables[t] == f"v4:{t}" for t in PROMOTE_LIVES[:4])
+    seventh = PROMOTE_LIVES[6]
+    sp.tables[seventh + rb.SUFFIX] = "drifted"  # QA S83 repro: resume, then fail on the 7th object
+    with pytest.raises(rb.CutoverAborted, match="CAND_FP_MISMATCH") as ei:
+        _run(sp, _ExecCur(ARMED, ceo=True, log=log))
+    rep = ei.value.report
+    assert rep["resumed"] == PROMOTE_LIVES[:4] and rep["promoted"] == PROMOTE_LIVES[4:6]
+    assert list(rep["rolled_back"]) == PROMOTE_LIVES[5::-1]  # prior-run + this-run objects, reverse manifest order
+    assert set(rep["rolled_back"].values()) == {"ROLLED_BACK"}
+    assert all(sp.tables[t] == f"v3:{t}" for t in PROMOTE_LIVES)  # no mixed v3/v4 state
+    latest = {}
+    for r in log:
+        latest[r[2]] = r[4]
+    assert not any(latest.get(t) == rb.EXEC_PROMOTED for t in PROMOTE_LIVES)  # nothing left that resume would skip
+
+
+def test_bug_qa_112_resumed_view_rollback_uses_logged_pre_swap_ddl(monkeypatch):
+    log = []
+    sp, fs, _ = _scratch(monkeypatch)
+    original = sp.views["unified_shared_risk_group"]
+    _run(sp, _ExecCur(ARMED, ceo=True, log=log))  # full success: 9 tables + view PROMOTED
+    pre = [r for r in log if r[4] == rb.PRE_VIEW_DDL]
+    assert [(r[2], r[5]) for r in pre] == [("unified_shared_risk_group", original)]
+    sp.tables["hazard_span_intersection"] = "someone-wrote-here"  # resume with nothing to do -> kept-v3 check fails
+    with pytest.raises(rb.CutoverAborted, match="KEPT_V3_hazard_span_intersection") as ei:
+        _run(sp, _ExecCur(ARMED, ceo=True, log=log))
+    rep = ei.value.report
+    assert len(rep["rolled_back"]) == 10 and next(iter(rep["rolled_back"])) == "unified_shared_risk_group"
+    assert sp.views["unified_shared_risk_group"] == original.replace("CREATE VIEW", "CREATE OR REPLACE VIEW", 1)
+    assert all(sp.tables[t] == f"v3:{t}" for t in PROMOTE_LIVES)
+    # a PROMOTED view without its PRE_VIEW_DDL row cannot be rolled back -> resume refused before any write
+    log2 = [r for r in log if r[4] != rb.PRE_VIEW_DDL]
+    log2.append(("T1", "x", "unified_shared_risk_group", "repoint_view", rb.EXEC_PROMOTED, "{}"))
+    sp.writes.clear()
+    with pytest.raises(rb.CutoverRefused, match="PRE_VIEW_DDL"):
+        _run(sp, _ExecCur(ARMED, ceo=True, log=log2))
+    assert sp.writes == []
+
+
+class _FlakyCur(_ExecCur):
+    """Lakebase dies (e.g. OAuth token expiry) once `fail_from` log INSERTs have been written."""
+
+    def __init__(self, *a, fail_from=0, fail_status=None, **k):
+        super().__init__(*a, **k)
+        self.inserts, self.fail_from, self.fail_status, self.dead = 0, fail_from, fail_status, False
+
+    def execute(self, sql, params=None):
+        if sql.startswith(f"INSERT INTO {rb.EXEC_LOG_TABLE}"):
+            if self.fail_status is None or params[4] == self.fail_status:
+                self.inserts += 1
+                if self.dead or self.inserts > self.fail_from:
+                    self.dead = True
+                    raise ConnectionError("SSL connection has been closed unexpectedly")
+        return super().execute(sql, params)
+
+
+def test_bug_qa_113_promoted_log_failure_still_rolls_back_uc(monkeypatch):
+    sp, fs, _ = _scratch(monkeypatch)
+    cur = _FlakyCur(ARMED, ceo=True, fail_from=2, fail_status=rb.EXEC_PROMOTED)  # 3rd PROMOTED insert fails
+    with pytest.raises(rb.CutoverAborted, match="LOG_ERROR") as ei:
+        _run(sp, cur)
+    rep = ei.value.report
+    assert rep["failed"]["object"] == PROMOTE_LIVES[2] and rep["promoted"] == PROMOTE_LIVES[:2]
+    assert list(rep["rolled_back"]) == PROMOTE_LIVES[2::-1]  # the swapped-but-unlogged object is rolled back too
+    assert all(sp.tables[t] == f"v3:{t}" for t in PROMOTE_LIVES)
+
+
+def test_bug_qa_113_dead_lakebase_on_abort_never_skips_rollback(monkeypatch):
+    sp, fs, _ = _scratch(monkeypatch, cand_override={PROMOTE_LIVES[3] + rb.SUFFIX: "drifted"})
+    # Lakebase dies right after the 4th object's STARTED row: FAILED + every rollback row cannot be written
+    cur = _FlakyCur(ARMED, ceo=True, fail_from=4 + 3)  # STARTED,PROMOTED x3 + STARTED = 7 inserts
+    with pytest.raises(rb.CutoverAborted, match="log rows NOT written") as ei:
+        _run(sp, cur)
+    rep = ei.value.report
+    assert rep["failed"] == {"object": PROMOTE_LIVES[3], "reason": "CAND_FP_MISMATCH"}
+    assert list(rep["rolled_back"]) == PROMOTE_LIVES[2::-1] and set(rep["rolled_back"].values()) == {"ROLLED_BACK"}
+    assert all(sp.tables[t] == f"v3:{t}" for t in PROMOTE_LIVES)  # UC rollback did not depend on Lakebase
+    assert [r[4] for r in rep["log_unwritten"]] == ["FAILED", "ROLLED_BACK", "ROLLED_BACK", "ROLLED_BACK"]
+
+
+def test_bug_qa_113_reconnect_recovers_expired_credential(monkeypatch):
+    sp, fs, _ = _scratch(monkeypatch)
+    log = []
+    first = _FlakyCur(ARMED, ceo=True, log=log, fail_from=5)
+    fresh = []
+
+    def reconnect():
+        fresh.append(_ExecCur(ARMED, ceo=True, log=log))
+        return fresh[-1]
+    rep = _run(sp, first, reconnect=reconnect)
+    assert rep["failed"] is None and len(fresh) == 1 and rep["log_unwritten"] == []
+    assert rep["promoted"] == PROMOTE_LIVES + ["unified_shared_risk_group"]
+    assert all((t, rb.EXEC_PROMOTED) in [(r[2], r[4]) for r in log] for t in rep["promoted"])
 
 
 def test_p88_resume_blockers_and_plan_guards():

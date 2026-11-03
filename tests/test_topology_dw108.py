@@ -87,7 +87,7 @@ def test_banner_has_no_live_region_and_caption_is_exposed():
     cap = '<span className="diversity-basis-caption">{DIVERSITY_BASIS_CAPTION}</span>'
     assert cap in block
     # caption must not be hidden from AT
-    line = [l for l in block.splitlines() if "diversity-basis-caption" in l][0]
+    line = [ln for ln in block.splitlines() if "diversity-basis-caption" in ln][0]
     assert "aria-hidden" not in line and "sr-only" not in line
 
 

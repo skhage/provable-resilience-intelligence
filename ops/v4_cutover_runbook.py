@@ -1474,17 +1474,40 @@ EXEC_ACTIONS = ("promote", "conditional_promote", "repoint_view")
 SPAN_LIVE = "physical_resource_span"
 
 
+def auth_token(task: str = EXECUTE_TASK) -> str:
+    return f"AUTHORIZE {task}"
+
+
+def is_authorization(text, task: str = EXECUTE_TASK) -> bool:
+    """Pure (BUG-QA-114): the text must START with the explicit token 'AUTHORIZE <task>', and the token must end
+    there (no longer code such as '<task>-DRY'). A mention anywhere else ('do NOT AUTHORIZE ...', 'P81 is still
+    blocked') is not an authorization."""
+    s, tok = (text or "").strip(), auth_token(task)
+    if not s.startswith(tok):
+        return False
+    nxt = s[len(tok):len(tok) + 1]
+    return nxt == "" or not (nxt.isalnum() or nxt in "-_")
+
+
 def ceo_authorized(cur, task: str = EXECUTE_TASK) -> bool:
-    """DEC-52 item 4 (read-only): an active ceo_directives row, or a decided decisions row with decided_by='CEO',
-    that names the execution task code. A @pm decision does not count."""
+    """DEC-52 item 4 (read-only). BUG-QA-114: the CEO authorization must be an active ceo_directives row, or a decided
+    decisions row with decided_by='CEO', whose text starts with 'AUTHORIZE <task>' (is_authorization) AND that was
+    created at or after the decided DEC-52 row (freshness). No DEC-52 row -> no anchor -> False (fail closed).
+    A @pm decision never counts."""
     if cur is None:
         return False
-    cur.execute("SELECT 1 FROM ceo_directives WHERE is_active = TRUE AND position(%s in directive) > 0 LIMIT 1", (task,))
-    if cur.fetchone() is not None:
+    cur.execute("SELECT created_at FROM decisions WHERE decision_code = %s AND status = 'decided' "
+                "ORDER BY id DESC LIMIT 1", (EXECUTE_IMPL_DECISION,))
+    row = cur.fetchone()
+    if row is None or row[0] is None:
+        return False
+    since = row[0]
+    cur.execute("SELECT directive FROM ceo_directives WHERE is_active = TRUE AND created_at >= %s", (since,))
+    if any(is_authorization(r[0], task) for r in cur.fetchall()):
         return True
-    cur.execute("SELECT 1 FROM decisions WHERE decided_by = 'CEO' AND status = 'decided' "
-                "AND position(%s in decision_text) > 0 LIMIT 1", (task,))
-    return cur.fetchone() is not None
+    cur.execute("SELECT decision_text FROM decisions WHERE decided_by = 'CEO' AND status = 'decided' "
+                "AND created_at >= %s", (since,))
+    return any(is_authorization(r[0], task) for r in cur.fetchall())
 
 
 def strip_inline_comment(s: str) -> str:
@@ -1610,7 +1633,9 @@ def _commit(cur) -> None:
 
 def _log(cur, run_id: str, item: Item, status: str, detail: str = "") -> None:
     cur.execute(f"INSERT INTO {EXEC_LOG_TABLE} (run_id, step, object_name, action, status, detail) "
-                "VALUES (%s, %s, %s, %s, %s, %s)", (run_id, item.step, item.live, item.action, status, str(detail)[:4000]))
+                "VALUES (%s, %s, %s, %s, %s, %s)", (run_id, item.step, item.live, item.action, status,
+                                                    # a PRE_VIEW_DDL row must stay replayable: never truncated
+                                                    str(detail) if status == PRE_VIEW_DDL else str(detail)[:4000]))
     _commit(cur)
 
 
@@ -1619,6 +1644,67 @@ def _log_state(cur, run_id: str) -> dict:
     cur.execute(f"SELECT DISTINCT ON (object_name) object_name, status FROM {EXEC_LOG_TABLE} WHERE run_id = %s "
                 "ORDER BY object_name, id DESC", (run_id,))
     return dict(cur.fetchall())
+
+
+PRE_VIEW_DDL = "PRE_VIEW_DDL"  # BUG-QA-112: pre-swap view DDL, persisted so a resumed run can still roll it back
+
+
+def _view_ddl_state(cur, run_id: str) -> dict:
+    """Latest PRE_VIEW_DDL detail per view for this run. '' means the live view did not exist before (rollback =
+    DROP VIEW)."""
+    cur.execute(f"SELECT object_name, detail FROM {EXEC_LOG_TABLE} WHERE run_id = %s AND status = %s ORDER BY id",
+                (run_id, PRE_VIEW_DDL))
+    return {o: (d or None) for o, d in cur.fetchall()}
+
+
+class _LogFailed(RuntimeError):
+    pass
+
+
+class _ExecLog:
+    """BUG-QA-113: the UC rollback must never depend on Lakebase. Every log write goes through here: on error the
+    connection is rolled back, `reconnect()` (if given; e.g. a fresh OAuth credential, 1h TTL) is tried once, and the
+    row is retried. strict=True (forward path) raises _LogFailed, which execute() turns into a step failure ->
+    rollback. strict=False (abort/rollback path) never raises: the row is buffered in .unwritten and reported."""
+
+    def __init__(self, cur, run_id: str, reconnect=None):
+        self.cur, self.run_id, self.reconnect, self.unwritten = cur, run_id, reconnect, []
+
+    def _try(self, item: Item, status: str, detail: str) -> bool:
+        try:
+            _log(self.cur, self.run_id, item, status, detail)
+            return True
+        except Exception:  # noqa: BLE001
+            try:
+                conn = getattr(self.cur, "connection", None)
+                if conn is not None:
+                    conn.rollback()
+            except Exception:  # noqa: BLE001 - a dead connection; reconnect below
+                pass
+            return False
+
+    def write(self, item: Item, status: str, detail: str = "", strict: bool = True) -> bool:
+        if self._try(item, status, detail):
+            return True
+        if self.reconnect is not None:
+            try:
+                self.cur = self.reconnect()
+                if self._try(item, status, detail):
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+        if strict:
+            raise _LogFailed(f"Lakebase log write failed: {item.live} {status}")
+        self.unwritten.append((self.run_id, item.step, item.live, item.action, status, str(detail)[:4000]))
+        return False
+
+    def flush(self) -> None:
+        """Best effort: retry buffered rows once (never raises)."""
+        pending, self.unwritten = self.unwritten, []
+        for run_id, step, live, action, status, detail in pending:
+            it = type("_LogItem", (), {"step": step, "live": live, "action": action})()
+            if not self._try(it, status, detail):
+                self.unwritten.append((run_id, step, live, action, status, detail))
 
 
 def execution_plan(findings: list, partial_cutover: bool = False) -> list:
@@ -1675,7 +1761,8 @@ def _swap(armed: _Armed, f: Finding, base: dict, view_ddl: dict) -> dict:
     """One object. Raises _StepFailed (swapped=False before the CREATE OR REPLACE, True after)."""
     it, spark = f.item, armed.spark
     if it.action == "repoint_view":
-        view_ddl[it.live] = _show_create(spark, it.live) if f.details.get("live_type") else None
+        if it.live not in view_ddl:  # execute() captures + logs it first (BUG-QA-112); direct callers capture here
+            view_ddl[it.live] = _capture_view_ddl(spark, f)
         stmt = repoint_view_sql(_show_create(spark, it.candidate), it)
         _write(armed, stmt)
         cc = comment_coverage_check(spark, it.live, it.candidate)
@@ -1706,13 +1793,19 @@ def _swap(armed: _Armed, f: Finding, base: dict, view_ddl: dict) -> dict:
     return {"fp": post, "v3_comments": v3c, "comments": cc["status"]}
 
 
+def _capture_view_ddl(spark, f: Finding):
+    return _show_create(spark, f.item.live) if f.details.get("live_type") else None
+
+
 def _rollback_one(armed: _Armed, f: Finding, base: dict, view_ddl: dict) -> str:
     it, spark = f.item, armed.spark
     if it.action == "repoint_view":
         old = view_ddl.get(it.live)
         _write(armed, _or_replace_view(old) if old else f"DROP VIEW IF EXISTS {FQ}.`{it.live}`")
         return "ROLLED_BACK"
-    for stmt in _plan_writes(f.rollback_sql):  # DEEP CLONE from <live>__v3_rollback, or DROP for v4-new tables
+    # DEEP CLONE from <live>__v3_rollback, or DROP for v4-new tables. BUG-QA-112: an object PROMOTED by a prior run
+    # is not READY in today's dry run (its Finding may carry no rollback_sql), so build its plan here.
+    for stmt in _plan_writes(f.rollback_sql or rollback_sql(it, f.details.get("v3_pin"))):
         _write(armed, stmt)
     if f.details.get("v3_pin") is None:
         return "ROLLED_BACK"
@@ -1733,12 +1826,19 @@ def _post_span_bridge(spark, partial_cutover: bool, findings: list) -> str:
 
 
 def execute(spark, cur, write_enabled: bool = False, partial_cutover: bool = False, run_id: str | None = None,
-            pin_guard: bool = True) -> dict:
+            pin_guard: bool = True, reconnect=None) -> dict:
     """Guarded cutover. Refuses unless explicitly enabled, env-armed, GO-decided for the mode (DEC-52), CEO-authorized
     for P81 (DEC-52 item 4) and READY in a fresh dry run. P68: partial mode also needs DEC-41 (PARTIAL_DECISION).
 
     Write path (P88): see the module docstring. run_id makes the run resumable: objects whose latest log row for
     the run is PROMOTED are re-verified (live fingerprint == candidate baseline) and skipped.
+
+    BUG-QA-112: on abort, the rollback set is every object PROMOTED by a prior run of this run_id PLUS every object
+    swapped in this run, rolled back in reverse manifest order, so an aborted resume never leaves a mixed v3/v4
+    state. A resume whose PROMOTED view has no logged PRE_VIEW_DDL is refused (it could not be rolled back).
+    BUG-QA-113: logging goes through _ExecLog. A forward-path log failure aborts + rolls back. The rollback itself
+    never depends on Lakebase: rows that cannot be written are buffered and returned in report['log_unwritten'].
+    `reconnect` (optional) returns a fresh Lakebase cursor, e.g. after the 1h OAuth credential expires.
     """
     if not write_enabled or os.environ.get(EXEC_ENV) != "1":
         raise CutoverRefused(f"write-disabled: pass write_enabled=True AND set {EXEC_ENV}=1")
@@ -1755,6 +1855,7 @@ def execute(spark, cur, write_enabled: bool = False, partial_cutover: bool = Fal
     cur.execute(EXEC_LOG_DDL)
     _commit(cur)
     done = {o for o, st in _log_state(cur, run_id).items() if st == EXEC_PROMOTED}
+    prior_view_ddl = _view_ddl_state(cur, run_id) if done else {}
     findings = dry_run(spark, cur, verbose=False, partial_cutover=partial_cutover, pin_guard=False)
     rb_state = resume_blockers(findings, done)
     if any(rb_state.values()):
@@ -1767,16 +1868,25 @@ def execute(spark, cur, write_enabled: bool = False, partial_cutover: bool = Fal
             if st != "FP_PASS":
                 raise CutoverRefused(f"resume: {f.item.live} is logged {EXEC_PROMOTED} but live fingerprint is {st}")
         if f.item.live in done:
+            if f.item.action == "repoint_view" and f.item.live not in prior_view_ddl:
+                raise CutoverRefused(f"resume: {f.item.live} is logged {EXEC_PROMOTED} but has no {PRE_VIEW_DDL} "
+                                     "row, so it could not be rolled back (BUG-QA-112)")
             resumed.append(f.item.live)
     plan = [f for f in execution_plan(findings, partial_cutover) if f.item.live not in done]
+    # BUG-QA-112: prior-run PROMOTED objects are part of the rollback set from the start (manifest order).
+    prior = [f for f in findings if f.item.live in done and f.item.action in EXEC_ACTIONS]
     armed = _Armed(spark, pin_commit_guard(spark, check_po=False) if pin_guard else None)
     report = {"run_id": run_id, "partial_cutover": partial_cutover, "go_decision": go, "resumed": resumed,
-              "promoted": [], "rolled_back": {}, "kept_v3_provisional": [], "failed": None}
-    swapped, view_ddl, current = [], {}, None
+              "promoted": [], "rolled_back": {}, "kept_v3_provisional": [], "failed": None, "log_unwritten": []}
+    log = _ExecLog(cur, run_id, reconnect)
+    swapped, view_ddl, current = list(prior), dict(prior_view_ddl), None
     try:
         for f in plan:
             current = f
-            _log(cur, run_id, f.item, "STARTED")
+            log.write(f.item, "STARTED")
+            if f.item.action == "repoint_view":  # persist the pre-swap DDL BEFORE the write (BUG-QA-112)
+                view_ddl[f.item.live] = _capture_view_ddl(spark, f)
+                log.write(f.item, PRE_VIEW_DDL, view_ddl[f.item.live] or "")
             try:
                 info = _swap(armed, f, base, view_ddl)
             except _StepFailed as e:
@@ -1791,7 +1901,7 @@ def execute(spark, cur, write_enabled: bool = False, partial_cutover: bool = Fal
                 bv = _post_span_bridge(spark, partial_cutover, findings)
                 if bv != "READY":
                     raise _StepFailed("POST_SPAN_BRIDGE_" + bv, swapped=True)
-            _log(cur, run_id, f.item, EXEC_PROMOTED, info)
+            log.write(f.item, EXEC_PROMOTED, info)
             report["promoted"].append(f.item.live)
         for f in findings:  # kept v3 objects: never written (DEC-48); re-check after the swap window
             if f.verdict != PARTIAL_VERDICT or f.details.get("live_type") != "MANAGED":
@@ -1802,20 +1912,38 @@ def execute(spark, cur, write_enabled: bool = False, partial_cutover: bool = Fal
                 raise _StepFailed(f"KEPT_V3_{f.item.live}_{st}", swapped=False)
         for f in findings:
             if f.verdict == PARTIAL_VERDICT:
-                _log(cur, run_id, f.item, PARTIAL_VERDICT, "PROVISIONAL label (log only, no UC commit: DEC-48)")
+                log.write(f.item, PARTIAL_VERDICT, "PROVISIONAL label (log only, no UC commit: DEC-48)")
                 report["kept_v3_provisional"].append(f.item.live)
-    except _StepFailed as e:
-        failed = current.item.live
-        report["failed"] = {"object": failed, "reason": e.reason}
-        _log(cur, run_id, current.item, "FAILED", e.reason)
-        for g in reversed(swapped):
+    except Exception as e:  # noqa: BLE001 - _StepFailed, _LogFailed or anything unexpected: always roll back
+        # (KeyboardInterrupt / SystemExit are BaseException: a dying process cannot roll back; resume handles it)
+        if isinstance(e, _StepFailed):
+            reason = e.reason
+        elif isinstance(e, _LogFailed):
+            reason = f"LOG_ERROR {e}"
+        else:
+            reason = f"ERROR {type(e).__name__}: {str(e)[:300]}"
+        failed = current.item.live if current is not None else None
+        report["failed"] = {"object": failed, "reason": reason}
+        if current is not None:
+            log.write(current.item, "FAILED", reason, strict=False)
+        order = {f.item.live: i for i, f in enumerate(findings)}
+        seen, targets = set(), []
+        for g in sorted(swapped, key=lambda g: order.get(g.item.live, -1), reverse=True):  # reverse manifest order
+            if g.item.live not in seen:
+                seen.add(g.item.live)
+                targets.append(g)
+        for g in targets:
             try:
                 st = _rollback_one(armed, g, base, view_ddl)
             except Exception as ex:  # noqa: BLE001 - keep restoring the rest; report every failure
                 st = f"ROLLBACK_ERROR {type(ex).__name__}: {str(ex)[:200]}"
             report["rolled_back"][g.item.live] = st
-            _log(cur, run_id, g.item, st)
+            log.write(g.item, st, strict=False)
+        log.flush()
+        report["log_unwritten"] = list(log.unwritten)
         report["statements"] = len(armed.statements)
-        raise CutoverAborted(f"cutover aborted at {failed}: {e.reason}; rollback={report['rolled_back']}", report) from e
+        raise CutoverAborted(f"cutover aborted at {failed}: {reason}; rollback={report['rolled_back']}"
+                             + (f"; {len(log.unwritten)} log rows NOT written" if log.unwritten else ""),
+                             report) from e
     report["statements"] = len(armed.statements)
     return report
