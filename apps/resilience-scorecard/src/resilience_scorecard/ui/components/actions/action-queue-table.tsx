@@ -16,6 +16,7 @@ import {
   useGetMrcProtected,
 } from "@/lib/api";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { formatMonthlyUsd } from "@/lib/v4-delta-format";
 import { useQueryClient } from "@tanstack/react-query";
 import selector from "@/lib/selector";
 import {
@@ -70,15 +71,8 @@ const ACTION_TYPE_ICONS: Record<string, LucideIcon> = {
 const MRC_PROTECTED_DEFINITION =
   "Monthly recurring charge of distinct services with at least one completed proactive action. Each service is counted once.";
 
-/** $ + millions to 1 dp + M; under $1M use $###K. Returns [display, spoken]. */
-function formatMonthlyUsd(usd: number): [string, string] {
-  if (usd >= 1_000_000) {
-    const m = (usd / 1_000_000).toFixed(1);
-    return [`$${m}M`, `$${m} million`];
-  }
-  const k = Math.round(usd / 1_000);
-  return [`$${k}K`, `$${k} thousand`];
-}
+// BUG-DW-130: formatMonthlyUsd lives in @/lib/v4-delta-format (branch on the
+// rounded value, so $999,500+ reads $1.0M, never $1000K).
 
 /**
  * P36-APP-V4-MRC-PROTECTED-KPI: 5th Action Queue card, after Completed.

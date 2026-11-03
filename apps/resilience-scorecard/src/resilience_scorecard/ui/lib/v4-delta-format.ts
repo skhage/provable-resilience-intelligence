@@ -67,6 +67,24 @@ export function formatMoneyPerMonth(usd: number): string {
   return `$${formatMillions(usd)}M/mo`;
 }
 
+/**
+ * BUG-DW-130: compact monthly USD for KPI cards, V4-KPI-COPY-SPEC §1 + §6.4.
+ * $1M and over: `$#.#M` (round half up, thousands separators: `$1,234.5M`).
+ * Under $1M: `$###K`. The branch is chosen on the ROUNDED thousands value, so
+ * $999,500..$999,999 (which rounds to 1000K) prints `$1.0M`, never `$1000K`.
+ * Returns [display, spoken]; the spoken form is built from the same digits so
+ * the aria-label always matches the visible value.
+ */
+export function formatMonthlyUsd(usd: number): [string, string] {
+  const k = roundHalfUp(usd / 1_000, 0);
+  if (Math.abs(k) >= 1_000) {
+    const m = formatMillions(usd);
+    return [`$${m}M`, `$${m} million`];
+  }
+  const ks = fixed(usd / 1_000, 0);
+  return [`$${ks}K`, `$${ks} thousand`];
+}
+
 export type DeltaKind = "score" | "count" | "money" | "percent";
 
 const DP: Record<DeltaKind, number> = { score: 1, count: 0, money: 1, percent: 1 };
