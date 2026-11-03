@@ -51,8 +51,11 @@ function SrlgGroupsV4Card({ total, coverage }: { total: number; coverage: BbSrlg
       </div>
       <div className="kpi-value">
         {n}
-        {/* §6.3: same line, joined with a non-breaking space; speech comes from the card aria-label */}
-        {partial && <span className="kpi-sub">{`\u00A0${METRO_ACCESS}`}</span>}
+        {/* §6.3: same line, joined with a non-breaking space. BUG-DW-097/129: role=group aria-label
+            names the card but does NOT hide its children, so the visual slash qualifier is
+            aria-hidden; the spoken "metro and access" comes only from the card aria-label (no sr-only
+            span, which would make it spoken twice). .kpi-sub--disclosure = solid iron (v4-only). */}
+        {partial && <span className="kpi-sub kpi-sub--disclosure" aria-hidden="true">{`\u00A0${METRO_ACCESS}`}</span>}
       </div>
       <div className="kpi-caption">{SRLG_SUBLINE[coverage]}</div>
     </div>

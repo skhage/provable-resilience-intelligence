@@ -2517,6 +2517,13 @@ select:focus-visible,
   overflow-wrap: anywhere;
 }
 
+/* BUG-DW-097 item 1: v4-only disclosure qualifier inside .kpi-value (e.g. SRLG Groups
+   '(metro/access)'). Solid iron #4D4D4D (8.45:1 on white) per the disclosure house rule above;
+   the v3 .kpi-sub (80% alpha) stays byte-identical. */
+.kpi-sub.kpi-sub--disclosure {
+  color: #4D4D4D;
+}
+
 .info-tip {
   position: relative;
   display: inline-flex;
