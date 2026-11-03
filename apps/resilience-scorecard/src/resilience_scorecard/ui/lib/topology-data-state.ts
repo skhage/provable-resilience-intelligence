@@ -26,7 +26,15 @@ export function serviceNotFoundMsg(serviceId: string): string {
   return `Service ${serviceId} not found.`;
 }
 
-export function srlgUnavailableMsg(region: string): string {
+/** BUG-DW-113 item 1: legend suffix when the SRLG fetch failed with 401/403 (not a transient outage). */
+export const SRLG_SESSION_EXPIRED_SUFFIX = ": session may have expired.";
+
+/**
+ * Legend line for an SRLG overlay that could not be loaded. Under auth_expired the copy
+ * names the likely cause (expired session) instead of implying a transient outage.
+ */
+export function srlgUnavailableMsg(region: string, state: DataState | null = null): string {
+  if (state === "auth_expired") return `SRLG data unavailable for ${region}${SRLG_SESSION_EXPIRED_SUFFIX}`;
   return `SRLG data unavailable for ${region}.`;
 }
 

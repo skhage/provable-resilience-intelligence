@@ -141,7 +141,8 @@ def test_nonlive_banner_has_no_badge_no_hop_stats_but_retry_and_clear():
     assert "path-trace-stats" not in blk and "protect" not in blk.lower()
     # BUG-DW-105: role="status" moved to a persistent sr-only region outside PathTraceBanner
     # The non-live block now uses aria-busy on the container instead
-    assert "path-trace-retry" in blk and 'mode === "unavailable"' in blk
+    # BUG-DW-113 item 2: the Retry gate is the shared showTraceRetry(mode) helper
+    assert "path-trace-retry" in blk and "showTraceRetry(mode)" in blk
     assert "Clear trace" in blk
 
 

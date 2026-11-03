@@ -91,8 +91,11 @@ def test_srlg_legend_discloses_auth_expired():
 
 def test_banner_retry_still_unavailable_only():
     src = _read("routes", "topology.tsx")
-    # banner Retry guard unchanged: auth_expired / not_found get no Retry
-    assert '{mode === "unavailable" && onRetry && (' in src
+    # banner Retry guard: auth_expired / not_found get no Retry.
+    # BUG-DW-113 item 2: the gate is the shared showTraceRetry(mode) helper (== 'unavailable').
+    assert '{showTraceRetry(mode) && onRetry && (' in src
+    assert _node("out = ['unavailable','auth_expired','not_found','live','pending'].map(m.showTraceRetry);") == [
+        True, False, False, False, False]
     # the banner renders for auth_expired (any settled mode)
     assert 'tracedServiceId && traceMode !== "pending" && (' in src
 

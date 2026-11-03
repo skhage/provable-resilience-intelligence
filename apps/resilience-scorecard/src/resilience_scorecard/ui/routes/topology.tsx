@@ -562,6 +562,7 @@ function Legend({
   onToggle,
   bbCoverage = null,
   srlgUnavailableRegion = null,
+  srlgUnavailableState = null,
   showInventoryOnly = false,
   provisionalHazardLegend = false,
 }: {
@@ -573,12 +574,14 @@ function Legend({
   bbCoverage?: BbSrlgCoverage | null;
   /** BUG-DW-098: region whose SRLG overlay fetch is unavailable (never an empty overlay silently) */
   srlgUnavailableRegion?: string | null;
+  /** BUG-DW-113 item 1: SRLG fetch state; auth_expired names the expired session in the legend line */
+  srlgUnavailableState?: DataState | null;
   /** P68-APP-PROVISIONAL-BADGE §7.2: one legend line for HSI-derived hazard overlay */
   provisionalHazardLegend?: boolean;
 }) {
   const srlgUnavailableLine = srlgUnavailableRegion ? (
     <p className="legend-coverage-note legend-srlg-unavailable" role="status">
-      {srlgUnavailableMsg(srlgUnavailableRegion)}
+      {srlgUnavailableMsg(srlgUnavailableRegion, srlgUnavailableState)}
     </p>
   ) : null;
   if (collapsed) {
@@ -1031,7 +1034,8 @@ function PathTraceBanner({
           <span className="path-trace-unavailable">{displayMessage}</span>
         </div>
         <div className="path-trace-actions">
-          {mode === "unavailable" && onRetry && (
+          {/* BUG-DW-113 item 2: same Retry gate as the mobile summary (single source of truth) */}
+          {showTraceRetry(mode) && onRetry && (
             <button
               type="button"
               className="path-trace-retry"
@@ -2140,7 +2144,7 @@ function MobileTreeView({
         // BUG-DW-111 item 4: not a live region; the page-level persistent region announces
         <div className="mobile-tree-diversity-summary">
           <strong>Tracing:</strong> {tracedServiceId}
-          <span className="path-trace-unavailable">
+          <span className="path-trace-unavailable" id="mobile-trace-summary-msg">
             {(showTraceRetry(traceMode) && retryFeedback) || traceBannerMessage(traceMode, tracedServiceId)}
           </span>
           {/* BUG-DW-106 item 2: Retry in the sticky summary (44px at <=768px via .path-trace-retry).
@@ -2149,6 +2153,7 @@ function MobileTreeView({
             <button
               type="button"
               className="path-trace-retry mobile-tree-retry"
+              aria-describedby="mobile-trace-summary-msg"
               onClick={retryBusy ? undefined : onRetry}
               aria-disabled={retryBusy || undefined}
             >
@@ -2733,6 +2738,7 @@ function TopologyPage() {
             srlgUnavailableRegion={
               showSrlgUnavailable(overlays.srlg, selectedRegion, srlgState) ? selectedRegion : null
             }
+            srlgUnavailableState={srlgState}
             provisionalHazardLegend={provisionalHazard}
           />
 
