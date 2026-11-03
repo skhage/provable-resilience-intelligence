@@ -70,6 +70,7 @@ CREATE TABLE physical_resource_span (span_id TEXT, conduit_id TEXT, site_a_id TE
 CREATE TABLE physical_resource_span_v4_candidate (span_id TEXT, conduit_id TEXT, site_a_id TEXT, site_z_id TEXT,
   length_km REAL, fiber_type TEXT, fiber_count INT, is_active BOOLEAN, parent_route_id TEXT);
 CREATE TABLE service_path (service_id TEXT, hop_sequence INT, span_id TEXT, path_type TEXT);
+CREATE TABLE shared_risk_group (srlg_id TEXT, span_id TEXT);
 """
 
 _SITES = [(f"S{i}", f"Site {i}", "Central", "tier_1", 1) for i in range(1, 5)]
@@ -159,11 +160,12 @@ def test_v3_query_unchanged_on_fixture(db):
 
 def _on_path_edges(con, path_sql):
     """Mirror topology.tsx: isOnPath = pathConduitIds.has(id); invOnly = isInventoryOnly(c);
-    BB caveat = bbCoverage 'partial' && hasBackboneSpans(c) (backbone_span_count > 0)."""
+    BB caveat = bbCoverage 'partial' && hasBackboneSpans(c) (BUG-DW-114: uncovered BB spans > 0;
+    this fixture has no SRLG rows, so uncovered == backbone_span_count)."""
     edges = _run(con, cs._TOPOLOGY_CONDUITS_V4_SQL, region="Central")
     ids = {h["conduit_id"] for h in _run(con, path_sql, service_id="SVC-A") if h["conduit_id"]}
     return {e["conduit_id"]: {"inventory_text": e["span_coverage_class"] == "INVENTORY_ONLY",
-                              "bb_caveat": int(e["backbone_span_count"] or 0) > 0}
+                              "bb_caveat": int(e["backbone_uncovered_span_count"] or 0) > 0}
             for e in edges if e["conduit_id"] in ids}
 
 

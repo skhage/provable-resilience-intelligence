@@ -51,18 +51,31 @@ export function formatCount(n: number): string {
 export function isBackboneSpan(spanId: string | null | undefined): boolean {
   return !!spanId && spanId.startsWith("BB");
 }
-type EdgeSpanCounts = { span_count: number; backbone_span_count?: number | null };
-/** Any backbone span in the conduit: append the BB caveat to aria/hover text. */
-export function hasBackboneSpans(c: EdgeSpanCounts): boolean {
-  return (c.backbone_span_count ?? 0) > 0;
+type EdgeSpanCounts = {
+  span_count: number;
+  backbone_span_count?: number | null;
+  backbone_uncovered_span_count?: number | null;
+};
+/**
+ * BUG-DW-114: backbone spans in this conduit that have NO shared-risk-group row (v4 API field,
+ * same anti-join as the global coverage check). When the API does not send it (v3 freeze query),
+ * every backbone span counts as uncovered, which is the pre-DW-114 behaviour.
+ */
+export function uncoveredBackboneSpans(c: EdgeSpanCounts): number {
+  return c.backbone_uncovered_span_count ?? c.backbone_span_count ?? 0;
 }
-/** Only backbone spans: no SRLG badge at all (§2.1). */
+/** Any UNCOVERED backbone span in the conduit: append the BB caveat to aria/hover text. */
+export function hasBackboneSpans(c: EdgeSpanCounts): boolean {
+  return uncoveredBackboneSpans(c) > 0;
+}
+/** Every span is an uncovered backbone span: no SRLG data to show, so no badge (§2.1). */
 export function isBackboneOnly(c: EdgeSpanCounts): boolean {
-  return hasBackboneSpans(c) && (c.backbone_span_count ?? 0) >= c.span_count;
+  return hasBackboneSpans(c) && uncoveredBackboneSpans(c) >= c.span_count;
 }
 
 /**
  * BUG-DW-096 (1): what the conduit detail panel shows for its SRLG list.
+ * BUG-DW-114: "backbone" below means backbone spans WITHOUT SRLG rows (uncoveredBackboneSpans).
  * - "caveat-only": backbone-only conduit while partial. The map suppresses its badge, so the
  *   panel must not list SRLGs either (WCAG 3.2.4). Only BB_EDGE_CAVEAT is shown.
  * - "qualified": mixed conduit while partial. List kept, heading gets the (metro/access) qualifier.

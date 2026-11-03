@@ -225,6 +225,8 @@ interface ConduitEdge {
   span_count: number;
   /** P36-APP-V4-BB-SRLG-DISCLOSURE: active backbone spans (BB- / BBS- ids) in this conduit */
   backbone_span_count?: number;
+  /** BUG-DW-114: v4 only; backbone spans with no SRLG row. Drives the per-edge BB caveat. */
+  backbone_uncovered_span_count?: number | null;
   /** P36-APP-V4-CONDUIT-COVERAGE-FILTER: v4 span coverage class; null/absent with PRI_V4_KPIS off */
   span_coverage_class?: string | null;
 }

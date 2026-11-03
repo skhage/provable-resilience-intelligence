@@ -352,15 +352,23 @@ SELECT
   c.site_z_id,
   CAST(COALESCE(sp_cnt.cnt, 0) AS INT) AS span_count,
   CAST(COALESCE(sp_cnt.bb_cnt, 0) AS INT) AS backbone_span_count,
+  -- BUG-DW-114: per-conduit backbone spans with NO shared_risk_group row (same anti-join as
+  -- _BB_SRLG_COVERAGE_SQL). The UI BB caveat follows these, not all backbone spans.
+  CAST(COALESCE(sp_cnt.bb_unc, 0) AS INT) AS backbone_uncovered_span_count,
   c.span_coverage_class
 FROM physical_resource_conduit_v4_candidate c
 JOIN geographic_site sa ON c.site_a_id = sa.site_id
 JOIN geographic_site sz ON c.site_z_id = sz.site_id
 LEFT JOIN (
-  SELECT conduit_id, COUNT(*) AS cnt,
-         SUM(CASE WHEN span_id LIKE 'BB%' THEN 1 ELSE 0 END) AS bb_cnt
-  FROM physical_resource_span_v4_candidate WHERE is_active = TRUE
-  GROUP BY conduit_id
+  SELECT s.conduit_id, COUNT(*) AS cnt,
+         SUM(CASE WHEN s.span_id LIKE 'BB%' THEN 1 ELSE 0 END) AS bb_cnt,
+         SUM(CASE WHEN s.span_id LIKE 'BB%' AND cov.span_id IS NULL THEN 1 ELSE 0 END) AS bb_unc
+  FROM physical_resource_span_v4_candidate s
+  LEFT JOIN (
+    SELECT DISTINCT span_id FROM shared_risk_group WHERE span_id LIKE 'BB%'
+  ) cov ON cov.span_id = s.span_id
+  WHERE s.is_active = TRUE
+  GROUP BY s.conduit_id
 ) sp_cnt ON sp_cnt.conduit_id = c.conduit_id
 WHERE c.is_active = TRUE
   AND (sa.region = :region OR sz.region = :region)
@@ -1050,6 +1058,9 @@ class CatalogSqlService:
         for r in rows:
             r["span_count"] = int(r.get("span_count", 0))
             r["backbone_span_count"] = int(r.get("backbone_span_count", 0) or 0)
+            # BUG-DW-114: v4 only. Absent on the v3 freeze query -> None (UI falls back to all BB).
+            if r.get("backbone_uncovered_span_count") is not None:
+                r["backbone_uncovered_span_count"] = int(r["backbone_uncovered_span_count"])
             r["length_km"] = float(r.get("length_km", 0))
         return rows
 
