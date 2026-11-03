@@ -175,20 +175,23 @@ def test_persistent_status_region_mounted():
 
 
 def test_persistent_region_shows_retrying_when_busy():
-    """The persistent region shows RETRYING_LABEL when retryBusy is true."""
+    """The persistent region shows RETRYING_LABEL when retryBusy is true.
+    BUG-DW-112 (b): the region passes the real retryBusy to traceStatusText, which returns
+    RETRYING_LABEL first (priority pinned in test_topology_dw112)."""
     src = _get_topology_src()
     idx = src.index('BUG-DW-105: persistent sr-only status region')
-    block = src[idx:idx+500]
-    assert "retryBusy" in block
-    assert "RETRYING_LABEL" in block
+    block = src[idx:src.index('</div>', idx)]
+    assert "busy: retryBusy," in block
+    assert "traceStatusText({" in block
 
 
 def test_persistent_region_shows_retry_feedback():
-    """The persistent region shows retryFeedback when set."""
+    """The persistent region shows retryFeedback when set (BUG-DW-112 (b): via traceStatusText)."""
     src = _get_topology_src()
     idx = src.index('BUG-DW-105: persistent sr-only status region')
-    block = src[idx:idx+500]
-    assert "retryFeedback" in block
+    block = src[idx:src.index('</div>', idx)]
+    assert "retryFeedback," in block
+    assert "retryFeedback: null" not in block
 
 
 # --- TopologyPage state and effects (issue 1, 3) --------------------------

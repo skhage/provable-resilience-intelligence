@@ -49,6 +49,19 @@ export function diversityLabel(status: string | null | undefined): string {
   return DIVERSITY_LABELS[normalize(status)];
 }
 
+/**
+ * BUG-DW-112 (a): clause used in the live trace summary. When hops were traced but
+ * diversity_status is unknown, "No path data" would contradict the hop counts that follow,
+ * so the summary says the diversity is not rated instead.
+ */
+export const DIVERSITY_NOT_RATED = "Diversity not rated";
+
+/** Summary clause: the full label, except unknown/unrecognised -> DIVERSITY_NOT_RATED. */
+export function diversitySummaryLabel(status: string | null | undefined): string {
+  const s = normalize(status);
+  return s === "unknown" ? DIVERSITY_NOT_RATED : DIVERSITY_LABELS[s];
+}
+
 /** Short mobile label; unrecognised statuses map to "No data". */
 export function diversityShortLabel(status: string | null | undefined): string {
   return DIVERSITY_SHORT_LABELS[normalize(status)];

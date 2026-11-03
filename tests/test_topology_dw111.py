@@ -159,7 +159,8 @@ def test_persistent_region_writes_live_summary():
     assert 'role="status"' in blk and 'aria-atomic="true"' in blk
     assert "traceStatusText({" in blk
     assert "mode: traceMode" in blk
-    assert "diversityLabel(diversity?.diversity_status)" in blk
+    # BUG-DW-112 (a): summary clause uses diversitySummaryLabel (unknown -> 'Diversity not rated')
+    assert "diversitySummaryLabel(diversity?.diversity_status)" in blk
     assert 'h.path_type === "working"' in blk and 'h.path_type === "protect"' in blk
     assert "DIVERSITY_BASIS_CAPTION" not in blk
     # old null-for-live expression is gone from the region

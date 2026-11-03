@@ -71,6 +71,7 @@ import {
   DIVERSITY_STATUS_ORDER,
   diversityLabel,
   diversityShortLabel,
+  diversitySummaryLabel,
   sharedConduitStat,
 } from "@/lib/diversity-copy";
 // P36-APP-V4-CONDUIT-COVERAGE-FILTER (V4-KPI-COPY-SPEC §3): Conduits chips, v4 flag only
@@ -1766,6 +1767,8 @@ interface MobileTreeProps {
   retryFeedback?: string | null;
   /** BUG-DW-118: drawn/total hop counts from the page; null = no site map in scope */
   hopsShown?: HopsShown | null;
+  /** BUG-DW-112 (c): total traced hops (working + protect); 0 in live mode = no traced path */
+  tracedHopCount?: number;
 }
 
 function MobileTreeView({
@@ -1781,6 +1784,7 @@ function MobileTreeView({
   retryBusy = false,
   retryFeedback = null,
   hopsShown = null,
+  tracedHopCount,
 }: MobileTreeProps) {
   const [expandedRegions, setExpandedRegions] = useState<Set<string>>(
     new Set()
@@ -2156,8 +2160,13 @@ function MobileTreeView({
       {tracedServiceId && diversity && overlays.diversity && !traceBannerMessage(traceMode, tracedServiceId) && (
         <div className="mobile-tree-diversity-summary">
           <strong>Tracing:</strong> {tracedServiceId}
-          {diversityBadge(diversity.diversity_status)}
-          {showBackboneUnverified(bbCoverage, diversity.diversity_status, diversity.crosses_backbone) && (
+          {/* BUG-DW-112 (c): live with 0 hops matches the desktop banner ('No traced path'), no badge */}
+          {tracedHopCount === 0 ? (
+            <span className="mobile-tree-no-path">{noTracedPathMsg(tracedServiceId)}</span>
+          ) : (
+            diversityBadge(diversity.diversity_status)
+          )}
+          {tracedHopCount !== 0 && showBackboneUnverified(bbCoverage, diversity.diversity_status, diversity.crosses_backbone) && (
             <span className="mobile-tree-bb-unverified">
               <span className="sr-only">, </span>
               {BB_UNVERIFIED}
@@ -2565,22 +2574,20 @@ function TopologyPage() {
            The LoadingRegion pattern: mount empty, then write text on a later render. */}
       {tracedServiceId && (
         <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-          {retryBusy
-            ? RETRYING_LABEL
-            : retryFeedback
-            ? retryFeedback
-            : traceStatusText({
-                // BUG-DW-111 item 2: live mode writes a concise summary (no basis caption)
-                mode: traceMode,
-                serviceId: tracedServiceId,
-                busy: false,
-                retryFeedback: null,
-                diversityLabel: diversityLabel(diversity?.diversity_status),
-                workingHops: pathHops.filter((h) => h.path_type === "working").length,
-                protectHops: pathHops.filter((h) => h.path_type === "protect").length,
-                // BUG-DW-118 item 4: hops-shown sentence included once in the live summary
-                hopsShown,
-              })}
+          {/* BUG-DW-112 (b): traceStatusText owns the priority order (Retrying > feedback > non-live > live) */}
+          {traceStatusText({
+            // BUG-DW-111 item 2: live mode writes a concise summary (no basis caption)
+            mode: traceMode,
+            serviceId: tracedServiceId,
+            busy: retryBusy,
+            retryFeedback,
+            // BUG-DW-112 (a): unknown status with hops -> 'Diversity not rated', never 'No path data'
+            diversityLabel: diversitySummaryLabel(diversity?.diversity_status),
+            workingHops: pathHops.filter((h) => h.path_type === "working").length,
+            protectHops: pathHops.filter((h) => h.path_type === "protect").length,
+            // BUG-DW-118 item 4: hops-shown sentence included once in the live summary
+            hopsShown,
+          })}
         </div>
       )}
 
@@ -2648,6 +2655,7 @@ function TopologyPage() {
               retryBusy={retryBusy}
               retryFeedback={retryFeedback}
               hopsShown={hopsShown}
+              tracedHopCount={pathHops.length}
             />
           )}
           {!loading && regions.length === 0 && (
