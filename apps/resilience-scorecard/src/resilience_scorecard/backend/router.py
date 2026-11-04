@@ -594,16 +594,21 @@ def get_service_diversity(
 def list_topology_srlgs(
     csql: Dependencies.CatalogSql,
     response: Response,
+    config: Dependencies.Config,
     region: str = Query(..., description="Region name"),
 ):
     """Return SRLG memberships for spans in a region.
 
     TOPOLOGY-VIS-SPEC §3 — lazy-loaded when SRLG overlay is toggled on.
     BUG-QA-080: X-PRI-Data-Source is 'live' or 'unavailable' (never silent).
+    P97-APP-V4-SRLG-OVERLAY-SPANS: with PRI_V4_KPIS=true, span_id resolves against the v4 span
+    table so BBS-* SRLG rows reach the CDT-BBR-* conduit panel (same flag as
+    list_topology_conduits). Flag off = unchanged v3 call.
     """
+    v4 = bool(getattr(config, "v4_kpis", False))
     if hasattr(csql, "is_available") and csql.is_available:
         try:
-            srlgs = csql.get_srlgs_by_region(region)
+            srlgs = csql.get_srlgs_by_region(region, v4=True) if v4 else csql.get_srlgs_by_region(region)
             if srlgs is not None:
                 response.headers[DATA_SOURCE_HEADER] = "live"
                 return srlgs

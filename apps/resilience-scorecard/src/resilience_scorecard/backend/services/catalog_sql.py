@@ -631,6 +631,19 @@ ORDER BY
 LIMIT 500
 """
 
+# P97-APP-V4-SRLG-OVERLAY-SPANS: PRI_V4_KPIS=true SRLG overlay / conduit panel list. The v3 query
+# above joins the v3 span table, so SRLG rows keyed on v4 backbone segments (span_id BBS-<route>-NNN,
+# conduit_id CDT-BBR-<route>) never reach the v4 /topology BBR conduit panel: after BUG-DW-114 a
+# covered BBR conduit would drop the caveat yet list 0 SRLGs. This variant resolves span_id against
+# physical_resource_span_v4_candidate (READ-ONLY). Its SPAN-* rows are identical to v3 (same
+# conduit/sites/length/is_active), so non-backbone results do not change. Same columns, params,
+# ORDER BY and LIMIT as _SRLG_BY_REGION_SQL; that v3 constant stays byte-identical.
+_SRLG_BY_REGION_V4_SQL = _SRLG_BY_REGION_SQL.replace(
+    "JOIN physical_resource_span prs ON",
+    "JOIN physical_resource_span_v4_candidate prs ON",
+    1,
+)
+
 _HAZARD_OVERLAY_SQL = """
 SELECT
   h.hazard_id,
@@ -1181,9 +1194,15 @@ class CatalogSqlService:
             ),
         }
 
-    def get_srlgs_by_region(self, region: str) -> list[dict] | None:
-        """Return SRLG memberships for spans in a region."""
-        rows = self._execute(_SRLG_BY_REGION_SQL, row_limit=500, params={"region": region})
+    def get_srlgs_by_region(self, region: str, v4: bool = False) -> list[dict] | None:
+        """Return SRLG memberships for spans in a region.
+
+        v4=True (PRI_V4_KPIS, P97-APP-V4-SRLG-OVERLAY-SPANS) resolves span_id against the v4
+        span table so SRLG rows on BBS-* segments carry their CDT-BBR-* conduit_id and land on
+        the v4 /topology conduit panel. v4=False is the unchanged v3 freeze query.
+        """
+        sql = _SRLG_BY_REGION_V4_SQL if v4 else _SRLG_BY_REGION_SQL
+        rows = self._execute(sql, row_limit=500, params={"region": region})
         if rows is None:
             return None
         for r in rows:

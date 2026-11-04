@@ -108,7 +108,8 @@ def test_router_flags_unavailable_instead_of_silent():
     assert r.get_service_path_trace("SVC-1", _Down(), resp, SimpleNamespace(v4_kpis=False)) == []
     assert resp.headers[r.DATA_SOURCE_HEADER] == "unavailable"
     resp = Response()
-    assert r.list_topology_srlgs(_Down(), resp, region="West") == []
+    # P97-APP-V4-SRLG-OVERLAY-SPANS: SRLG overlay also takes config (v4 flag); flag off = v3 call.
+    assert r.list_topology_srlgs(_Down(), resp, SimpleNamespace(v4_kpis=False), region="West") == []
     assert resp.headers[r.DATA_SOURCE_HEADER] == "unavailable"
     with pytest.raises(HTTPException) as exc:
         r.get_service_diversity("SVC-1", _Down(), Response())
