@@ -314,6 +314,8 @@ interface SrlgMember {
   span_length_km: number;
   site_a_name: string | null;
   site_z_name: string | null;
+  // P108: one row per (conduit_id, srlg_id); span fields are the worst-severity member span.
+  member_span_count?: number;
 }
 
 interface HazardOverlay {

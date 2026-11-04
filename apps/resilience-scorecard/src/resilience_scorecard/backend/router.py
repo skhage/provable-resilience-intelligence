@@ -59,6 +59,8 @@ router = APIRouter(prefix="/api")
 
 # BUG-QA-080: per-response provenance for topology live queries ('live' | 'unavailable').
 DATA_SOURCE_HEADER = "X-PRI-Data-Source"
+# P108: set to "true" only when a list endpoint returned exactly its safety-cap row count.
+TRUNCATED_HEADER = "X-PRI-Truncated"
 
 # ---------------------------------------------------------------------------
 # Health
@@ -604,13 +606,20 @@ def list_topology_srlgs(
     P97-APP-V4-SRLG-OVERLAY-SPANS: with PRI_V4_KPIS=true, span_id resolves against the v4 span
     table so BBS-* SRLG rows reach the CDT-BBR-* conduit panel (same flag as
     list_topology_conduits). Flag off = unchanged v3 call.
+    P108-APP-SRLG-OVERLAY-LIMIT-TRUNCATION: rows are one per (conduit_id, srlg_id) and complete.
+    If a region ever reaches the safety cap, X-PRI-Truncated: true is set and a warning logged.
     """
+    from .services.catalog_sql import SRLG_REGION_ROW_CAP
+
     v4 = bool(getattr(config, "v4_kpis", False))
     if hasattr(csql, "is_available") and csql.is_available:
         try:
             srlgs = csql.get_srlgs_by_region(region, v4=True) if v4 else csql.get_srlgs_by_region(region)
             if srlgs is not None:
                 response.headers[DATA_SOURCE_HEADER] = "live"
+                if len(srlgs) >= SRLG_REGION_ROW_CAP:
+                    response.headers[TRUNCATED_HEADER] = "true"
+                    logger.warning("SRLGs for %s hit the %d-row cap", region, SRLG_REGION_ROW_CAP)
                 return srlgs
         except Exception:
             logger.warning("Live SRLGs failed for %s", region, exc_info=True)

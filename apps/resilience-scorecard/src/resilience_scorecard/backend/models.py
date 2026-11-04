@@ -409,6 +409,8 @@ class SrlgMemberOut(BaseModel):
     span_length_km: float = Field(ge=0, default=0)
     site_a_name: str | None = None
     site_z_name: str | None = None
+    # P108: rows are one per (conduit_id, srlg_id); span_* fields describe the worst-severity member.
+    member_span_count: int = Field(ge=1, default=1, description="Active member spans of this SRLG on this conduit")
 
 
 class HazardOverlayOut(BaseModel):

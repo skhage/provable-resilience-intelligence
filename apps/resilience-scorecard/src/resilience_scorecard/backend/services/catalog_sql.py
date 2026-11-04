@@ -604,31 +604,68 @@ def classify_diversity(protect_hops: int, shared_conduit_count: int, shared_srlg
     return "partially_diverse"
 
 
+# P108-APP-SRLG-OVERLAY-LIMIT-TRUNCATION: one row per (conduit_id, srlg_id), not per span member.
+# The old per-span query hit LIMIT 500 in every region (live full counts: Central 3,382, West 3,455,
+# East 4,722, Southeast 2,114 rows), and its ORDER BY had ties, so which SRLGs reached the conduit
+# badges/panel was arbitrary. Every UI consumer only needs, per conduit: the set of srlg_ids, the set
+# of srlg_types and the worst severity (the panel already de-duplicates by srlg_id). shared_risk_group
+# severity varies by span member for the same srlg_id (713/809 ids), so the kept row is the member
+# with the WORST severity on that conduit (tie-break span_id): badge severity equals the max over all
+# members, and the panel shows the worst case instead of an arbitrary one. member_span_count = how
+# many active member spans the SRLG has on that conduit. The ORDER BY is a total order (the output
+# key is unique). Live collapsed sizes are 279-533 rows per region; LIMIT is a safety cap
+# (SRLG_REGION_ROW_CAP) and the router flags a capped result. Read-only; no FROZEN table is written.
+SRLG_REGION_ROW_CAP = 5000
+
 _SRLG_BY_REGION_SQL = """
+WITH member AS (
+  SELECT
+    srg.srlg_id,
+    srg.srlg_type,
+    srg.severity,
+    srg.span_id,
+    -- BUG-QA-080: shared_risk_group has no description column; srlg_name is the label.
+    srg.srlg_name AS description,
+    prs.site_a_id,
+    prs.site_z_id,
+    prs.conduit_id,
+    ROUND(prs.length_km, 1) AS span_length_km,
+    sa.site_name AS site_a_name,
+    sz.site_name AS site_z_name,
+    CASE srg.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3
+                      WHEN 'low' THEN 4 ELSE 5 END AS sev_rank
+  FROM shared_risk_group srg
+  JOIN physical_resource_span prs ON srg.span_id = prs.span_id AND prs.is_active = TRUE
+  JOIN geographic_site sa ON prs.site_a_id = sa.site_id
+  JOIN geographic_site sz ON prs.site_z_id = sz.site_id
+  WHERE (sa.region = :region OR sz.region = :region)
+    AND sa.tier IN ('tier_1', 'tier_2')
+    AND sz.tier IN ('tier_1', 'tier_2')
+),
+ranked AS (
+  SELECT
+    m.*,
+    ROW_NUMBER() OVER (PARTITION BY m.conduit_id, m.srlg_id ORDER BY m.sev_rank, m.span_id) AS rn,
+    COUNT(*) OVER (PARTITION BY m.conduit_id, m.srlg_id) AS member_span_count
+  FROM member m
+)
 SELECT
-  srg.srlg_id,
-  srg.srlg_type,
-  srg.severity,
-  srg.span_id,
-  -- BUG-QA-080: shared_risk_group has no description column; srlg_name is the label.
-  srg.srlg_name AS description,
-  prs.site_a_id,
-  prs.site_z_id,
-  prs.conduit_id,
-  ROUND(prs.length_km, 1) AS span_length_km,
-  sa.site_name AS site_a_name,
-  sz.site_name AS site_z_name
-FROM shared_risk_group srg
-JOIN physical_resource_span prs ON srg.span_id = prs.span_id AND prs.is_active = TRUE
-JOIN geographic_site sa ON prs.site_a_id = sa.site_id
-JOIN geographic_site sz ON prs.site_z_id = sz.site_id
-WHERE (sa.region = :region OR sz.region = :region)
-  AND sa.tier IN ('tier_1', 'tier_2')
-  AND sz.tier IN ('tier_1', 'tier_2')
-ORDER BY
-  CASE srg.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
-  srg.srlg_type
-LIMIT 500
+  srlg_id,
+  srlg_type,
+  severity,
+  span_id,
+  description,
+  site_a_id,
+  site_z_id,
+  conduit_id,
+  span_length_km,
+  site_a_name,
+  site_z_name,
+  member_span_count
+FROM ranked
+WHERE rn = 1
+ORDER BY sev_rank, srlg_type, conduit_id, srlg_id
+LIMIT 5000
 """
 
 # P97-APP-V4-SRLG-OVERLAY-SPANS: PRI_V4_KPIS=true SRLG overlay / conduit panel list. The v3 query
@@ -1195,18 +1232,22 @@ class CatalogSqlService:
         }
 
     def get_srlgs_by_region(self, region: str, v4: bool = False) -> list[dict] | None:
-        """Return SRLG memberships for spans in a region.
+        """Return SRLG memberships in a region, one row per (conduit_id, srlg_id).
 
+        P108: the row for each pair is its worst-severity member span, with member_span_count;
+        results are complete (no 500-row truncation) and in a deterministic order.
         v4=True (PRI_V4_KPIS, P97-APP-V4-SRLG-OVERLAY-SPANS) resolves span_id against the v4
         span table so SRLG rows on BBS-* segments carry their CDT-BBR-* conduit_id and land on
-        the v4 /topology conduit panel. v4=False is the unchanged v3 freeze query.
+        the v4 /topology conduit panel. v4=False reads the v3 span table (read-only).
         """
         sql = _SRLG_BY_REGION_V4_SQL if v4 else _SRLG_BY_REGION_SQL
-        rows = self._execute(sql, row_limit=500, params={"region": region})
+        # P108: one row per (conduit_id, srlg_id); row_limit matches the SQL LIMIT safety cap.
+        rows = self._execute(sql, row_limit=SRLG_REGION_ROW_CAP, params={"region": region})
         if rows is None:
             return None
         for r in rows:
             r["span_length_km"] = float(r.get("span_length_km", 0) or 0)
+            r["member_span_count"] = int(r.get("member_span_count", 1) or 1)
         return rows
 
     def get_hazard_overlay(self) -> list[dict] | None:
