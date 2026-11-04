@@ -69,3 +69,76 @@ export function showHazardNameLabel(scale: number): boolean {
 export function renderedPx(viewBoxFontSize: number, scale: number): number {
   return viewBoxFontSize * scale;
 }
+
+/* ------------------------------------------------------------------ */
+/*  BUG-DW-132: CLLI label fitting                                     */
+/* ------------------------------------------------------------------ */
+
+/** Advance width of one monospace glyph, in em (var(--font-mono)). */
+export const CLLI_CHAR_EM = 0.6;
+
+/** Minimum clear gap between two adjacent CLLI labels, in viewBox units. */
+export const CLLI_LABEL_GAP = 4;
+
+/** Estimated rendered width of a CLLI label in viewBox units: len x 0.6 x fontSize. */
+export function clliLabelWidth(len: number, fontSizeVB: number): number {
+  return Math.max(0, len) * CLLI_CHAR_EM * fontSizeVB;
+}
+
+/**
+ * Whether a CLLI label fits between its row neighbours: estimatedWidth <= spacing - gap.
+ * The 10 px floor is never dropped; a label that does not fit is hidden instead.
+ */
+export function showClliLabel(len: number, fontSizeVB: number, spacingVB: number): boolean {
+  return clliLabelWidth(len, fontSizeVB) <= spacingVB - CLLI_LABEL_GAP;
+}
+
+export interface ClliRowSite {
+  id: string;
+  /** Label centre x in viewBox units (text-anchor middle). */
+  x: number;
+  /** Characters in the label. */
+  len: number;
+}
+
+/**
+ * Ids of the CLLI labels to draw on one tier row.
+ *
+ * A label is a candidate when it fits at the row spacing (showClliLabel) or its site is
+ * prioritised (selected, focused, on the traced path; pass them most important first).
+ * Candidates are admitted greedily (priority ids in the given order, then by x) and a
+ * label is skipped if it would overlap a label already admitted, so no two drawn labels
+ * ever overlap. A skipped CLLI is still available in the site's <title> and aria-label.
+ */
+export function clliLabelIds(
+  row: ReadonlyArray<ClliRowSite>,
+  fontSizeVB: number,
+  spacingVB: number,
+  priorityIds: ReadonlyArray<string | null | undefined> = [],
+): Set<string> {
+  const byId = new Map(row.map((s) => [s.id, s]));
+  const order: ClliRowSite[] = [];
+  const seen = new Set<string>();
+  for (const id of priorityIds) {
+    if (!id || seen.has(id)) continue;
+    const s = byId.get(id);
+    if (!s) continue;
+    seen.add(id);
+    order.push(s);
+  }
+  const rest = row
+    .filter((s) => !seen.has(s.id) && showClliLabel(s.len, fontSizeVB, spacingVB))
+    .sort((a, b) => a.x - b.x);
+  order.push(...rest);
+
+  const admitted: ClliRowSite[] = [];
+  for (const s of order) {
+    const half = clliLabelWidth(s.len, fontSizeVB) / 2;
+    const clashes = admitted.some((a) => {
+      const minDist = half + clliLabelWidth(a.len, fontSizeVB) / 2 + CLLI_LABEL_GAP;
+      return Math.abs(a.x - s.x) < minDist;
+    });
+    if (!clashes) admitted.push(s);
+  }
+  return new Set(admitted.map((s) => s.id));
+}

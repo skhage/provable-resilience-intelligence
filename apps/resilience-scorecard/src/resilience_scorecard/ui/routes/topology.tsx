@@ -98,6 +98,7 @@ import {
 } from "@/lib/conduit-coverage-filter";
 // BUG-DW-131: SVG label counter-scaling (10 px floor at narrow canvases)
 import {
+  clliLabelIds,
   scaledFontSize,
   showHazardNameLabel,
   svgScale,
@@ -107,6 +108,7 @@ import {
   capSites,
   hasHiddenSites,
   layoutVisibleSites,
+  rowSpacing,
   siteCapNote,
   siteGraphAriaLabel,
   siteListShowLabel,
@@ -1522,6 +1524,30 @@ function SiteGraph({
     : BRAND.darkTeal;
   // BUG-DW-133: only the capped, in-viewBox sites get positions (and therefore render)
   const positions = useMemo(() => layoutVisibleSites(siteCap.visible), [siteCap]);
+
+  // BUG-DW-132: CLLI labels are drawn only where they fit at the T1 row spacing; otherwise
+  // only for the selected, focused and on-path sites, and never two overlapping labels.
+  // The CLLI always stays in the site's hover <title> and aria-label.
+  const [focusedSiteId, setFocusedSiteId] = useState<string | null>(null);
+  const clliFontSize = scaledFontSize(10, canvasScale);
+  const clliShown = useMemo(() => {
+    const row = siteCap.visible
+      .filter((s) => s.tier === "tier_1" && positions.has(s.site_id))
+      .map((s) => ({
+        id: s.site_id,
+        x: (positions.get(s.site_id) as { x: number }).x,
+        len: (s.clli_code ?? s.site_id).length,
+      }));
+    const onPath = pathHops.length > 0
+      ? siteCap.visible.filter((s) => pathSiteIds.has(s.site_id)).map((s) => s.site_id)
+      : [];
+    return clliLabelIds(
+      row,
+      clliFontSize,
+      rowSpacing(row.length, "tier_1"),
+      [selectedSiteId, focusedSiteId, ...onPath],
+    );
+  }, [siteCap, positions, clliFontSize, selectedSiteId, focusedSiteId, pathHops, pathSiteIds]);
   const drawnConduits = useMemo(
     () => conduits.filter((c) => positions.has(c.site_a_id) && positions.has(c.site_z_id)).length,
     [conduits, positions],
@@ -1703,13 +1729,21 @@ function SiteGraph({
           nodeStrokeWidth = 3;
         }
 
+        // BUG-DW-132: the CLLI stays reachable when its visible label is hidden: hover <title>
+        // on a non-focusable role=none wrapper (DW-100 pattern) and in the button's name.
+        const clliText = s.clli_code ?? s.site_id;
+        const clliSpoken = isT1 && s.clli_code ? `, CLLI ${s.clli_code}` : "";
+
         return (
+          <g key={s.site_id} role="none">
+          {isT1 && <title>{`${s.site_name} (${clliText})`}</title>}
           <g
-            key={s.site_id}
             className={`topo-site-node${dimmed ? " topo-dimmed" : ""}`}
             tabIndex={0}
             role="button"
-            aria-label={`${s.site_name} (${s.site_type.replace(/_/g, " ")}, ${s.tier ?? "unknown"}). ${s.conduit_count} conduits${isOnPath ? ". On traced service path" : ""}. Press Enter for details.`}
+            aria-label={`${s.site_name} (${s.site_type.replace(/_/g, " ")}, ${s.tier ?? "unknown"}${clliSpoken}). ${s.conduit_count} conduits${isOnPath ? ". On traced service path" : ""}. Press Enter for details.`}
+            onFocus={() => setFocusedSiteId(s.site_id)}
+            onBlur={() => setFocusedSiteId((cur) => (cur === s.site_id ? null : cur))}
             onClick={() => onSelectSite(isSelected ? null : s)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -1739,18 +1773,20 @@ function SiteGraph({
             >
               {s.site_type === "data_center" ? "DC" : "CO"}
             </text>
-            {isT1 && (
+            {isT1 && clliShown.has(s.site_id) && (
               <text
                 x={p.x}
                 y={p.y + r + 16}
                 textAnchor="middle"
-                fontSize={scaledFontSize(10, canvasScale)}
+                fontSize={clliFontSize}
                 fill={BRAND.iron}
                 className="svg-label-mono"
+                aria-hidden="true"
               >
-                {s.clli_code ?? s.site_id}
+                {clliText}
               </text>
             )}
+          </g>
           </g>
         );
       })}
