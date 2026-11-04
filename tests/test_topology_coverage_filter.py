@@ -118,7 +118,8 @@ def test_chips_gated_on_api_classes_and_graph_gets_filtered_list():
     src = _read("routes", "topology.tsx")
     assert "const showCoverage = hasCoverageClasses(conduits);" in src
     assert re.search(r"coverage=\{\s*showCoverage && selectedRegion", src)
-    assert re.search(r"<SiteGraph\s+sites=\{sites\}\s+conduits=\{visibleConduits\}", src)
+    # BUG-DW-133: siteCap prop sits between sites and conduits
+    assert re.search(r"<SiteGraph\s+sites=\{sites\}\s+siteCap=\{siteCap\}\s+conduits=\{visibleConduits\}", src)
     # path hops + selected conduit are pinned
     assert "for (const h of pathHops) if (h.conduit_id) ids.add(h.conduit_id);" in src
     # persistent result count lives outside the graph

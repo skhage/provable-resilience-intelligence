@@ -102,6 +102,18 @@ import {
   showHazardNameLabel,
   svgScale,
 } from "@/lib/svg-label-scale";
+// BUG-DW-133: per-tier site cap so every drawn node sits inside the viewBox
+import {
+  capSites,
+  hasHiddenSites,
+  layoutVisibleSites,
+  siteCapNote,
+  siteGraphAriaLabel,
+  siteListShowLabel,
+  SITE_LIST_HIDE_LABEL,
+  SITE_LIST_NOT_DRAWN,
+  type SiteCap,
+} from "@/lib/site-graph-layout";
 
 // ---------------------------------------------------------------------------
 // Viewport width hook (§6.2 — Mobile tree fallback below 768px)
@@ -1292,34 +1304,73 @@ function RegionGraph({
 // Site-Level Graph (drill-in view — §1.2, §10.2)
 // ---------------------------------------------------------------------------
 
-function layoutSites(sites: SiteNode[]): Map<string, { x: number; y: number }> {
-  const positions = new Map<string, { x: number; y: number }>();
-  const t1 = sites.filter((s) => s.tier === "tier_1");
-  const t2 = sites.filter((s) => s.tier === "tier_2");
+// BUG-DW-133: layout lives in lib/site-graph-layout.ts. The page caps each tier row to what
+// fits in the 1200 viewBox (T1 18, T2 22; pinned sites first, then most connected) and
+// SiteGraph renders only siteCap.visible, so no node is clipped or focusable off-screen.
 
-  // Tier 1 top row
-  const t1Spacing = Math.max(60, (CANVAS_W - 100) / Math.max(t1.length, 1));
-  t1.forEach((s, i) => {
-    positions.set(s.site_id, {
-      x: 50 + i * t1Spacing + t1Spacing / 2,
-      y: 120,
-    });
+// BUG-DW-133: visible "Showing N of M" note + "Show all sites" disclosure list. Rendered
+// outside the canvas wrap so it never overlaps the map, legend or detail panels.
+function SiteCapBar({
+  cap,
+  selectedSiteId,
+  onSelectSite,
+}: {
+  cap: SiteCap<SiteNode>;
+  selectedSiteId: string | null;
+  onSelectSite: (site: SiteNode | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const note = siteCapNote(cap);
+  if (!note) return null;
+  const hiddenIds = new Set(cap.hidden.map((s) => s.site_id));
+  const all = [...cap.visible, ...cap.hidden].sort((a, b) => {
+    if (a.tier !== b.tier) return a.tier === "tier_1" ? -1 : 1;
+    return a.site_name.localeCompare(b.site_name);
   });
-
-  // Tier 2 bottom row
-  const t2Spacing = Math.max(50, (CANVAS_W - 100) / Math.max(t2.length, 1));
-  t2.forEach((s, i) => {
-    positions.set(s.site_id, {
-      x: 50 + i * t2Spacing + t2Spacing / 2,
-      y: 380,
-    });
-  });
-
-  return positions;
+  return (
+    <div className="site-cap-bar">
+      <p className="site-cap-note" id="site-cap-note">{note}</p>
+      <button
+        type="button"
+        className="site-cap-toggle"
+        aria-expanded={open}
+        aria-controls="site-cap-list"
+        aria-describedby="site-cap-note"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? SITE_LIST_HIDE_LABEL : siteListShowLabel(cap)}
+      </button>
+      {open && (
+        <ul className="site-cap-list" id="site-cap-list" aria-label="All sites in this region">
+          {all.map((s) => {
+            const notDrawn = hiddenIds.has(s.site_id);
+            const isSelected = selectedSiteId === s.site_id;
+            return (
+              <li key={s.site_id}>
+                <button
+                  type="button"
+                  className="site-cap-item"
+                  aria-pressed={isSelected}
+                  onClick={() => onSelectSite(isSelected ? null : s)}
+                >
+                  <span className="site-cap-item-name">{s.site_name}</span>
+                  <span className="site-cap-item-meta">
+                    {s.clli_code ?? s.site_id} · {s.tier === "tier_1" ? "Backbone" : "Regional"} · {s.conduit_count} conduits
+                    {notDrawn && <> · {SITE_LIST_NOT_DRAWN}</>}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 function SiteGraph({
   sites,
+  siteCap,
   conduits,
   onSelectSite,
   selectedSiteId,
@@ -1334,6 +1385,7 @@ function SiteGraph({
 }: {
   bbCoverage?: BbSrlgCoverage | null;
   sites: SiteNode[];
+  siteCap: SiteCap<SiteNode>;
   conduits: ConduitEdge[];
   onSelectSite: (site: SiteNode | null) => void;
   selectedSiteId: string | null;
@@ -1468,11 +1520,14 @@ function SiteGraph({
   const divColor = diversity
     ? DIVERSITY_COLORS[diversity.diversity_status] ?? BRAND.darkTeal
     : BRAND.darkTeal;
-  const positions = useMemo(() => layoutSites(sites), [sites]);
+  // BUG-DW-133: only the capped, in-viewBox sites get positions (and therefore render)
+  const positions = useMemo(() => layoutVisibleSites(siteCap.visible), [siteCap]);
+  const drawnConduits = useMemo(
+    () => conduits.filter((c) => positions.has(c.site_a_id) && positions.has(c.site_z_id)).length,
+    [conduits, positions],
+  );
 
   const totalSites = sites.length;
-  const t1Count = sites.filter((s) => s.tier === "tier_1").length;
-  const t2Count = sites.filter((s) => s.tier === "tier_2").length;
   const regionName = sites[0]?.region ?? "Region";
 
   return (
@@ -1481,7 +1536,7 @@ function SiteGraph({
       ref={svgRef}
       viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
       role="img"
-      aria-label={`${regionName} topology: ${totalSites} sites (${t1Count} backbone, ${t2Count} regional), ${conduits.length} conduits`}
+      aria-label={siteGraphAriaLabel(regionName, siteCap, totalSites, drawnConduits, conduits.length)}
       style={{ width: "100%", height: "100%", minHeight: 500 }}
     >
       {/* Layer labels — BUG-DW-131: counter-scaled, CSS class for font */}
@@ -1627,8 +1682,8 @@ function SiteGraph({
         </g>
       )}
 
-      {/* Site nodes — with path trace highlighting */}
-      {sites.map((s) => {
+      {/* Site nodes — with path trace highlighting. BUG-DW-133: capped list only */}
+      {siteCap.visible.map((s) => {
         const p = positions.get(s.site_id);
         if (!p) return null;
         const isT1 = s.tier === "tier_1";
@@ -2680,13 +2735,32 @@ function TopologyPage() {
     [],
   );
 
+  // BUG-DW-133: sites that must be drawn whenever their tier row can hold them
+  const pinnedSiteIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (selectedSite) ids.add(selectedSite.site_id);
+    for (const h of pathHops) {
+      ids.add(h.span_site_a_id);
+      ids.add(h.span_site_z_id);
+    }
+    if (selectedConduit) {
+      ids.add(selectedConduit.site_a_id);
+      ids.add(selectedConduit.site_z_id);
+    }
+    return ids;
+  }, [selectedSite, pathHops, selectedConduit]);
+  // BUG-DW-133: per-tier cap (T1 18, T2 22) so every drawn node is inside the 1200 viewBox
+  const siteCap = useMemo(() => capSites(sites, pinnedSiteIds), [sites, pinnedSiteIds]);
+
   // BUG-DW-118: hops actually drawn on the site map (conduit rendered AND both endpoints placed).
   // Only meaningful once a region's site map is loaded; the region overview draws no hops.
+  // BUG-DW-133: on the desktop map only the capped sites are placed; the mobile tree lists all.
   const hopsShown = useMemo<HopsShown | null>(() => {
     if (!selectedRegion || loading || pathHops.length === 0) return null;
-    const siteIds = new Set(sites.map((s) => s.site_id));
+    const placed = isMobile ? sites : siteCap.visible;
+    const siteIds = new Set(placed.map((s) => s.site_id));
     return countHopsShown(pathHops, visibleConduits, siteIds);
-  }, [selectedRegion, loading, pathHops, visibleConduits, sites]);
+  }, [selectedRegion, loading, pathHops, visibleConduits, sites, siteCap, isMobile]);
 
   const handleClearTrace = useCallback(() => {
     setTracedServiceId(null);
@@ -2825,6 +2899,14 @@ function TopologyPage() {
       ) : (
         /* Desktop/tablet: full SVG graph */
         /* BUG-DW-086: no aria-busy on the wrapper; it would suppress the LoadingRegion live announcement */
+        <>
+        {!loading && selectedRegion && hasHiddenSites(siteCap) && (
+          <SiteCapBar
+            cap={siteCap}
+            selectedSiteId={selectedSite?.site_id ?? null}
+            onSelectSite={setSelectedSite}
+          />
+        )}
         <div className="topo-canvas-wrap">
           {loading && (
             <LoadingRegion label="Loading topology data" className="topo-loading">
@@ -2847,6 +2929,7 @@ function TopologyPage() {
           {!loading && selectedRegion && sites.length > 0 && (
             <SiteGraph
               sites={sites}
+              siteCap={siteCap}
               conduits={visibleConduits}
               onSelectSite={setSelectedSite}
               selectedSiteId={selectedSite?.site_id ?? null}
@@ -2913,6 +2996,7 @@ function TopologyPage() {
             />
           )}
         </div>
+        </>
       )}
     </>
   );
