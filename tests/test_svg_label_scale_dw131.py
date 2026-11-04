@@ -10,7 +10,6 @@ Acceptance criteria:
   (f) fontFamily literals removed from SiteGraph
 """
 import os
-import re
 import subprocess
 import textwrap
 
@@ -322,7 +321,7 @@ class TestNoBrandViolation:
         """SiteGraph section has no lumen reference."""
         src = _site_graph_src()
         # Exclude comments/strings that mention the project history
-        lines = [l for l in src.split("\n") if "lumen" in l.lower()]
+        lines = [ln for ln in src.split("\n") if "lumen" in ln.lower()]
         assert len(lines) == 0, f"Found lumen: {lines}"
 
 
