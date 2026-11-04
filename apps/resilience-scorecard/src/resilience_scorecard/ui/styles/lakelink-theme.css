@@ -2802,3 +2802,9 @@ select:focus-visible,
 }
 /* sr-only basis text lives inside the pill; anchor its absolute box to the pill. */
 .rating-pill { position: relative; }
+
+/* BUG-DW-131: SVG label font classes — replace inline fontFamily literals so the
+   font stack lives in CSS and stays consistent with var(--font-primary/--font-mono).
+   These apply to <text> elements inside the SiteGraph SVG. */
+.svg-label-primary { font-family: var(--font-primary); }
+.svg-label-mono   { font-family: var(--font-mono); }

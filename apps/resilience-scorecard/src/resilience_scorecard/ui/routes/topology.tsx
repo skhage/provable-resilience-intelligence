@@ -94,6 +94,12 @@ import {
   type CoverageChip,
   type CoverageSelection,
 } from "@/lib/conduit-coverage-filter";
+// BUG-DW-131: SVG label counter-scaling (10 px floor at narrow canvases)
+import {
+  scaledFontSize,
+  showHazardNameLabel,
+  svgScale,
+} from "@/lib/svg-label-scale";
 
 // ---------------------------------------------------------------------------
 // Viewport width hook (§6.2 — Mobile tree fallback below 768px)
@@ -1352,9 +1358,29 @@ function SiteGraph({
     if (!overlays.hazard) setFocusedHazardId(null);
   }, [overlays.hazard]);
 
+  // BUG-DW-131: measure the viewBox scale whenever SiteGraph is mounted (not just when
+  // a hazard has focus). Labels use this to counter-scale below the 10 px floor.
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [canvasScale, setCanvasScale] = useState(1);
+  useLayoutEffect(() => {
+    const svg = svgRef.current;
+    const wrap = svg?.parentElement ?? null;
+    if (!svg || !wrap) return;
+    const measureScale = () => {
+      setCanvasScale(svgScale(wrap.clientWidth, wrap.clientHeight));
+    };
+    measureScale();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measureScale) : null;
+    ro?.observe(wrap);
+    window.addEventListener("resize", measureScale);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", measureScale);
+    };
+  }, []);
+
   // BUG-DW-119: viewBox -> wrap CSS px mapping for the HTML callout, measured while a hazard
   // has keyboard focus and re-measured when the wrap resizes.
-  const svgRef = useRef<SVGSVGElement | null>(null);
   const [calloutFrame, setCalloutFrame] = useState<{
     map: ReturnType<typeof viewBoxToWrap>;
     wrapW: number;
@@ -1456,11 +1482,11 @@ function SiteGraph({
       aria-label={`${regionName} topology: ${totalSites} sites (${t1Count} backbone, ${t2Count} regional), ${conduits.length} conduits`}
       style={{ width: "100%", height: "100%", minHeight: 500 }}
     >
-      {/* Layer labels */}
-      <text x={20} y={80} fontSize={11} fill={BRAND.iron} fontWeight={600} fontFamily="'Inter', sans-serif">
+      {/* Layer labels — BUG-DW-131: counter-scaled, CSS class for font */}
+      <text x={20} y={80} fontSize={scaledFontSize(11, canvasScale)} fill={BRAND.iron} fontWeight={600} className="svg-label-primary">
         BACKBONE (TIER 1)
       </text>
-      <text x={20} y={340} fontSize={11} fill={BRAND.iron} fontWeight={600} fontFamily="'Inter', sans-serif">
+      <text x={20} y={340} fontSize={scaledFontSize(11, canvasScale)} fill={BRAND.iron} fontWeight={600} className="svg-label-primary">
         REGIONAL (TIER 2)
       </text>
 
@@ -1644,14 +1670,15 @@ function SiteGraph({
               stroke={nodeStroke}
               strokeWidth={nodeStrokeWidth}
             />
+            {/* BUG-DW-131: counter-scaled site labels, CSS class for font */}
             <text
               x={p.x}
               y={p.y + 4}
               textAnchor="middle"
-              fontSize={isT1 ? 14 : 11}
+              fontSize={scaledFontSize(isT1 ? 14 : 11, canvasScale)}
               fill={BRAND.darkTeal}
               fontWeight={600}
-              fontFamily="'Inter', sans-serif"
+              className="svg-label-primary"
             >
               {s.site_type === "data_center" ? "DC" : "CO"}
             </text>
@@ -1660,9 +1687,9 @@ function SiteGraph({
                 x={p.x}
                 y={p.y + r + 16}
                 textAnchor="middle"
-                fontSize={10}
+                fontSize={scaledFontSize(10, canvasScale)}
                 fill={BRAND.iron}
-                fontFamily="'JetBrains Mono', monospace"
+                className="svg-label-mono"
               >
                 {s.clli_code ?? s.site_id}
               </text>
@@ -1739,17 +1766,20 @@ function SiteGraph({
             >
               {HAZARD_ICONS[h.hazard_type] ?? "⚠️"}
             </text>
-            <text
-              x={hx}
-              y={hy + 30}
-              textAnchor="middle"
-              fontSize={9}
-              fill={BRAND.iron}
-              fontFamily="'Inter', sans-serif"
-              aria-hidden="true"
-            >
-              {h.name.slice(0, 20)}
-            </text>
+            {/* BUG-DW-131: hide name label at small scales; callout + aria-label carry the name */}
+            {showHazardNameLabel(canvasScale) && (
+              <text
+                x={hx}
+                y={hy + 30}
+                textAnchor="middle"
+                fontSize={scaledFontSize(9, canvasScale)}
+                fill={BRAND.iron}
+                className="svg-label-primary"
+                aria-hidden="true"
+              >
+                {h.name.slice(0, 20)}
+              </text>
+            )}
           </g>
           </g>
         );
