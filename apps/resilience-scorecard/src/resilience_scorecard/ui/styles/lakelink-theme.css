@@ -2031,6 +2031,75 @@ select:focus-visible,
   color: var(--lf-dark-teal);
 }
 
+/* P62-APP-MOBILE-COVERAGE-FILTER (V4-KPI-COPY-SPEC §3, PRI_V4_KPIS only): Conduits chips in the
+   mobile tree. Same colours as .topo-toolbar .topo-chip (teal 7.02:1 on white both ways), with a
+   44px target (2.5.5 / mobile convention). Own selectors so the desktop rules stay untouched. */
+.mobile-tree-coverage {
+  display: flex;
+  padding: 0 0 var(--space-sm);
+}
+
+.mobile-tree-coverage .topo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid var(--lf-dark-teal);
+  border-radius: 999px;
+  background: var(--lf-white);
+  color: var(--lf-dark-teal);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.mobile-tree-coverage .topo-chip[aria-checked="true"] {
+  background: var(--lf-dark-teal);
+  border-color: var(--lf-dark-teal);
+  color: var(--lf-white);
+  font-weight: 600;
+}
+
+/* BUG-DW-116 pattern: teal ring outside the chip plus a white halo, visible on either side */
+.mobile-tree-coverage .topo-chip:focus-visible {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--lf-white);
+}
+
+/* Inventory-only conduit text cue: its own line under the conduit row, iron (8.45:1), no opacity */
+.mobile-tree-row--conduit {
+  flex-wrap: wrap;
+}
+
+.mobile-tree-inv {
+  flex-basis: 100%;
+  padding-left: 24px;
+  font-size: 12px;
+  color: var(--lf-iron);
+}
+
+@media (forced-colors: active) {
+  .mobile-tree-coverage .topo-chip {
+    border-color: ButtonText;
+    color: ButtonText;
+    background: ButtonFace;
+  }
+  .mobile-tree-coverage .topo-chip[aria-checked="true"] {
+    background: Highlight;
+    color: HighlightText;
+    border-color: Highlight;
+  }
+  .mobile-tree-coverage .topo-chip:focus-visible {
+    outline-color: CanvasText;
+  }
+  .mobile-tree-inv {
+    color: CanvasText;
+  }
+}
+
 /* Info detail button */
 .mobile-tree-detail-btn {
   flex-shrink: 0;

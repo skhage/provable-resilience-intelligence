@@ -89,7 +89,9 @@ import {
   coverageFilterStatus,
   filterConduits,
   hasCoverageClasses,
+  inventoryOnlySuffix,
   isInventoryOnly,
+  loadedConduits,
   toggleChip,
   type CoverageChip,
   type CoverageSelection,
@@ -1848,6 +1850,12 @@ interface MobileTreeProps {
   hopsShown?: HopsShown | null;
   /** BUG-DW-112 (c): total traced hops (working + protect); 0 in live mode = no traced path */
   tracedHopCount?: number;
+  /** P62-APP-MOBILE-COVERAGE-FILTER: page-level chip selection (shared with the desktop toolbar) */
+  coverageSelection?: CoverageSelection;
+  /** P62: chip toggle; absent = no chips. Chips also need API coverage classes (PRI_V4_KPIS on). */
+  onToggleCoverage?: (chip: CoverageChip) => void;
+  /** P62: traced-path hops + selected conduit, never hidden by the filter (same rule as desktop) */
+  pinnedConduitIds?: ReadonlySet<string> | null;
 }
 
 function MobileTreeView({
@@ -1864,6 +1872,9 @@ function MobileTreeView({
   retryFeedback = null,
   hopsShown = null,
   tracedHopCount,
+  coverageSelection = DEFAULT_COVERAGE_SELECTION,
+  onToggleCoverage,
+  pinnedConduitIds = null,
 }: MobileTreeProps) {
   const [expandedRegions, setExpandedRegions] = useState<Set<string>>(
     new Set()
@@ -2011,14 +2022,32 @@ function MobileTreeView({
     );
   };
 
-  // Group conduits by site_a_id for tree nesting
+  // P62-APP-MOBILE-COVERAGE-FILTER: same chips + rule as the desktop toolbar. Gated on coverage
+  // classes in ANY loaded region (so chips do not unmount when regions collapse); counts and the
+  // result count cover the expanded regions only. Flag off = classes null = no chips, no filtering.
+  const showCoverage = useMemo(
+    () => !!onToggleCoverage && hasCoverageClasses(loadedConduits(regionData)),
+    [onToggleCoverage, regionData],
+  );
+  const coverageScope = useMemo(
+    () => loadedConduits(regionData, expandedRegions),
+    [regionData, expandedRegions],
+  );
+  const coverageCounts = useMemo(() => countByChip(coverageScope), [coverageScope]);
+  const coverageVisibleCount = useMemo(
+    () => filterConduits(coverageScope, coverageSelection, pinnedConduitIds).length,
+    [coverageScope, coverageSelection, pinnedConduitIds],
+  );
+
+  // Group conduits by site_a_id for tree nesting (coverage-filtered when chips are shown)
   const conduitsForSite = useCallback(
     (region: string, siteId: string): ConduitEdge[] => {
       const data = regionData[region];
       if (!data) return [];
-      return data.conduits.filter((c) => c.site_a_id === siteId);
+      const forSite = data.conduits.filter((c) => c.site_a_id === siteId);
+      return showCoverage ? filterConduits(forSite, coverageSelection, pinnedConduitIds) : forSite;
     },
-    [regionData]
+    [regionData, showCoverage, coverageSelection, pinnedConduitIds]
   );
 
   return (
@@ -2038,6 +2067,36 @@ function MobileTreeView({
           autoComplete="off"
         />
       </div>
+
+      {/* P62-APP-MOBILE-COVERAGE-FILTER: Conduits chips (role=checkbox, same as the desktop toolbar) */}
+      {showCoverage && onToggleCoverage && (
+        <div className="topo-coverage-chips mobile-tree-coverage" role="group" aria-labelledby="mobile-coverage-label">
+          <span id="mobile-coverage-label" className="topo-coverage-label">
+            {COVERAGE_GROUP_LABEL}
+          </span>
+          {COVERAGE_CHIPS.map((chip) => (
+            <button
+              key={chip}
+              type="button"
+              className="topo-chip"
+              role="checkbox"
+              aria-checked={coverageSelection[chip]}
+              onClick={() => onToggleCoverage(chip)}
+            >
+              <span className="topo-chip-check" aria-hidden="true">
+                {coverageSelection[chip] ? "✓" : ""}
+              </span>
+              {chipLabel(chip, coverageCounts[chip])}
+            </button>
+          ))}
+        </div>
+      )}
+      {/* P62: persistent result count, mounted with the chips (desktop region is off below 768px) */}
+      {showCoverage && (
+        <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {coverageFilterStatus(coverageVisibleCount, coverageScope.length)}
+        </div>
+      )}
 
       {/* Accessible tree (WCAG 1.3.1) */}
       <ul
@@ -2176,7 +2235,7 @@ function MobileTreeView({
                                         key={conduit.conduit_id}
                                         role="treeitem"
                                         tabIndex={-1}
-                                        aria-label={`Conduit ${conduit.conduit_name || conduit.conduit_id}, ${conduit.conduit_type}, ${conduit.length_km.toFixed(1)} km, ${conduit.span_count} spans`}
+                                        aria-label={`Conduit ${conduit.conduit_name || conduit.conduit_id}, ${conduit.conduit_type}, ${conduit.length_km.toFixed(1)} km, ${conduit.span_count} spans${inventoryOnlySuffix(conduit)}`}
                                         className="mobile-tree-conduit"
                                       >
                                         <div
@@ -2199,6 +2258,12 @@ function MobileTreeView({
                                             {conduit.length_km.toFixed(1)}km
                                             · {conduit.span_count} spans
                                           </span>
+                                          {/* P62: visible text cue (spoken via the treeitem aria-label suffix) */}
+                                          {isInventoryOnly(conduit) && (
+                                            <span className="mobile-tree-inv" aria-hidden="true">
+                                              {INVENTORY_ONLY_TEXT}
+                                            </span>
+                                          )}
                                         </div>
                                       </li>
                                     ))}
@@ -2325,6 +2390,13 @@ function MobileTreeView({
                 <dd>
                   {detailConduit.site_a_id} → {detailConduit.site_z_id}
                 </dd>
+                {/* P62-APP-MOBILE-COVERAGE-FILTER: same disclosure as the desktop edge hover/aria text */}
+                {isInventoryOnly(detailConduit) && (
+                  <>
+                    <dt>Coverage</dt>
+                    <dd>{INVENTORY_ONLY_TEXT}</dd>
+                  </>
+                )}
               </dl>
             )}
           </div>
@@ -2637,14 +2709,15 @@ function TopologyPage() {
         selectedRegion={selectedRegion}
         onBack={() => setSelectedRegion(null)}
         coverage={
-          showCoverage && selectedRegion
+          showCoverage && selectedRegion && !isMobile
             ? { counts: coverageCounts, selection: coverageSel, onToggle: handleToggleChip }
             : null
         }
       />
 
       {/* P36-APP-V4-CONDUIT-COVERAGE-FILTER: persistent result count (mounted with the chips) */}
-      {showCoverage && selectedRegion && (
+      {/* P62: below 768px the mobile tree owns its own chips + status region */}
+      {showCoverage && selectedRegion && !isMobile && (
         <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
           {coverageFilterStatus(visibleConduits.length, conduits.length)}
         </div>
@@ -2736,6 +2809,9 @@ function TopologyPage() {
               retryFeedback={retryFeedback}
               hopsShown={hopsShown}
               tracedHopCount={pathHops.length}
+              coverageSelection={coverageSel}
+              onToggleCoverage={handleToggleChip}
+              pinnedConduitIds={pinnedConduitIds}
             />
           )}
           {!loading && regions.length === 0 && (

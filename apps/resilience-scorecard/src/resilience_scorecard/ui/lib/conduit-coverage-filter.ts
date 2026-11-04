@@ -107,6 +107,32 @@ export function toggleChip(selection: CoverageSelection, chip: CoverageChip): Co
   return { ...selection, [chip]: !selection[chip] };
 }
 
+/**
+ * P62-APP-MOBILE-COVERAGE-FILTER: spoken/modal suffix for an inventory-only conduit, e.g.
+ * " (Inventory only: no span geometry)"; "" for every other class (and for null = flag off).
+ */
+export function inventoryOnlySuffix(c: { span_coverage_class?: string | null }): string {
+  return isInventoryOnly(c) ? ` (${INVENTORY_ONLY_TEXT})` : "";
+}
+
+/**
+ * P62-APP-MOBILE-COVERAGE-FILTER: the mobile tree lazy-loads conduits per region. Returns the
+ * conduits of the loaded regions, limited to `regions` when given (the expanded ones), so chip
+ * counts and the result count describe what the tree can actually show.
+ */
+export function loadedConduits<T>(
+  regionData: Readonly<Record<string, { conduits: ReadonlyArray<T> } | undefined>>,
+  regions?: ReadonlySet<string> | null,
+): T[] {
+  const out: T[] = [];
+  for (const key of Object.keys(regionData)) {
+    if (regions && !regions.has(key)) continue;
+    const d = regionData[key];
+    if (d && Array.isArray(d.conduits)) out.push(...d.conduits);
+  }
+  return out;
+}
+
 /** Persistent sr-only status text, e.g. "Showing 32 of 160 conduits." */
 export function coverageFilterStatus(visible: number, total: number): string {
   const noun = total === 1 ? "conduit" : "conduits";
