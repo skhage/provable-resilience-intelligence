@@ -1,17 +1,25 @@
-"""P108-APP-SRLG-OVERLAY-LIMIT-TRUNCATION: /api/topology/srlgs returns one row per
-(conduit_id, srlg_id) and is complete. Before, it returned one row per span member with LIMIT 500
-and a tied ORDER BY, so every region was cut (Central 3,382 / West 3,455 / East 4,722 /
-Southeast 2,114 member rows) and which SRLGs reached the conduit badges and panel was arbitrary.
+"""P108-APP-SRLG-OVERLAY-LIMIT-TRUNCATION (designer ruling S91 option a, PM R98).
+
+The /topology map and panel read /api/topology/srlgs: one row per span member, LIMIT 500, tied
+ORDER BY. Every region was cut (live Central 3,382 / West 3,455 / East 4,722 / Southeast 2,114
+member rows). Now the map reads the complete per-(conduit, srlg_type) summary
+(_SRLG_CONDUIT_SUMMARY_SQL) and the panel lazily reads one conduit's list (_CONDUIT_SRLGS_SQL).
+The v3 _SRLG_BY_REGION_SQL stays byte-identical (freeze sha c24ace6c).
 
 Known answer: the real SQL constants run on SQLite fixtures. The reference is the full member-level
-join with no LIMIT; the UI's per-conduit facts (srlg_id set, srlg_type set, worst severity) must
-match it exactly. Project: Lakelink Fiber - Provable Resilience Intelligence.
+join with no LIMIT. Per conduit, the srlg_id set, srlg_type set, worst severity and M must match it
+exactly. The designer's known answers have fixture equivalents: CDT-BB-0015 = 77 and CDT-BB-0053 = 134.
+Project: Lakelink Fiber - Provable Resilience Intelligence.
 """
 
+import hashlib
+import json
 import os
 import random
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -66,8 +74,24 @@ def _db(spans, members):
     return db
 
 
-def _run(db, sql, region="Central"):
-    return [dict(r) for r in db.execute(sql.replace("TRUE", "1"), {"region": region}).fetchall()]
+def _run(db, sql, region="Central", **params):
+    return [dict(r) for r in db.execute(sql.replace("TRUE", "1"), {"region": region, **params}).fetchall()]
+
+
+def _summary(db, region="Central", sql=None):
+    """Fold summary rows to per-conduit facts the same way the UI does."""
+    out = {}
+    for r in _run(db, sql or cs._SRLG_CONDUIT_SUMMARY_SQL, region):
+        f = out.setdefault(r["conduit_id"], {"m": 0, "types": set(), "sev": None})
+        f["m"] += r["srlg_count"]
+        f["types"].add(r["srlg_type"])
+        if r["max_severity"] and SEV_RANK[r["max_severity"]] > SEV_RANK.get(f["sev"], 0):
+            f["sev"] = r["max_severity"]
+    return out
+
+
+def _list(db, conduit_id, region="Central", sql=None):
+    return _run(db, sql or cs._CONDUIT_SRLGS_SQL, region, conduit_id=conduit_id)
 
 
 def _facts(rows):
@@ -107,25 +131,42 @@ SMALL_MEMBERS = [
 ]
 
 
-def test_one_row_per_conduit_srlg_with_worst_member():
-    rows = _run(_db(SMALL_SPANS, SMALL_MEMBERS), cs._SRLG_BY_REGION_SQL)
-    key = [(r["conduit_id"], r["srlg_id"]) for r in rows]
-    assert key == [("CDT-1", "SRLG-X"), ("CDT-2", "SRLG-X"), ("CDT-1", "SRLG-N")]
-    x1, x2, n1 = rows
+def test_v3_region_sql_byte_identical():
+    # PM R98 / designer item 1: the freeze query is untouched; the new queries are separate.
+    assert hashlib.sha256(cs._SRLG_BY_REGION_SQL.encode()).hexdigest().startswith("c24ace6c")
+
+
+def test_conduit_list_one_row_per_srlg_with_worst_member():
+    db = _db(SMALL_SPANS, SMALL_MEMBERS)
+    rows = _list(db, "CDT-1")
+    assert [r["srlg_id"] for r in rows] == ["SRLG-X", "SRLG-N"]
+    x1, n1 = rows
     # Worst active member on CDT-1 is the critical SPAN-3 (inactive critical SPAN-5 is excluded).
     assert (x1["severity"], x1["span_id"], x1["member_span_count"], x1["span_length_km"]) == (
         "critical", "SPAN-3", 3, 5.0)
-    assert (x2["severity"], x2["span_id"], x2["member_span_count"]) == ("high", "SPAN-4", 1)
     # 'low' outranks a NULL severity.
     assert (n1["severity"], n1["span_id"], n1["member_span_count"]) == ("low", "SPAN-2", 2)
     assert x1["description"] == "Elm St bridge" and x1["site_a_name"] == "Lakelink Fiber A CO"
+    # Same SRLG on CDT-2 is scoped to that conduit's own member.
+    (x2,) = _list(db, "CDT-2")
+    assert (x2["srlg_id"], x2["severity"], x2["span_id"], x2["member_span_count"]) == ("SRLG-X", "high", "SPAN-4", 1)
+    assert _list(db, "CDT-9") == [] and _list(db, "CDT-W") == []  # tier_3 / other region
 
 
-def test_output_columns_superset_of_old_contract():
-    rows = _run(_db(SMALL_SPANS, SMALL_MEMBERS), cs._SRLG_BY_REGION_SQL)
+def test_conduit_list_columns_superset_of_old_contract():
+    rows = _list(_db(SMALL_SPANS, SMALL_MEMBERS), "CDT-1")
     old_cols = list(_run(_db(SMALL_SPANS, SMALL_MEMBERS), OLD_SQL)[0].keys())
     assert list(rows[0].keys()) == old_cols + ["member_span_count"]
-    assert "sev_rank" not in rows[0] and "rn" not in rows[0]
+
+
+def test_summary_small_known_answer():
+    rows = _run(_db(SMALL_SPANS, SMALL_MEMBERS), cs._SRLG_CONDUIT_SUMMARY_SQL)
+    got = [(r["conduit_id"], r["srlg_type"], r["srlg_count"], r["member_span_count"], r["max_severity"]) for r in rows]
+    assert got == [
+        ("CDT-1", "bridge", 1, 3, "critical"),
+        ("CDT-1", "tunnel", 1, 2, "low"),
+        ("CDT-2", "bridge", 1, 1, "high"),
+    ]
 
 
 # --- large randomized: completeness + UI fact parity ---------------------------------
@@ -155,94 +196,196 @@ def test_fixture_reproduces_the_truncation_bug():
     db = _db(spans, mem)
     ref = _run(db, REF_SQL)
     assert len(ref) > 500
-    assert len(_run(db, OLD_SQL)) == 500
-    assert _facts(_run(db, OLD_SQL)) != _facts(ref)  # old query loses SRLGs on some conduits
+    old = _run(db, cs._SRLG_BY_REGION_SQL)  # the (unchanged) v3 region list
+    assert len(old) == 500
+    assert _facts(old) != _facts(ref)  # it loses SRLGs on some conduits
 
 
-def test_complete_and_facts_match_full_reference():
+def _known_answer_fixture():
+    """Fixture equivalents of the designer's live answers: CDT-BB-0015 = 77, CDT-BB-0053 = 134."""
+    rnd = random.Random(15053)
+    spans, mem = [], []
+    for cid, m in (("CDT-BB-0015", 77), ("CDT-BB-0053", 134)):
+        for k in range(6):
+            spans.append((f"SPAN-{cid}-{k}", "A", "Z", cid, 4.0, 1))
+        for i in range(m):
+            typ = ["bridge", "tunnel", "rail_crossing", "power_feed"][i % 4]
+            for k in rnd.sample(range(6), 3):  # 3 member spans each -> 633 member rows
+                mem.append((f"SRLG-{cid}-{i:03d}", typ, rnd.choice(["critical", "high", "medium", "low"]),
+                            f"SPAN-{cid}-{k}", f"n{i}"))
+    return _db(spans, mem)
+
+
+def test_designer_known_answers_77_and_134():
+    db = _known_answer_fixture()
+    assert len(_run(db, REF_SQL)) == 3 * (77 + 134)
+    s = _summary(db)
+    assert s["CDT-BB-0015"]["m"] == 77 and s["CDT-BB-0053"]["m"] == 134
+    assert len(_list(db, "CDT-BB-0015")) == 77 and len(_list(db, "CDT-BB-0053")) == 134
+    # The old region list under-counts at least one of them.
+    old = _facts(_run(db, cs._SRLG_BY_REGION_SQL))
+    assert (len(old["CDT-BB-0015"]["ids"]), len(old["CDT-BB-0053"]["ids"])) != (77, 134)
+
+
+@pytest.mark.parametrize("v4", [False, True])
+def test_summary_and_lists_match_full_reference(v4):
     spans, mem = _big()
     db = _db(spans, mem)
+    if v4:  # v4 candidate span table with identical rows: same answers
+        db.execute("CREATE TABLE physical_resource_span_v4_candidate AS SELECT * FROM physical_resource_span")
+    summ_sql = cs._SRLG_CONDUIT_SUMMARY_V4_SQL if v4 else cs._SRLG_CONDUIT_SUMMARY_SQL
+    list_sql = cs._CONDUIT_SRLGS_V4_SQL if v4 else cs._CONDUIT_SRLGS_SQL
     ref = _run(db, REF_SQL)
-    rows = _run(db, cs._SRLG_BY_REGION_SQL)
-    pairs = {(r["conduit_id"], r["srlg_id"]) for r in ref}
-    assert len(pairs) > 500  # more pairs than the old LIMIT
-    assert len(rows) == len(pairs)
-    assert {(r["conduit_id"], r["srlg_id"]) for r in rows} == pairs
-    assert _facts(rows) == _facts(ref)
-    # member_span_count sums back to the member rows.
-    assert sum(r["member_span_count"] for r in rows) == len(ref)
+    fr = _facts(ref)
+    s = _summary(db, sql=summ_sql)
+    assert sum(len(f["ids"]) for f in fr.values()) > 500  # more pairs than the old LIMIT
+    assert set(s) == set(fr)
+    for cid, f in fr.items():
+        assert (s[cid]["m"], s[cid]["types"], s[cid]["sev"]) == (len(f["ids"]), f["types"], f["sev"]), cid
+        lst = _list(db, cid, sql=list_sql)
+        assert [r["srlg_id"] for r in lst] and {r["srlg_id"] for r in lst} == f["ids"], cid
+        assert len(lst) == s[cid]["m"]
+    summ_rows = _run(db, summ_sql)
+    assert sum(r["member_span_count"] for r in summ_rows) == len(ref)
 
 
 def test_order_is_deterministic_under_insert_order():
     spans, mem = _big()
-    a = _run(_db(spans, mem), cs._SRLG_BY_REGION_SQL)
+    db_a = _db(spans, mem)
     rnd = random.Random(7)
     spans2, mem2 = spans[:], mem[:]
     rnd.shuffle(spans2)
     rnd.shuffle(mem2)
-    b = _run(_db(spans2, mem2), cs._SRLG_BY_REGION_SQL)
-    assert a == b
+    db_b = _db(spans2, mem2)
+    assert _run(db_a, cs._SRLG_CONDUIT_SUMMARY_SQL) == _run(db_b, cs._SRLG_CONDUIT_SUMMARY_SQL)
+    for cid in ("CDT-000", "CDT-017", "CDT-039"):
+        assert _list(db_a, cid) == _list(db_b, cid)
 
 
-def test_first_row_per_conduit_is_worst_severity():
-    """The map badge uses srlgs.find(conduit) as the representative; it must carry the max severity."""
-    spans, mem = _big()
-    rows = _run(_db(spans, mem), cs._SRLG_BY_REGION_SQL)
-    facts, first = _facts(rows), {}
-    for r in rows:
-        first.setdefault(r["conduit_id"], r)
-    for cid, r in first.items():
-        assert r["severity"] == facts[cid]["sev"], cid
+def test_v4_variants_swap_only_the_span_table():
+    for v3, v4 in ((cs._SRLG_CONDUIT_SUMMARY_SQL, cs._SRLG_CONDUIT_SUMMARY_V4_SQL),
+                   (cs._CONDUIT_SRLGS_SQL, cs._CONDUIT_SRLGS_V4_SQL)):
+        assert v4.count("JOIN physical_resource_span_v4_candidate prs ON") == 1
+        assert v4.replace("physical_resource_span_v4_candidate", "physical_resource_span") == v3
 
 
-def test_v4_variant_same_grain():
-    v4 = cs._SRLG_BY_REGION_V4_SQL
-    assert "PARTITION BY m.conduit_id, m.srlg_id" in v4
-    assert v4.replace("physical_resource_span_v4_candidate", "physical_resource_span") == cs._SRLG_BY_REGION_SQL
-
-
-def test_limit_is_the_shared_cap():
-    sql = cs._SRLG_BY_REGION_SQL
-    assert sql.rstrip().endswith(f"LIMIT {cs.SRLG_REGION_ROW_CAP}")
-    assert re.findall(r"LIMIT\s+(\d+)", sql) == [str(cs.SRLG_REGION_ROW_CAP)]
-    assert "ORDER BY sev_rank, srlg_type, conduit_id, srlg_id" in sql
+def test_limits_and_order():
+    assert re.findall(r"LIMIT\s+(\d+)", cs._SRLG_CONDUIT_SUMMARY_SQL) == []  # summary: no LIMIT
+    assert re.findall(r"LIMIT\s+(\d+)", cs._CONDUIT_SRLGS_SQL) == [str(cs.CONDUIT_SRLG_LIST_CAP)]
+    assert "ORDER BY sev_rank, srlg_type, srlg_id, span_id" in cs._CONDUIT_SRLGS_SQL
+    assert "ORDER BY conduit_id, max_severity_rank, srlg_type" in cs._SRLG_CONDUIT_SUMMARY_SQL
+    for sql in (cs._SRLG_CONDUIT_SUMMARY_SQL, cs._CONDUIT_SRLGS_SQL):
+        assert ":region" in sql
+    assert ":conduit_id" in cs._CONDUIT_SRLGS_SQL
 
 
 # --- service + router ----------------------------------------------------------------
 
-def test_service_coerces_member_span_count_and_cap():
+class _Exec:
+    def __init__(self, rows):
+        self.rows, self.calls = rows, []
+
+    def __call__(self, sql, row_limit=None, params=None):
+        self.calls.append((sql, row_limit, params))
+        return self.rows
+
+
+def _svc(rows):
     svc = object.__new__(cs.CatalogSqlService)
-    seen = {}
+    svc._execute = _Exec(rows)
+    return svc
 
-    def _exec(sql, row_limit=None, params=None):
-        seen["row_limit"] = row_limit
-        return [{"span_length_km": "1.5", "member_span_count": "3"}, {"span_length_km": None}]
 
-    svc._execute = _exec
-    rows = svc.get_srlgs_by_region("Central")
-    assert seen["row_limit"] == cs.SRLG_REGION_ROW_CAP
+@pytest.mark.parametrize("v4", [False, True])
+def test_service_summary(v4):
+    svc = _svc([{"conduit_id": "C", "srlg_type": "bridge", "srlg_count": "3", "member_span_count": "7",
+                 "max_severity_rank": 1, "max_severity": "critical"}])
+    rows = svc.get_srlg_conduit_summary("Central", v4=v4)
+    sql, _limit, params = svc._execute.calls[0]
+    assert sql is (cs._SRLG_CONDUIT_SUMMARY_V4_SQL if v4 else cs._SRLG_CONDUIT_SUMMARY_SQL)
+    assert params == {"region": "Central"}
+    assert rows == [{"conduit_id": "C", "srlg_type": "bridge", "srlg_count": 3, "member_span_count": 7,
+                     "max_severity": "critical"}]
+    assert _svc(None).get_srlg_conduit_summary("Central") is None
+
+
+@pytest.mark.parametrize("v4", [False, True])
+def test_service_conduit_list(v4):
+    svc = _svc([{"span_length_km": "1.5", "member_span_count": "3"}, {"span_length_km": None}])
+    rows = svc.get_conduit_srlgs("CDT-1", "Central", v4=v4)
+    sql, limit, params = svc._execute.calls[0]
+    assert sql is (cs._CONDUIT_SRLGS_V4_SQL if v4 else cs._CONDUIT_SRLGS_SQL)
+    assert limit == cs.CONDUIT_SRLG_LIST_CAP and params == {"region": "Central", "conduit_id": "CDT-1"}
     assert rows[0]["member_span_count"] == 3 and rows[1]["member_span_count"] == 1
+    assert rows[0]["span_length_km"] == 1.5 and rows[1]["span_length_km"] == 0.0
 
 
-# getattr keeps collection working on pre-P108 sources (negative check); the cap test pins the value.
-@pytest.mark.parametrize("n,flag", [(3, None), (getattr(cs, "SRLG_REGION_ROW_CAP", 5000), "true")])
-def test_router_flags_capped_result(n, flag):
+class _FakeCsql:
+    is_available = True
+
+    def __init__(self, result=None, boom=False):
+        self.result, self.boom, self.calls = result, boom, []
+
+    def _r(self, *a, **kw):
+        self.calls.append((a, kw))
+        if self.boom:
+            raise RuntimeError("warehouse down")
+        return self.result
+
+    get_srlg_conduit_summary = _r
+    get_conduit_srlgs = _r
+
+
+@pytest.mark.parametrize("flag", [False, True])
+def test_router_new_endpoints_live_and_flag(flag):
     pytest.importorskip("fastapi")
     from fastapi import Response
 
     from resilience_scorecard.backend import router as r
 
-    class _Fake:
-        is_available = True
-
-        def get_srlgs_by_region(self, region, **kw):
-            return [{}] * n
-
-    resp = Response()
-    out = r.list_topology_srlgs(_Fake(), resp, SimpleNamespace(v4_kpis=False), region="Central")
-    assert len(out) == n
-    assert resp.headers.get(r.TRUNCATED_HEADER) == flag
+    cfg = SimpleNamespace(v4_kpis=flag)
+    fake, resp = _FakeCsql([{"x": 1}]), Response()
+    assert r.list_topology_srlg_summary(fake, resp, cfg, region="Central") == [{"x": 1}]
     assert resp.headers[r.DATA_SOURCE_HEADER] == "live"
+    assert fake.calls[-1] == (("Central",), {"v4": flag})
+    resp = Response()
+    assert r.list_conduit_srlgs(fake, resp, cfg, conduit_id="CDT-1", region="Central") == [{"x": 1}]
+    assert resp.headers[r.DATA_SOURCE_HEADER] == "live"
+    assert fake.calls[-1] == (("CDT-1", "Central"), {"v4": flag})
+
+
+@pytest.mark.parametrize("fake", [_FakeCsql(None), _FakeCsql(boom=True)])
+def test_router_new_endpoints_unavailable_never_silent(fake):
+    pytest.importorskip("fastapi")
+    from fastapi import Response
+
+    from resilience_scorecard.backend import router as r
+
+    cfg = SimpleNamespace(v4_kpis=False)
+    for call in (lambda resp: r.list_topology_srlg_summary(fake, resp, cfg, region="West"),
+                 lambda resp: r.list_conduit_srlgs(fake, resp, cfg, conduit_id="CDT-1", region="West")):
+        resp = Response()
+        assert call(resp) == []
+        assert resp.headers[r.DATA_SOURCE_HEADER] == "unavailable"
+
+
+def test_router_routes_registered():
+    pytest.importorskip("fastapi")
+    from resilience_scorecard.backend import router as r
+
+    paths = {getattr(rt, "path", "") for rt in r.router.routes}
+    assert any(p.endswith("/topology/srlg-summary") for p in paths)
+    assert any(p.endswith("/topology/conduits/{conduit_id}/srlgs") for p in paths)
+    assert any(p.endswith("/topology/srlgs") for p in paths)  # kept for API compatibility
+
+
+def test_summary_model():
+    pytest.importorskip("pydantic")
+    from resilience_scorecard.backend.models import SrlgConduitSummaryOut
+
+    m = SrlgConduitSummaryOut(conduit_id="C", srlg_type="bridge", srlg_count=3, member_span_count=7,
+                              max_severity="critical")
+    assert m.srlg_count == 3 and m.max_severity == "critical"
 
 
 def test_model_accepts_member_span_count():
@@ -254,3 +397,111 @@ def test_model_accepts_member_span_count():
     assert m.member_span_count == 4
     assert SrlgMemberOut(srlg_id="S", srlg_type="bridge", span_id="SPAN-1", site_a_id="A",
                          site_z_id="Z").member_span_count == 1
+
+
+# --- UI: pure module (Node) + topology.tsx wiring ------------------------------------
+
+UI = os.path.join(APP_SRC, "resilience_scorecard", "ui")
+LIB = os.path.join(UI, "lib", "srlg-summary.ts")
+TOPO = os.path.join(UI, "routes", "topology.tsx")
+NODE = shutil.which("node")
+needs_node = pytest.mark.skipif(NODE is None, reason="node not available")
+
+
+def _node(expr):
+    script = f"import * as m from {json.dumps(LIB)}; console.log(JSON.stringify({expr}));"
+    out = subprocess.run([NODE, "--experimental-strip-types", "--no-warnings", "--input-type=module", "-e", script],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def _src():
+    with open(TOPO) as f:
+        return f.read()
+
+
+@needs_node
+def test_build_summary_matches_sql_fold_and_old_first_row_rule():
+    """UI fold of real summary SQL rows == full reference; primaryType == old first-row rule."""
+    spans, mem = _big()
+    db = _db(spans, mem)
+    rows = _run(db, cs._SRLG_CONDUIT_SUMMARY_SQL)
+    got = _node(f"[...m.buildSrlgSummary({json.dumps(rows)}).values()]")
+    ref = _run(db, REF_SQL)
+    fr = _facts(ref)
+    # Old rule: first row in ORDER BY (severity rank, srlg_type) over that conduit's members.
+    old_rank = {"critical": 1, "high": 2, "medium": 3}
+    first = {}
+    for r in sorted(ref, key=lambda r: (old_rank.get(r["severity"], 4), r["srlg_type"])):
+        first.setdefault(r["conduit_id"], r["srlg_type"])
+    assert {g["conduitId"] for g in got} == set(fr)
+    for g in got:
+        f = fr[g["conduitId"]]
+        assert g["srlgCount"] == len(f["ids"]) and set(g["types"]) == f["types"] and g["maxSeverity"] == f["sev"]
+        assert g["primaryType"] == g["types"][0]
+        if f["sev"] != "low":  # old rank lumped low and NULL together; compare where it was well-defined
+            assert g["primaryType"] == first[g["conduitId"]], g["conduitId"]
+
+
+@needs_node
+def test_copy_and_disclosure_helpers():
+    assert _node("m.srlgPanelHeading(134)") == "Shared Risk Groups (134)"
+    assert _node("m.srlgShowingNote(25, 134)") == "Showing 25 of 134 shared risk groups"
+    assert _node("m.srlgShowingNote(134, 134)") is None
+    assert _node("m.srlgShowAllLabel(1340)") == "Show all 1,340"
+    assert _node("m.PANEL_SRLG_INITIAL") == 25
+    assert _node("[m.canShowAllSrlgs(26, false), m.canShowAllSrlgs(25, false), m.canShowAllSrlgs(26, true)]") == [True, False, False]
+    assert _node("m.visibleSrlgRows([...Array(30).keys()], false).length") == 25
+    assert _node("m.visibleSrlgRows([...Array(30).keys()], true).length") == 30
+    # never an empty or zero section: live-but-empty is unavailable
+    assert _node("[m.panelSrlgListMode(null, 0), m.panelSrlgListMode('live', 0), m.panelSrlgListMode('live', 2), m.panelSrlgListMode('unavailable', 0), m.panelSrlgListMode('auth_expired', 0)]") == [
+        "loading", "unavailable", "list", "unavailable", "unavailable"]
+    assert _node("m.conduitSrlgsUrl('CDT-BB/1', 'Central West')") == "/api/topology/conduits/CDT-BB%2F1/srlgs?region=Central%20West"
+    assert _node("m.srlgSummaryUrl('West')") == "/api/topology/srlg-summary?region=West"
+
+
+def test_topology_no_longer_reads_the_capped_region_list():
+    src = _src()
+    assert "/api/topology/srlgs" not in src
+    assert "srlgs.filter(" not in src and "srlgs.find(" not in src
+    assert "fetchWithState<SrlgConduitTypeRow[]>(srlgSummaryUrl(selectedRegion))" in src
+    assert "srlgSummary={srlgSummary}" in src
+    assert "srlgSummary={srlgSummary.get(selectedConduit.conduit_id)}" in src
+
+
+def test_map_badge_ring_and_label_come_from_summary():
+    src = _src()
+    assert "const srlgByConduit = srlgSummary;" in src
+    assert "maxSrlgSeverity([{ severity: s.maxSeverity }])" in src
+    assert "srlgSummary.get(c.conduit_id)?.primaryType" in src
+    assert "(srlgSummary.get(c.conduit_id)?.types ?? []).map(" in src
+    assert "const extra = summary.types.length - 1;" in src
+
+
+def test_panel_heading_true_m_lazy_list_and_disclosure():
+    src = _src()
+    i = src.index("function EdgeDetailPanel(")
+    panel = src[i:src.index("\n}\n", i)]
+    assert "const srlgTotal = srlgSummary?.srlgCount ?? 0;" in panel
+    assert "{srlgPanelHeading(srlgTotal)}" in panel and "srlgGroups.length})" not in panel
+    assert "fetchWithState<SrlgMember[]>(conduitSrlgsUrl(conduit.conduit_id, region))" in panel
+    assert "{SRLG_LIST_LOADING_MSG}" in panel
+    assert "{srlgUnavailableMsg(conduit.conduit_id, srlgListState)}" in panel
+    assert "aria-expanded={srlgExpanded}" in panel and "aria-controls={srlgListId}" in panel
+    assert 'className="site-cap-toggle"' in panel and 'className="site-cap-note"' in panel  # 44px / 12px iron
+    assert "srlgShowingNote(srlgRows.length, srlgTotal)" in panel
+
+
+def test_panel_css_rules_present():
+    with open(os.path.join(UI, "styles", "lakelink-theme.css")) as f:
+        css = f.read()
+    assert re.search(r"(?m)^\.panel-srlg-status \{[^}]*color: var\(--lf-iron\)", css)
+    assert re.search(r"(?m)^\.site-cap-toggle \{[^}]*min-height: 44px", css)
+
+
+def test_no_brand_leak():
+    for p in (LIB, TOPO, __file__, os.path.join(APP_SRC, "resilience_scorecard", "backend", "router.py"),
+              os.path.join(APP_SRC, "resilience_scorecard", "backend", "services", "catalog_sql.py")):
+        with open(p) as f:
+            assert not re.search("lu" + "men", f.read(), re.I), p

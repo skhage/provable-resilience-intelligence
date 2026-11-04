@@ -278,7 +278,9 @@ def test_panel_srlg_mode(cov, edge, expected):
 def test_panel_hides_srlg_list_for_backbone_only_and_qualifies_mixed():
     t = _read("routes", "topology.tsx")
     assert "const srlgMode = panelSrlgMode(bbCoverage, conduit);" in t
-    assert '{srlgGroups.length > 0 && srlgMode !== "caveat-only" && (' in t
+    # P108: the gate uses the true count M from the summary (the list now loads lazily)
+    assert 'const showSrlgSection = srlgTotal > 0 && srlgMode !== "caveat-only";' in t
+    assert "{showSrlgSection && (" in t
     assert '{srlgMode === "qualified" && (' in t
     assert '<span aria-hidden="true">{`\\u00A0${METRO_ACCESS}`}</span>' in t
     assert '<span className="sr-only">{` ${METRO_ACCESS_SPOKEN}`}</span>' in t

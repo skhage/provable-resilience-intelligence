@@ -409,8 +409,17 @@ class SrlgMemberOut(BaseModel):
     span_length_km: float = Field(ge=0, default=0)
     site_a_name: str | None = None
     site_z_name: str | None = None
-    # P108: rows are one per (conduit_id, srlg_id); span_* fields describe the worst-severity member.
+    # P108 (per-conduit list only): one row per srlg_id; span_* fields are the worst-severity member.
     member_span_count: int = Field(ge=1, default=1, description="Active member spans of this SRLG on this conduit")
+
+
+class SrlgConduitSummaryOut(BaseModel):
+    """P108: complete SRLG aggregate for one (conduit_id, srlg_type) in a region."""
+    conduit_id: str
+    srlg_type: str
+    srlg_count: int = Field(ge=0, description="Distinct SRLGs of this type on the conduit")
+    member_span_count: int = Field(ge=0, default=0, description="Active member spans behind those SRLGs")
+    max_severity: str | None = Field(default=None, description="Worst member severity: critical | high | medium | low")
 
 
 class HazardOverlayOut(BaseModel):

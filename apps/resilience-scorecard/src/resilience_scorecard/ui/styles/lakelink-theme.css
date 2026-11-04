@@ -2950,3 +2950,16 @@ select:focus-visible,
   .site-cap-toggle { border-color: ButtonText; }
   .site-cap-item[aria-pressed="true"] { outline: 2px solid Highlight; }
 }
+
+/* P108: conduit panel SRLG list states + 'Showing N of M' (reuses .site-cap-note/.site-cap-toggle) */
+.panel-srlg-status {
+  margin: var(--space-sm) 0;
+  font-size: 13px;
+  color: var(--lf-iron);
+}
+.panel-srlg-cap {
+  margin-top: var(--space-sm);
+}
+@media (forced-colors: active) {
+  .panel-srlg-status { color: CanvasText; }
+}

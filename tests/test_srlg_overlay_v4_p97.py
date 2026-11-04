@@ -23,10 +23,8 @@ if APP_SRC not in sys.path:
 
 from resilience_scorecard.backend.services import catalog_sql as cs  # noqa: E402
 
-# sha256 of _SRLG_BY_REGION_SQL. Was c24ace6c... (a5db5d3 .. ed72998). Re-pinned by
-# P108-APP-SRLG-OVERLAY-LIMIT-TRUNCATION (per-(conduit, srlg) grain, total ORDER BY, LIMIT 5000);
-# see tests/test_srlg_overlay_p108.py. Any further change must re-pin here deliberately.
-V3_SRLG_SHA256 = "6429a95ed34c6160be30702c907061cf221e2b36648230bbe4515bb7f32d86e6"
+# sha256 of _SRLG_BY_REGION_SQL at a5db5d3 (pre-change). The flag-off freeze query is untouched.
+V3_SRLG_SHA256 = "c24ace6cb54b7d28d818043fbc414130d323bd1d34077c2e5ca91f6f7be92b5f"
 
 
 # --- static contract ---------------------------------------------------------------
@@ -124,7 +122,7 @@ def test_service_default_is_v3():
     svc = _svc()
     rows = svc.get_srlgs_by_region("Central")
     assert svc._execute.sql is cs._SRLG_BY_REGION_SQL
-    assert svc._execute.params == {"region": "Central"} and svc._execute.row_limit == cs.SRLG_REGION_ROW_CAP
+    assert svc._execute.params == {"region": "Central"} and svc._execute.row_limit == 500
     assert rows[0]["span_length_km"] == 24.9
 
 

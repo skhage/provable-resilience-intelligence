@@ -10,6 +10,21 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
 import { LoadingRegion } from "@/components/ui/loading-region";
+import {
+  buildSrlgSummary,
+  canShowAllSrlgs,
+  conduitSrlgsUrl,
+  panelSrlgListMode,
+  srlgPanelHeading,
+  srlgShowAllLabel,
+  srlgShowingNote,
+  srlgSummaryUrl,
+  visibleSrlgRows,
+  SRLG_LIST_LOADING_MSG,
+  SRLG_SHOW_FEWER_LABEL,
+  type ConduitSrlgSummary,
+  type SrlgConduitTypeRow,
+} from "@/lib/srlg-summary";
 // BUG-DW-118: Info control for the "{drawn} of {total} hops shown on this map" disclosure
 import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { useBbSrlgCoverage, useCutoverManifest, useV4Kpis } from "@/lib/api";
@@ -314,7 +329,7 @@ interface SrlgMember {
   span_length_km: number;
   site_a_name: string | null;
   site_z_name: string | null;
-  // P108: one row per (conduit_id, srlg_id); span fields are the worst-severity member span.
+  // P108: per-conduit list rows are one per srlg_id; span fields are the worst-severity member span.
   member_span_count?: number;
 }
 
@@ -857,13 +872,16 @@ function SiteDetailPanel({
 
 function EdgeDetailPanel({
   conduit,
-  srlgs,
+  srlgSummary,
+  region,
   hazards,
   onClose,
   bbCoverage = null,
 }: {
   conduit: ConduitEdge;
-  srlgs: SrlgMember[];
+  /** P108: complete per-conduit aggregate (true M); undefined = no SRLGs or overlay off. */
+  srlgSummary: ConduitSrlgSummary | undefined;
+  region: string | null;
   hazards: HazardOverlay[];
   onClose: () => void;
   bbCoverage?: BbSrlgCoverage | null;
@@ -873,13 +891,34 @@ function EdgeDetailPanel({
   // Focus trap: traps Tab/Shift+Tab within panel, Escape to close (WCAG 2.4.3)
   useFocusTrap(panelRef, onClose);
 
-  // SRLGs touching this conduit
-  const conduitSrlgs = srlgs.filter((s) => s.conduit_id === conduit.conduit_id);
-  // Unique SRLG groups
-  const srlgGroups = Array.from(
-    new Map(conduitSrlgs.map((s) => [s.srlg_id, s])).values()
-  );
   const srlgMode = panelSrlgMode(bbCoverage, conduit);
+  // P108: M comes from the complete summary, never from the length of a (possibly capped) list.
+  const srlgTotal = srlgSummary?.srlgCount ?? 0;
+  const showSrlgSection = srlgTotal > 0 && srlgMode !== "caveat-only";
+  // P108: the list loads lazily per conduit (deterministic order), one row per srlg_id.
+  const [srlgGroups, setSrlgGroups] = useState<SrlgMember[]>([]);
+  const [srlgListState, setSrlgListState] = useState<DataState | null>(null);
+  const [srlgExpanded, setSrlgExpanded] = useState(false);
+  useEffect(() => {
+    setSrlgGroups([]);
+    setSrlgListState(null);
+    setSrlgExpanded(false);
+    if (!showSrlgSection || !region) return;
+    let cancelled = false;
+    fetchWithState<SrlgMember[]>(conduitSrlgsUrl(conduit.conduit_id, region)).then(({ state, data }) => {
+      if (cancelled) return;
+      setSrlgListState(state);
+      setSrlgGroups(Array.isArray(data) ? data : []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [conduit.conduit_id, region, showSrlgSection]);
+  const srlgListMode = panelSrlgListMode(srlgListState, srlgGroups.length);
+  const srlgRows = visibleSrlgRows(srlgGroups, srlgExpanded);
+  const srlgNote = srlgListMode === "list" ? srlgShowingNote(srlgRows.length, srlgTotal) : null;
+  const srlgListId = `panel-srlg-list-${conduit.conduit_id}`;
+  const srlgNoteId = `panel-srlg-note-${conduit.conduit_id}`;
 
   return (
     <div
@@ -922,10 +961,10 @@ function EdgeDetailPanel({
         )}
 
         {/* BUG-DW-096: backbone-only + partial shows the caveat only, matching the suppressed map badge */}
-        {srlgGroups.length > 0 && srlgMode !== "caveat-only" && (
+        {showSrlgSection && (
           <>
             <h4 className="panel-section-title">
-              Shared Risk Groups ({srlgGroups.length})
+              {srlgPanelHeading(srlgTotal)}
               {srlgMode === "qualified" && (
                 <>
                   <span aria-hidden="true">{`\u00A0${METRO_ACCESS}`}</span>
@@ -933,7 +972,17 @@ function EdgeDetailPanel({
                 </>
               )}
             </h4>
-            {srlgGroups.map((s) => (
+            {srlgListMode === "loading" && (
+              <p className="panel-srlg-status">{SRLG_LIST_LOADING_MSG}</p>
+            )}
+            {srlgListMode === "unavailable" && (
+              <p className="panel-srlg-status">
+                {srlgUnavailableMsg(conduit.conduit_id, srlgListState)}
+              </p>
+            )}
+            {srlgListMode === "list" && (
+            <div id={srlgListId}>
+            {srlgRows.map((s) => (
               <div key={s.srlg_id} className="panel-conduit-item">
                 <div className="conduit-name">
                   <span style={{ marginRight: 6 }}>
@@ -964,6 +1013,28 @@ function EdgeDetailPanel({
                 </Link>
               </div>
             ))}
+            </div>
+            )}
+            {/* P108 / designer ruling item 3: a short list is disclosed, never shown as the total */}
+            {srlgListMode === "list" && (srlgNote || srlgExpanded) && (
+              <div className="site-cap-bar panel-srlg-cap">
+                {srlgNote && (
+                  <p className="site-cap-note" id={srlgNoteId}>{srlgNote}</p>
+                )}
+                {(canShowAllSrlgs(srlgGroups.length, srlgExpanded) || srlgExpanded) && (
+                  <button
+                    type="button"
+                    className="site-cap-toggle"
+                    aria-expanded={srlgExpanded}
+                    aria-controls={srlgListId}
+                    aria-describedby={srlgNote ? srlgNoteId : undefined}
+                    onClick={() => setSrlgExpanded((v) => !v)}
+                  >
+                    {srlgExpanded ? SRLG_SHOW_FEWER_LABEL : srlgShowAllLabel(srlgTotal)}
+                  </button>
+                )}
+              </div>
+            )}
           </>
         )}
 
@@ -1381,7 +1452,7 @@ function SiteGraph({
   onSelectConduit,
   selectedConduitId,
   pathHops,
-  srlgs,
+  srlgSummary,
   hazards,
   overlays,
   diversity,
@@ -1396,7 +1467,8 @@ function SiteGraph({
   onSelectConduit: (conduit: ConduitEdge | null) => void;
   selectedConduitId: string | null;
   pathHops: PathHop[];
-  srlgs: SrlgMember[];
+  /** P108: complete per-conduit SRLG aggregate (badges, ring, '+N', aria-labels). */
+  srlgSummary: Map<string, ConduitSrlgSummary>;
   hazards: HazardOverlay[];
   overlays: Overlays;
   diversity: ServiceDiversity | null;
@@ -1495,30 +1567,15 @@ function SiteGraph({
     return ids;
   }, [pathHops]);
 
-  // Build SRLG lookup: conduit_id -> set of srlg_ids
-  const srlgByConduit = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    srlgs.forEach((s) => {
-      if (s.conduit_id) {
-        if (!map.has(s.conduit_id)) map.set(s.conduit_id, new Set());
-        map.get(s.conduit_id)!.add(s.srlg_id);
-      }
-    });
-    return map;
-  }, [srlgs]);
+  // P108: the SRLG lookup is the complete per-conduit summary (was built from a LIMIT 500 list)
+  const srlgByConduit = srlgSummary;
 
-  // BUG-DW-088: max SRLG severity computed once per conduit (was recomputed 3x per conduit per render)
+  // BUG-DW-088: max SRLG severity once per conduit. P108: from the complete summary.
   const srlgSevByConduit = useMemo(() => {
-    const groups = new Map<string, { severity: string | null }[]>();
-    srlgs.forEach((s) => {
-      if (!s.conduit_id) return;
-      if (!groups.has(s.conduit_id)) groups.set(s.conduit_id, []);
-      groups.get(s.conduit_id)!.push(s);
-    });
     const sev = new Map<string, string | null>();
-    groups.forEach((members, id) => sev.set(id, maxSrlgSeverity(members)));
+    srlgSummary.forEach((s, id) => sev.set(id, maxSrlgSeverity([{ severity: s.maxSeverity }])));
     return sev;
-  }, [srlgs]);
+  }, [srlgSummary]);
 
   const hasPathTrace = pathHops.length > 0;
   const divColor = diversity
@@ -1608,9 +1665,9 @@ function SiteGraph({
           }
         }
         if (hasSrlg) {
-          const firstSrlg = srlgs.find((s) => s.conduit_id === c.conduit_id);
-          if (firstSrlg) {
-            edgeColor = SRLG_COLORS[firstSrlg.srlg_type] ?? BRAND.iron;
+          const firstSrlgType = srlgSummary.get(c.conduit_id)?.primaryType ?? null;
+          if (firstSrlgType) {
+            edgeColor = SRLG_COLORS[firstSrlgType] ?? BRAND.iron;
             // BUG-DW-077: SRLG type is shown by the midpoint badge layer, not by the dash
             glowClass =
               srlgSevByConduit.get(c.conduit_id) === "critical"
@@ -1629,7 +1686,7 @@ function SiteGraph({
           if (!dashArray) dashArray = INVENTORY_ONLY_DASH;
         }
         const srlgTypesHere = hasSrlg
-          ? Array.from(new Set(srlgs.filter((s) => s.conduit_id === c.conduit_id).map((s) => SRLG_LABELS[s.srlg_type] ?? s.srlg_type)))
+          ? Array.from(new Set((srlgSummary.get(c.conduit_id)?.types ?? []).map((t) => SRLG_LABELS[t] ?? t)))
           : [];
         const srlgSevHere = hasSrlg ? srlgSevByConduit.get(c.conduit_id) ?? null : null;
         const roleLabel = isOnPath ? (hasWorking && hasProtect ? ", working and protect path" : hasProtect ? ", protect path" : ", working path") : "";
@@ -1684,11 +1741,11 @@ function SiteGraph({
             const pa = positions.get(c.site_a_id);
             const pz = positions.get(c.site_z_id);
             if (!pa || !pz) return null;
-            const first = srlgs.find((s) => s.conduit_id === c.conduit_id);
-            if (!first) return null;
-            const color = SRLG_COLORS[first.srlg_type] ?? BRAND.iron;
-            const code = SRLG_CODES[first.srlg_type] ?? "?";
-            const extra = new Set(srlgs.filter((s) => s.conduit_id === c.conduit_id).map((s) => s.srlg_type)).size - 1;
+            const summary = srlgSummary.get(c.conduit_id);
+            if (!summary || !summary.primaryType) return null;
+            const color = SRLG_COLORS[summary.primaryType] ?? BRAND.iron;
+            const code = SRLG_CODES[summary.primaryType] ?? "?";
+            const extra = summary.types.length - 1;
             const mx = (pa.x + pz.x) / 2;
             const my = (pa.y + pz.y) / 2;
             const dimmed = hasPathTrace && !pathConduitIds.has(c.conduit_id);
@@ -2550,9 +2607,10 @@ function TopologyPage() {
   const bannerFocusRef = useRef<HTMLDivElement | null>(null);
   const prevTraceModeRef = useRef<TraceBannerMode>("pending");
 
-  // SRLG overlay state (§3)
-  const [srlgs, setSrlgs] = useState<SrlgMember[]>([]);
+  // SRLG overlay state (§3). P108: complete per-(conduit, srlg_type) summary, not the capped list.
+  const [srlgSummaryRows, setSrlgSummaryRows] = useState<SrlgConduitTypeRow[]>([]);
   const [srlgState, setSrlgState] = useState<DataState | null>(null);
+  const srlgSummary = useMemo(() => buildSrlgSummary(srlgSummaryRows), [srlgSummaryRows]);
 
   // Hazard overlay state (§4)
   const [hazards, setHazards] = useState<HazardOverlay[]>([]);
@@ -2691,18 +2749,18 @@ function TopologyPage() {
   // Fetch SRLGs when overlay toggled on and region selected (§3)
   useEffect(() => {
     if (!overlays.srlg || !selectedRegion) {
-      setSrlgs([]);
+      setSrlgSummaryRows([]);
       setSrlgState(null);
       return;
     }
     // BUG-DW-098: an unavailable overlay is disclosed in the legend, never drawn as an empty map
     let cancelled = false;
     setSrlgState(null);
-    fetchWithState<SrlgMember[]>(`/api/topology/srlgs?region=${encodeURIComponent(selectedRegion)}`).then(
+    fetchWithState<SrlgConduitTypeRow[]>(srlgSummaryUrl(selectedRegion)).then(
       ({ state, data }) => {
         if (cancelled) return;
         setSrlgState(state);
-        setSrlgs(Array.isArray(data) ? data : []);
+        setSrlgSummaryRows(Array.isArray(data) ? data : []);
       }
     );
     return () => {
@@ -2974,7 +3032,7 @@ function TopologyPage() {
               onSelectConduit={setSelectedConduit}
               selectedConduitId={selectedConduit?.conduit_id ?? null}
               pathHops={pathHops}
-              srlgs={srlgs}
+              srlgSummary={srlgSummary}
               hazards={hazards}
               overlays={overlays}
               diversity={diversity}
@@ -3027,7 +3085,8 @@ function TopologyPage() {
           {selectedConduit && (
             <EdgeDetailPanel
               conduit={selectedConduit}
-              srlgs={srlgs}
+              srlgSummary={srlgSummary.get(selectedConduit.conduit_id)}
+              region={selectedRegion}
               hazards={hazards}
               onClose={() => setSelectedConduit(null)}
               bbCoverage={bbCoverage}

@@ -34,6 +34,7 @@ from .models import (
     RiskDistributionOut,
     ServiceDiversityOut,
     ServicePathHopOut,
+    SrlgConduitSummaryOut,
     SrlgMemberOut,
     TopologyConduitOut,
     TopologyRegionSummaryOut,
@@ -59,8 +60,6 @@ router = APIRouter(prefix="/api")
 
 # BUG-QA-080: per-response provenance for topology live queries ('live' | 'unavailable').
 DATA_SOURCE_HEADER = "X-PRI-Data-Source"
-# P108: set to "true" only when a list endpoint returned exactly its safety-cap row count.
-TRUNCATED_HEADER = "X-PRI-Truncated"
 
 # ---------------------------------------------------------------------------
 # Health
@@ -606,24 +605,80 @@ def list_topology_srlgs(
     P97-APP-V4-SRLG-OVERLAY-SPANS: with PRI_V4_KPIS=true, span_id resolves against the v4 span
     table so BBS-* SRLG rows reach the CDT-BBR-* conduit panel (same flag as
     list_topology_conduits). Flag off = unchanged v3 call.
-    P108-APP-SRLG-OVERLAY-LIMIT-TRUNCATION: rows are one per (conduit_id, srlg_id) and complete.
-    If a region ever reaches the safety cap, X-PRI-Truncated: true is set and a warning logged.
+    P108: /topology no longer calls this (per-span LIMIT 500 truncates). It is kept unchanged for
+    API compatibility; the map uses /topology/srlg-summary and the panel the per-conduit list.
     """
-    from .services.catalog_sql import SRLG_REGION_ROW_CAP
-
     v4 = bool(getattr(config, "v4_kpis", False))
     if hasattr(csql, "is_available") and csql.is_available:
         try:
             srlgs = csql.get_srlgs_by_region(region, v4=True) if v4 else csql.get_srlgs_by_region(region)
             if srlgs is not None:
                 response.headers[DATA_SOURCE_HEADER] = "live"
-                if len(srlgs) >= SRLG_REGION_ROW_CAP:
-                    response.headers[TRUNCATED_HEADER] = "true"
-                    logger.warning("SRLGs for %s hit the %d-row cap", region, SRLG_REGION_ROW_CAP)
                 return srlgs
         except Exception:
             logger.warning("Live SRLGs failed for %s", region, exc_info=True)
     logger.error("SRLGs unavailable for region %s (live query failed or warehouse down)", region)
+    response.headers[DATA_SOURCE_HEADER] = "unavailable"
+    return []
+
+
+@router.get(
+    "/topology/srlg-summary",
+    response_model=list[SrlgConduitSummaryOut],
+    operation_id="listTopologySrlgSummary",
+)
+def list_topology_srlg_summary(
+    csql: Dependencies.CatalogSql,
+    response: Response,
+    config: Dependencies.Config,
+    region: str = Query(..., description="Region name"),
+):
+    """P108-APP-SRLG-OVERLAY-LIMIT-TRUNCATION: complete per-(conduit, srlg_type) SRLG aggregate.
+
+    Drives the map badges, critical ring, '+N' and conduit aria-labels, and the panel heading's
+    true count M. No LIMIT. Same X-PRI-Data-Source contract as /topology/srlgs; same v4 flag.
+    """
+    v4 = bool(getattr(config, "v4_kpis", False))
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            rows = csql.get_srlg_conduit_summary(region, v4=v4)
+            if rows is not None:
+                response.headers[DATA_SOURCE_HEADER] = "live"
+                return rows
+        except Exception:
+            logger.warning("Live SRLG summary failed for %s", region, exc_info=True)
+    logger.error("SRLG summary unavailable for region %s", region)
+    response.headers[DATA_SOURCE_HEADER] = "unavailable"
+    return []
+
+
+@router.get(
+    "/topology/conduits/{conduit_id}/srlgs",
+    response_model=list[SrlgMemberOut],
+    operation_id="listConduitSrlgs",
+)
+def list_conduit_srlgs(
+    csql: Dependencies.CatalogSql,
+    response: Response,
+    config: Dependencies.Config,
+    conduit_id: str,
+    region: str = Query(..., description="Region name (same scope as /topology/srlg-summary)"),
+):
+    """P108: lazy conduit-panel list, one row per SRLG (worst member span), deterministic order.
+
+    Capped at CONDUIT_SRLG_LIST_CAP rows; the UI compares the length with the summary's M and
+    discloses 'Showing N of M' when short. Bound parameters only (BUG-QA-077).
+    """
+    v4 = bool(getattr(config, "v4_kpis", False))
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            rows = csql.get_conduit_srlgs(conduit_id, region, v4=v4)
+            if rows is not None:
+                response.headers[DATA_SOURCE_HEADER] = "live"
+                return rows
+        except Exception:
+            logger.warning("Live conduit SRLGs failed for %s", conduit_id, exc_info=True)
+    logger.error("Conduit SRLGs unavailable for %s", conduit_id)
     response.headers[DATA_SOURCE_HEADER] = "unavailable"
     return []
 

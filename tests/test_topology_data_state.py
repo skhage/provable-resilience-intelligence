@@ -150,7 +150,9 @@ def test_fetches_read_header_not_raw_json():
     src = _read("routes", "topology.tsx")
     assert re.search(r"fetchWithState<PathHop\[\]>\(`/api/topology/path-trace/", src)
     assert re.search(r"fetchWithState<ServiceDiversity>\(`/api/topology/diversity/", src)
-    assert re.search(r"fetchWithState<SrlgMember\[\]>\(`/api/topology/srlgs", src)
+    # P108: the map reads the complete SRLG summary; the panel reads the per-conduit list
+    assert re.search(r"fetchWithState<SrlgConduitTypeRow\[\]>\(srlgSummaryUrl\(selectedRegion\)\)", src)
+    assert re.search(r"fetchWithState<SrlgMember\[\]>\(conduitSrlgsUrl\(conduit\.conduit_id, region\)\)", src)
     # the old header-blind fetches are gone
     assert "fetch(`/api/topology/path-trace/" not in src
     assert "r.ok ? r.json() : null" not in src
