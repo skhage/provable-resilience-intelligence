@@ -17,6 +17,7 @@ import {
   panelSrlgListMode,
   srlgPanelHeading,
   srlgShowAllLabel,
+  srlgListLoadedSpoken,
   srlgShowingNote,
   srlgSummaryUrl,
   visibleSrlgRows,
@@ -972,14 +973,22 @@ function EdgeDetailPanel({
                 </>
               )}
             </h4>
-            {srlgListMode === "loading" && (
-              <p className="panel-srlg-status">{SRLG_LIST_LOADING_MSG}</p>
-            )}
-            {srlgListMode === "unavailable" && (
-              <p className="panel-srlg-status">
-                {srlgUnavailableMsg(conduit.conduit_id, srlgListState)}
-              </p>
-            )}
+            {/* BUG-DW-134 (WCAG 4.1.3): one persistent live region for the list state. It mounts with
+                the section (before the fetch effect runs) and announces loading, then the unavailable
+                copy or the true-M loaded count. The rows themselves are not live. */}
+            <div className="panel-srlg-live" role="status" aria-live="polite" aria-atomic="true">
+              {srlgListMode === "loading" && (
+                <p className="panel-srlg-status">{SRLG_LIST_LOADING_MSG}</p>
+              )}
+              {srlgListMode === "unavailable" && (
+                <p className="panel-srlg-status">
+                  {srlgUnavailableMsg(conduit.conduit_id, srlgListState)}
+                </p>
+              )}
+              {srlgListMode === "list" && (
+                <span className="sr-only">{srlgListLoadedSpoken(srlgTotal)}</span>
+              )}
+            </div>
             {srlgListMode === "list" && (
             <div id={srlgListId}>
             {srlgRows.map((s) => (

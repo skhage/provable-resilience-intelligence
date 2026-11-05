@@ -98,6 +98,15 @@ export const SRLG_SHOW_FEWER_LABEL = "Show fewer";
 
 export const SRLG_LIST_LOADING_MSG = "Loading shared risk groups\u2026";
 
+/**
+ * BUG-DW-134 (WCAG 4.1.3): sr-only text for the persistent panel list-state region once
+ * the list resolves. Always the true M from the summary, never the rows shown.
+ */
+export function srlgListLoadedSpoken(total: number): string {
+  const n = Math.max(0, Math.round(total));
+  return n === 1 ? "1 shared risk group loaded" : `${fmt(n)} shared risk groups loaded`;
+}
+
 /** Rows to render: the first PANEL_SRLG_INITIAL until expanded. */
 export function visibleSrlgRows<T>(list: readonly T[], expanded: boolean): T[] {
   return expanded ? list.slice() : list.slice(0, PANEL_SRLG_INITIAL);
