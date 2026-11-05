@@ -1,6 +1,7 @@
 /**
  * Lakelink Fiber — Hazard × Span Crosswalk Table
- * P10-APP-HAZARD-XWALK-VIEW: Filterable matrix of 79K hazard×span intersections
+ * P10-APP-HAZARD-XWALK-VIEW: Filterable matrix of in-radius hazard×span intersections
+ * (is_within_radius = TRUE only; P108-APP-HSI-CROSSWALK-IN-RADIUS / BUG-QA-129)
  *
  * Shows hazard_type × proximity_band breakdown with intersection counts,
  * distinct spans, avg services/span, and avg distance. Filterable by hazard_type.
@@ -37,7 +38,7 @@ const HAZARD_TYPES = [
 const BAND_LABELS: Record<string, string> = {
   direct_impact: "Direct Impact (<1km)",
   near_field: "Near Field (1–5km)",
-  buffer_zone: "Buffer Zone (5–radius km)",
+  buffer_zone: "Buffer Zone (≥5 km)",
 };
 
 const BAND_ORDER: Record<string, number> = {

@@ -7,7 +7,8 @@
  * - Filterable matrix table: hazard_type × proximity_band breakdown
  * - Sortable columns: intersections, spans, avg services, avg distance
  *
- * Data source: hazard_span_intersection table (79,116 rows, 5 hazard types, 3 bands)
+ * Data source: hazard_span_intersection table, in-radius rows only
+ * (is_within_radius = TRUE: 83,029 rows, 5 hazard types, 3 bands; BUG-QA-129)
  * Header/nav/skip-nav live in __root.tsx (UX-REM-LAYOUT-ROOT).
  */
 import { createFileRoute } from "@tanstack/react-router";

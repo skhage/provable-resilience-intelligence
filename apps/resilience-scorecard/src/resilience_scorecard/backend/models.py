@@ -228,8 +228,8 @@ class ProductOfferingOut(BaseModel):
 class HazardCrosswalkRowOut(BaseModel):
     """Single row in the hazard×span crosswalk aggregation (by type × proximity band)."""
     hazard_type: str = Field(description="Normalized type: severe_weather|earthquake|flood|wildfire|dig_ticket")
-    proximity_band: str = Field(description="Distance band: direct_impact|near_field|buffer_zone")
-    intersection_count: int = Field(ge=0, description="Number of hazard×span intersection records")
+    proximity_band: str = Field(description="Distance band: direct_impact (<1 km)|near_field (1-5 km)|buffer_zone (>=5 km)")
+    intersection_count: int = Field(ge=0, description="Number of in-radius (is_within_radius = TRUE) hazard×span intersection records")
     distinct_spans: int = Field(ge=0, description="Distinct spans exposed in this bucket")
     avg_services_per_span: float = Field(ge=0, description="Average services per affected span")
     avg_distance_km: float = Field(ge=0, description="Average haversine distance in km")
@@ -237,14 +237,14 @@ class HazardCrosswalkRowOut(BaseModel):
 
 class HazardCrosswalkSummaryOut(BaseModel):
     """KPI summary for the hazard×span crosswalk view."""
-    total_intersections: int = Field(ge=0, description="Total hazard×span intersection records")
-    distinct_spans_exposed: int = Field(ge=0, description="Distinct spans within any hazard zone")
+    total_intersections: int = Field(ge=0, description="Total in-radius (is_within_radius = TRUE) hazard×span intersection records")
+    distinct_spans_exposed: int = Field(ge=0, description="Distinct spans within at least one hazard radius")
     total_spans: int = Field(ge=0, description="Total spans in the network")
     exposure_pct: float = Field(ge=0, le=100, description="Percent of network spans exposed")
     hazard_types: int = Field(ge=0, description="Distinct hazard types with intersections")
-    direct_impact_count: int = Field(ge=0, description="Intersections in direct_impact band (<1km)")
-    near_field_count: int = Field(ge=0, description="Intersections in near_field band (1-5km)")
-    buffer_zone_count: int = Field(ge=0, description="Intersections in buffer_zone band (5-radius_km)")
+    direct_impact_count: int = Field(ge=0, description="In-radius intersections in direct_impact band (<1 km)")
+    near_field_count: int = Field(ge=0, description="In-radius intersections in near_field band (1-5 km)")
+    buffer_zone_count: int = Field(ge=0, description="In-radius intersections in buffer_zone band (>=5 km)")
 
 
 # ---------------------------------------------------------------------------

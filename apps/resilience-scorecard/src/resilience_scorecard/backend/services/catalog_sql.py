@@ -213,6 +213,11 @@ FROM product_offering
 ORDER BY product_category, service_type
 """
 
+# P108-APP-HSI-CROSSWALK-IN-RADIUS (BUG-QA-129 ruling): proximity_band is a
+# distance band orthogonal to the hazard radius. Impact/exposure semantics come
+# ONLY from is_within_radius = TRUE, so every crosswalk count filters on it
+# before grouping by band. Unfiltered, the view overstated direct_impact 2.5x
+# (1,502 vs 600) and totals 173,323 vs 83,029.
 _CROSSWALK_SQL = """
 SELECT
   hazard_type,
@@ -222,6 +227,7 @@ SELECT
   ROUND(AVG(affected_service_cnt), 1) AS avg_services_per_span,
   ROUND(AVG(distance_km), 2) AS avg_distance_km
 FROM hazard_span_intersection
+WHERE is_within_radius = TRUE
 GROUP BY hazard_type, proximity_band
 ORDER BY hazard_type,
   CASE proximity_band
@@ -241,6 +247,7 @@ SELECT
   CAST(SUM(CASE WHEN proximity_band = 'buffer_zone' THEN 1 ELSE 0 END) AS INT) AS buffer_zone_count,
   CAST(COUNT(DISTINCT hazard_type) AS INT) AS hazard_types
 FROM hazard_span_intersection
+WHERE is_within_radius = TRUE
 """
 
 # ---------------------------------------------------------------------------
@@ -1059,7 +1066,10 @@ class CatalogSqlService:
     # ------------------------------------------------------------------
 
     def get_crosswalk(self, hazard_type: str | None = None) -> list[dict] | None:
-        """Return hazard×span crosswalk aggregated by type × proximity band."""
+        """Return in-radius hazard×span crosswalk aggregated by type × proximity band.
+
+        Only rows with is_within_radius = TRUE are counted (BUG-QA-129).
+        """
         if hazard_type:
             sql = """
                 SELECT
@@ -1070,7 +1080,8 @@ class CatalogSqlService:
                   ROUND(AVG(affected_service_cnt), 1) AS avg_services_per_span,
                   ROUND(AVG(distance_km), 2) AS avg_distance_km
                 FROM hazard_span_intersection
-                WHERE hazard_type = :hazard_type
+                WHERE is_within_radius = TRUE
+                  AND hazard_type = :hazard_type
                 GROUP BY hazard_type, proximity_band
                 ORDER BY CASE proximity_band
                     WHEN 'direct_impact' THEN 1
