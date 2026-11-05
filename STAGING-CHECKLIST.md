@@ -23,6 +23,14 @@
 | 11 | Branding compliance | PASS | "Lakelink Fiber" used throughout, no "Lumen" references in assets |
 | 12 | Documentation complete | PASS | 7 docs: README, BRANCH-STRATEGY, CONTRIBUTING, DATA-LINEAGE, DEPLOYMENT-RUNBOOK, demo-flow-guide, agent-design |
 
+## Merge-Range Constraints (devops/session-25-hygiene → develop/main)
+
+| Constraint | Rule | Verify after merge |
+| --- | --- | --- |
+| P108 SRLG overlay (P112, QA ruling P111) | Merge `0a69a02..7da6e0c` together (a plain merge or squash of the branch). **Never cherry-pick `0a69a02` alone.** It changes the frozen v3 `_SRLG_BY_REGION_SQL` (sha `6429a95e`) and re-pins its own test, so CI would stay green on a broken freeze. `7da6e0c` restores sha `c24ace6c`. | `pytest tests/test_srlg_overlay_v4_p97.py tests/test_srlg_overlay_p108.py` passes (12 + 29), and `V3_SRLG_SHA256` in the p97 test starts with `c24ace6c` |
+
+> @devops S97 (2026-11-05) verified at HEAD 0e6065e: AST sha of `_SRLG_BY_REGION_SQL` is ed72998=c24ace6c, 0a69a02=6429a95e, 7da6e0c=c24ace6c, 0e6065e=c24ace6c. The negative check also works: the 0a69a02 code run with the 7da6e0c p97 test fails `test_v3_srlg_sql_byte_identical`.
+
 ## Artifact Manifest
 
 ### DAB Resources (6 configs in `bundle/resources/`)
