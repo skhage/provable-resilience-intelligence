@@ -36,8 +36,8 @@ const HAZARD_TYPES = [
 ] as const;
 
 const BAND_LABELS: Record<string, string> = {
-  direct_impact: "Direct Impact (<1km)",
-  near_field: "Near Field (1–5km)",
+  direct_impact: "Direct Impact (<1 km)",
+  near_field: "Near Field (1–5 km)",
   buffer_zone: "Buffer Zone (≥5 km)",
 };
 

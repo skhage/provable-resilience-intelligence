@@ -67,7 +67,7 @@ function CrosswalkKpiContent() {
         role="group"
         aria-label={`Direct Impact: ${summary.direct_impact_count.toLocaleString()} intersections`}
       >
-        <div className="kpi-label">Direct Impact (&lt;1km)</div>
+        <div className="kpi-label">Direct Impact (&lt;1 km)</div>
         <div className="kpi-value">{summary.direct_impact_count.toLocaleString()}</div>
       </div>
 
