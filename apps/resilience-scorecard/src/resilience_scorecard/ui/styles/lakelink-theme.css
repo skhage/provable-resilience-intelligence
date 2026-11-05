@@ -1845,7 +1845,7 @@ select:focus-visible,
 }
 .srlg-severity-badge[data-severity="low"] {
   background: #F3F4F6;
-  color: #6B7280;
+  color: #4B5563; /* BUG-DW-136: was #6B7280 (4.39:1, fails 1.4.3) -> 6.87:1 on #F3F4F6 */
 }
 
 /* Hazard overlay markers (BUG-DW-056: a11y — keyboard + screen reader accessible) */
