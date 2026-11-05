@@ -24,7 +24,7 @@ def _band_labels():
 def _kpi_direct_label():
     src = KPIS.read_text(encoding="utf-8")
     labels = re.findall(r'<div className="kpi-label">([^<]*)</div>', src)
-    direct = [l for l in labels if l.startswith("Direct Impact")]
+    direct = [lbl for lbl in labels if lbl.startswith("Direct Impact")]
     assert len(direct) == 1, labels
     return direct[0]
 
