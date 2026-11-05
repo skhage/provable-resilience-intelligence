@@ -705,7 +705,17 @@ ORDER BY conduit_id, max_severity_rank, srlg_type
 # Conduit panel list (lazy, per conduit): one row per srlg_id. The kept row is the worst-severity
 # member span (tie-break span_id), with member_span_count. Total ORDER BY: severity rank, srlg_type,
 # srlg_id, span_id. The LIMIT is a safety cap (live max 134); the UI shows 'Showing N of M' if hit.
+# BUG-QA-131: CONDUIT_SRLG_LIST_CAP is the single source of truth for both the SQL LIMIT and the
+# row_limit passed to _execute. The LIMIT is built from this int constant (never user input).
 CONDUIT_SRLG_LIST_CAP = 500
+
+
+def _sql_limit(cap: int) -> str:
+    """Render a LIMIT clause from a trusted positive int constant (rejects bool/non-int/<=0)."""
+    if isinstance(cap, bool) or not isinstance(cap, int) or cap <= 0:
+        raise ValueError(f"LIMIT cap must be a positive int, got {cap!r}")
+    return "LIMIT " + str(cap)
+
 
 _CONDUIT_SRLGS_SQL = _SRLG_MEMBER_CTE + """,
 ranked AS (
@@ -732,8 +742,7 @@ SELECT
 FROM ranked
 WHERE rn = 1
 ORDER BY sev_rank, srlg_type, srlg_id, span_id
-LIMIT 500
-"""
+""" + _sql_limit(CONDUIT_SRLG_LIST_CAP) + "\n"
 
 
 def _span_v4(sql: str) -> str:
