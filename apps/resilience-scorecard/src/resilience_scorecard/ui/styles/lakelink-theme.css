@@ -2019,11 +2019,13 @@ select:focus-visible,
   white-space: nowrap;
 }
 
+/* BUG-DW-138 (WCAG 1.4.3): no opacity on meta text. Hierarchy comes from font-size only.
+   iron #4D4D4D = 8.45:1 on white; inside the 0.85 conduit row the compound is 5.57:1. */
 .mobile-tree-meta {
   flex-shrink: 0;
   font-size: 12px;
+  font-weight: 400;
   color: var(--lf-iron);
-  opacity: 0.7;
 }
 
 .mobile-tree-tier {
