@@ -62,6 +62,8 @@ import {
   showSrlgUnavailable,
   srlgUnavailableMsg,
   noTracedPathMsg,
+  overlayShortcutFor,
+  SHORTCUT_SCOPE_SELECTOR,
   showTraceRetry,
   stillUnavailableMsg,
   traceBannerMessage,
@@ -2790,27 +2792,23 @@ function TopologyPage() {
   }, [overlays.hazard]);
 
   // Keyboard shortcuts (§7.1)
+  // BUG-DW-139 (WCAG 2.1.4): D/S/H act only with focus in the graph or toolbar, never with
+  // Ctrl/Cmd/Alt held, never while typing in INPUT/SELECT/TEXTAREA/contenteditable.
+  // Escape keeps its previous document-wide behavior.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === "INPUT") return;
-      switch (e.key.toLowerCase()) {
-        case "d":
-          setOverlays((o) => ({ ...o, diversity: !o.diversity }));
-          break;
-        case "s":
-          setOverlays((o) => ({ ...o, srlg: !o.srlg }));
-          break;
-        case "h":
-          setOverlays((o) => ({ ...o, hazard: !o.hazard }));
-          break;
-        case "f":
-          break;
-        case "escape":
-          if (selectedConduit) setSelectedConduit(null);
-          else if (selectedSite) setSelectedSite(null);
-          else if (selectedRegion) setSelectedRegion(null);
-          break;
+      const target = e.target as HTMLElement | null;
+      if ((e.key ?? "").toLowerCase() === "escape") {
+        if (target?.tagName === "INPUT") return;
+        if (selectedConduit) setSelectedConduit(null);
+        else if (selectedSite) setSelectedSite(null);
+        else if (selectedRegion) setSelectedRegion(null);
+        return;
       }
+      const active = document.activeElement;
+      const focusInScope = !!(active && active.closest(SHORTCUT_SCOPE_SELECTOR));
+      const overlay = overlayShortcutFor(e, target, focusInScope);
+      if (overlay) setOverlays((o) => ({ ...o, [overlay]: !o[overlay] }));
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);

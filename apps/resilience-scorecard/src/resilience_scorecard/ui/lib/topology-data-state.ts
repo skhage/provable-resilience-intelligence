@@ -270,3 +270,61 @@ export function hopsShownSpoken(hs: HopsShown | null | undefined): string | null
   }
   return `${line}${HOPS_SHOWN_SPOKEN_SUFFIX}`;
 }
+
+// ---------------------------------------------------------------------------
+// BUG-DW-139: overlay shortcuts D/S/H (WCAG 2.1.4 Character Key Shortcuts, Level A)
+// ---------------------------------------------------------------------------
+
+export type OverlayShortcut = "diversity" | "srlg" | "hazard";
+
+/** Structural subset of KeyboardEvent, so the logic is testable without a DOM. */
+export interface ShortcutKeyEvent {
+  key: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  altKey?: boolean;
+}
+
+/** Structural subset of the event target element. */
+export interface ShortcutTarget {
+  tagName?: string;
+  isContentEditable?: boolean;
+}
+
+/**
+ * Shortcuts are active only while focus is inside the topology graph container or its
+ * toolbar (2.1.4 'active only on focus'). .topo-canvas-wrap also covers the mobile tree.
+ */
+export const SHORTCUT_SCOPE_SELECTOR = ".topo-toolbar, .topo-canvas-wrap";
+
+const SHORTCUT_KEYS: ReadonlyMap<string, OverlayShortcut> = new Map<string, OverlayShortcut>([
+  ["d", "diversity"],
+  ["s", "srlg"],
+  ["h", "hazard"],
+]);
+
+const EDITABLE_TAGS = new Set(["INPUT", "SELECT", "TEXTAREA"]);
+
+/** True when the key event targets a text-entry control (typing must never toggle overlays). */
+export function isEditableTarget(t: ShortcutTarget | null | undefined): boolean {
+  if (!t) return false;
+  if (t.isContentEditable) return true;
+  return EDITABLE_TAGS.has((t.tagName ?? "").toUpperCase());
+}
+
+/**
+ * The overlay a key press toggles, or null. Null when: any of Ctrl/Cmd/Alt is held
+ * (Cmd+D bookmark, Ctrl+S save, Ctrl+H history stay browser actions); the target is an
+ * INPUT/SELECT/TEXTAREA/contenteditable; or focus is outside the graph and toolbar.
+ * Escape is not a character key shortcut and is handled separately by the page.
+ */
+export function overlayShortcutFor(
+  e: ShortcutKeyEvent,
+  target: ShortcutTarget | null | undefined,
+  focusInScope: boolean,
+): OverlayShortcut | null {
+  if (e.ctrlKey || e.metaKey || e.altKey) return null;
+  if (isEditableTarget(target)) return null;
+  if (!focusInScope) return null;
+  return SHORTCUT_KEYS.get((e.key ?? "").toLowerCase()) ?? null;
+}

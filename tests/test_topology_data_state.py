@@ -179,3 +179,89 @@ def test_outage_styles_neutral_and_targets():
 def test_no_customer_real_name():
     for parts in (("lib", "topology-data-state.ts"), ("routes", "topology.tsx")):
         assert "lumen" not in _read(*parts).lower()
+
+
+# --- BUG-DW-139: overlay shortcuts D/S/H (WCAG 2.1.4) ------------------------------
+
+@needs_node
+@pytest.mark.parametrize("key,expected", [
+    ("d", "diversity"), ("D", "diversity"), ("s", "srlg"), ("h", "hazard"), ("H", "hazard"),
+    ("f", None), ("x", None), ("Escape", None), ("Tab", None), ("constructor", None), ("", None),
+])
+def test_dw139_shortcut_key_map_in_scope(key, expected):
+    out = _node(f"out = m.overlayShortcutFor({{key: {json.dumps(key)}}}, {{tagName: 'BUTTON'}}, true);")
+    assert out == expected
+
+
+@needs_node
+@pytest.mark.parametrize("mods", [
+    {"ctrlKey": True}, {"metaKey": True}, {"altKey": True},
+    {"ctrlKey": True, "metaKey": True},
+])
+@pytest.mark.parametrize("key", ["d", "s", "h"])
+def test_dw139_modifier_held_is_noop(mods, key):
+    ev = dict(mods, key=key)
+    assert _node(f"out = m.overlayShortcutFor({json.dumps(ev)}, {{tagName: 'svg'}}, true);") is None
+
+
+@needs_node
+def test_dw139_shift_alone_still_toggles():
+    # Shift is not a browser-command modifier; Shift+D yields key 'D'
+    assert _node("out = m.overlayShortcutFor({key: 'D', shiftKey: true}, {tagName: 'g'}, true);") == "diversity"
+
+
+@needs_node
+@pytest.mark.parametrize("target", [
+    {"tagName": "INPUT"}, {"tagName": "input"}, {"tagName": "SELECT"}, {"tagName": "TEXTAREA"},
+    {"tagName": "DIV", "isContentEditable": True},
+])
+def test_dw139_editable_targets_are_noop(target):
+    assert _node(f"out = m.overlayShortcutFor({{key: 'd'}}, {json.dumps(target)}, true);") is None
+    assert _node(f"out = m.isEditableTarget({json.dumps(target)});") is True
+
+
+@needs_node
+def test_dw139_focus_outside_graph_is_noop():
+    assert _node("out = ['d','s','h'].map(k => m.overlayShortcutFor({key: k}, {tagName: 'BODY'}, false));") == [None, None, None]
+    assert _node("out = m.isEditableTarget(null);") is False
+    assert _node("out = m.isEditableTarget({tagName: 'BUTTON'});") is False
+
+
+@needs_node
+def test_dw139_scope_selector_matches_rendered_containers():
+    sel = _node("out = m.SHORTCUT_SCOPE_SELECTOR;")
+    classes = [s.strip().lstrip(".") for s in sel.split(",")]
+    assert classes == ["topo-toolbar", "topo-canvas-wrap"]
+    src = _read("routes", "topology.tsx")
+    assert 'className="topo-toolbar" role="toolbar"' in src
+    # desktop graph and mobile tree wrappers both carry topo-canvas-wrap
+    assert 'className="topo-canvas-wrap"' in src
+    assert 'className="topo-canvas-wrap topo-canvas-wrap--mobile"' in src
+
+
+def _shortcut_handler():
+    src = _read("routes", "topology.tsx")
+    start = src.index("// Keyboard shortcuts (")
+    return src[start:src.index('document.removeEventListener("keydown", handler)', start)]
+
+
+def test_dw139_handler_wiring():
+    h = _shortcut_handler()
+    # all three gates go through the pure helper, scoped by the active element
+    assert "overlayShortcutFor(e, target, focusInScope)" in h
+    assert "document.activeElement" in h and "closest(SHORTCUT_SCOPE_SELECTOR)" in h
+    # no ungated per-key toggles left in the page (old switch on d/s/h, empty 'f' case)
+    assert not re.search(r'case "[dshf]"', h)
+    assert "diversity: !o.diversity" not in h
+    # still a single document listener; Escape kept (clears conduit > site > region)
+    assert h.count('addEventListener("keydown"') == 1
+    esc = h[h.index('=== "escape"'):h.index("document.activeElement")]
+    assert "setSelectedConduit(null)" in esc and "setSelectedSite(null)" in esc
+    assert "setSelectedRegion(null)" in esc and "return;" in esc
+
+
+def test_dw139_toolbar_hints_kept():
+    src = _read("routes", "topology.tsx")
+    for t in ('title="Toggle diversity overlay (D)"', 'title="Toggle SRLG overlay (S)"',
+              'title="Toggle hazard overlay (H)"'):
+        assert t in src
