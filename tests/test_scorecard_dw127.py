@@ -73,3 +73,96 @@ def test_formatter_known_answers_live_values():
     # SRLG card uses a different helper; it must agree for integers so the row is uniform.
     e = _node_ts(DISCLOSURE_TS, "[M.formatCount(1585), M.formatCount(8000), M.formatCount(312)]")
     assert e == d[:3]
+
+
+# ---------------------------------------------------------------------------
+# BUG-DW-137 (designer S98 / P122): raw counts >= 1,000 outside the scorecard header.
+# Appended here (not a new file) per @repo-pruner's file-cap request.
+# ---------------------------------------------------------------------------
+AQ_TSX = os.path.join(UI, "components", "actions", "action-queue-table.tsx")
+ST_TSX = os.path.join(UI, "components", "dashboard", "service-table.tsx")
+TOPO_TSX = os.path.join(UI, "routes", "topology.tsx")
+
+ACTION_CARDS = {
+    "Critical Pending": "critical_pending",
+    "Total Pending": "pending_count",
+    "In Progress": "in_progress_count",
+    "Completed": "completed_count",
+}
+
+
+def _read(p):
+    with open(p, encoding="utf-8") as f:
+        return f.read()
+
+
+def _action_cards_fn():
+    src = _read(AQ_TSX)
+    start = src.index("function ActionSummaryCards")
+    return src[start:src.index("const PAGE_SIZES", start)]
+
+
+@pytest.mark.parametrize("label,field", list(ACTION_CARDS.items()))
+def test_dw137_action_card_value_and_aria_formatted(label, field):
+    fn = _action_cards_fn()
+    aria = re.search(r"aria-label=\{`" + re.escape(label) + r": \$\{(\w+)\}`\}", fn)
+    assert aria, f"{label}: aria-label must interpolate a single variable"
+    var = aria.group(1)
+    card_end = fn.index("</div>\n      </div>", aria.end()) + len("</div>")
+    card = fn[aria.end():card_end]
+    vals = re.findall(r'<div className="kpi-value">\{(\w+)\}</div>', card)
+    assert vals == [var], f"{label}: kpi-value must render {var}, got {vals}"
+    assert f"const {var} = formatCount(summary.{field});" in fn
+
+
+def test_dw137_action_cards_no_raw_summary_counts():
+    fn = _action_cards_fn()
+    assert not re.search(r"\{summary\.\w+\}", fn)
+    assert not re.search(r"\$\{summary\.\w+\}", fn)
+    assert 'import { formatCount } from "@/lib/bb-srlg-disclosure";' in _read(AQ_TSX)
+
+
+def test_dw137_service_table_pagination_formatted():
+    src = _read(ST_TSX)
+    nav = src[src.index('aria-label="Service table pagination"'):]
+    nav = nav[:nav.index("</span>")]
+    assert "of {formatCount(scores.length)}" in nav
+    assert "Showing {formatCount((safeCurrentPage - 1) * pageSize + 1)}" in nav
+    assert "{formatCount(Math.min(safeCurrentPage * pageSize, scores.length))}" in nav
+    assert "of {scores.length}" not in nav
+    assert re.search(r"import \{[^}]*\bformatCount\b[^}]*\} from \"@/lib/bb-srlg-disclosure\"", src)
+
+
+@pytest.mark.parametrize("raw", [
+    "${totalSites} sites", "${totalConduits} conduits",
+    "${r.site_count} sites", "${r.conduit_count} conduits",
+    "{r.site_count} sites", "{r.co_count} COs", "{r.dc_count} DCs",
+    "{r.conduit_count} conduits", "{r.span_count} spans",
+    "${region.site_count} sites", "${region.conduit_count} conduits",
+    "{region.site_count} sites",
+])
+def test_dw137_topology_region_counts_not_raw(raw):
+    assert raw not in _read(TOPO_TSX), f"raw count still rendered: {raw}"
+
+
+def test_dw137_topology_region_counts_formatted():
+    src = _read(TOPO_TSX)
+    for s in (
+        "${formatCount(totalSites)} sites, ${formatCount(totalConduits)} conduits",
+        "${r.region} region: ${formatCount(r.site_count)} sites, ${formatCount(r.conduit_count)} conduits.",
+        "{formatCount(r.conduit_count)} conduits \u00b7 {formatCount(r.span_count)} spans",
+        "{formatCount(r.site_count)} sites \u00b7 {formatCount(r.co_count)} COs",
+        "${region.region} region, ${formatCount(region.site_count)} sites",
+        "{formatCount(region.site_count)} sites\n",
+    ):
+        assert s in src, s
+
+
+def test_dw137_known_answers_live_values():
+    # Live values from designer P122: 3159/6181 pending/completed, 480 critical, 8000 services,
+    # 3152/2610 region spans, 2969 overview sites.
+    d = _node_ts(DISCLOSURE_TS, "[3159,6181,480,8000,3152,2610,2969,999,1000,0].map(M.formatCount)")
+    assert d == ["3,159", "6,181", "480", "8,000", "3,152", "2,610", "2,969", "999", "1,000", "0"]
+    # Uniform with the header formatter used beside it under the v4 flag.
+    k = _node_ts(FMT_TS, "[3159,6181,8000,3152].map(M.formatKpiCount)")
+    assert k == d[:2] + [d[3], d[4]]

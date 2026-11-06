@@ -9,7 +9,7 @@ import { Link } from "@tanstack/react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import { useBbSrlgCoverage, useCutoverManifest, useV4Kpis, useListResilienceScoresSuspense } from "@/lib/api";
-import { METRO_ACCESS, METRO_ACCESS_SPOKEN } from "@/lib/bb-srlg-disclosure";
+import { METRO_ACCESS, METRO_ACCESS_SPOKEN, formatCount } from "@/lib/bb-srlg-disclosure";
 import {
   PATH_DIV_HEADER,
   PATH_DIV_HEADER_QUALIFIER,
@@ -178,8 +178,9 @@ function ServiceTableContent() {
       {/* Pagination controls (UX-REM-TABLE-UX) */}
       <nav className="pagination-bar" aria-label="Service table pagination">
         <span>
-          Showing {(safeCurrentPage - 1) * pageSize + 1}–
-          {Math.min(safeCurrentPage * pageSize, scores.length)} of {scores.length}
+          {/* BUG-DW-137: thousands separators (of 8,000) */}
+          Showing {formatCount((safeCurrentPage - 1) * pageSize + 1)}–
+          {formatCount(Math.min(safeCurrentPage * pageSize, scores.length))} of {formatCount(scores.length)}
         </span>
         <div className="page-controls">
           <label>

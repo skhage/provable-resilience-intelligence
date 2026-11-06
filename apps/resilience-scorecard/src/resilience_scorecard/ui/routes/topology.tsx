@@ -1275,7 +1275,7 @@ function RegionGraph({
     <svg
       viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
       role="img"
-      aria-label={`Network topology overview: ${totalSites} sites, ${totalConduits} conduits across ${sorted.length} regions`}
+      aria-label={`Network topology overview: ${formatCount(totalSites)} sites, ${formatCount(totalConduits)} conduits across ${sorted.length} regions` /* BUG-DW-137 */}
       style={{ width: "100%", height: "100%", minHeight: 500 }}
     >
       {/* Inter-region links */}
@@ -1307,7 +1307,7 @@ function RegionGraph({
             className="topo-region-node"
             tabIndex={0}
             role="button"
-            aria-label={`${r.region} region: ${r.site_count} sites, ${r.conduit_count} conduits. Press Enter to drill in.`}
+            aria-label={`${r.region} region: ${formatCount(r.site_count)} sites, ${formatCount(r.conduit_count)} conduits. Press Enter to drill in.`}
             onClick={() => onDrillIn(r.region)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -1345,7 +1345,7 @@ function RegionGraph({
               fill={BRAND.iron}
               fontFamily="'Inter', sans-serif"
             >
-              {r.site_count} sites · {r.co_count} COs · {r.dc_count} DCs
+              {formatCount(r.site_count)} sites · {formatCount(r.co_count)} COs · {formatCount(r.dc_count)} DCs
             </text>
             <text
               x={pos.x + 16}
@@ -1354,7 +1354,7 @@ function RegionGraph({
               fill={BRAND.iron}
               fontFamily="'Inter', sans-serif"
             >
-              {r.conduit_count} conduits · {r.span_count} spans
+              {formatCount(r.conduit_count)} conduits · {formatCount(r.span_count)} spans
             </text>
             <text
               x={pos.x + 16}
@@ -2277,7 +2277,7 @@ function MobileTreeView({
                 key={region.region}
                 role="treeitem"
                 aria-expanded={isExpanded}
-                aria-label={`${region.region} region, ${region.site_count} sites, ${region.conduit_count} conduits`}
+                aria-label={`${region.region} region, ${formatCount(region.site_count)} sites, ${formatCount(region.conduit_count)} conduits`}
                 tabIndex={0}
                 data-region={region.region}
                 className="mobile-tree-region"
@@ -2293,7 +2293,7 @@ function MobileTreeView({
                     {region.region} Region
                   </span>
                   <span className="mobile-tree-meta">
-                    {region.site_count} sites
+                    {formatCount(region.site_count)} sites
                   </span>
                 </div>
 

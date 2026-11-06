@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { formatMonthlyUsd } from "@/lib/v4-delta-format";
+import { formatCount } from "@/lib/bb-srlg-disclosure";
 import { useQueryClient } from "@tanstack/react-query";
 import selector from "@/lib/selector";
 import {
@@ -123,28 +124,34 @@ function MrcProtectedCard() {
 function ActionSummaryCards() {
   const { data: summary } = useGetActionSummarySuspense(selector());
   const v4Kpis = useV4Kpis();
+  // BUG-DW-137: §6.4 counts use thousands separators in both the value and the aria-label
+  // (3159 -> 3,159). Unconditional, like /conduits; the MRC card keeps its own formatter.
+  const criticalPending = formatCount(summary.critical_pending);
+  const pendingCount = formatCount(summary.pending_count);
+  const inProgressCount = formatCount(summary.in_progress_count);
+  const completedCount = formatCount(summary.completed_count);
 
   return (
     <div className="kpi-row">
       <div className="kpi-card critical"
-           role="group" aria-label={`Critical Pending: ${summary.critical_pending}`}>
+           role="group" aria-label={`Critical Pending: ${criticalPending}`}>
         <div className="kpi-label">Critical Pending</div>
-        <div className="kpi-value">{summary.critical_pending}</div>
+        <div className="kpi-value">{criticalPending}</div>
       </div>
       <div className="kpi-card warning"
-           role="group" aria-label={`Total Pending: ${summary.pending_count}`}>
+           role="group" aria-label={`Total Pending: ${pendingCount}`}>
         <div className="kpi-label">Total Pending</div>
-        <div className="kpi-value">{summary.pending_count}</div>
+        <div className="kpi-value">{pendingCount}</div>
       </div>
       <div className="kpi-card"
-           role="group" aria-label={`In Progress: ${summary.in_progress_count}`}>
+           role="group" aria-label={`In Progress: ${inProgressCount}`}>
         <div className="kpi-label">In Progress</div>
-        <div className="kpi-value">{summary.in_progress_count}</div>
+        <div className="kpi-value">{inProgressCount}</div>
       </div>
       <div className="kpi-card success"
-           role="group" aria-label={`Completed: ${summary.completed_count}`}>
+           role="group" aria-label={`Completed: ${completedCount}`}>
         <div className="kpi-label">Completed</div>
-        <div className="kpi-value">{summary.completed_count}</div>
+        <div className="kpi-value">{completedCount}</div>
       </div>
       {v4Kpis && <MrcProtectedCard />}
     </div>
