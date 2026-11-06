@@ -104,7 +104,7 @@ Source: `kpi_delta_attribution_v4_candidate` (report_status = INTERIM, interim-1
 | --- | --- |
 | Where | The Avg Score, Critical and Revenue at Risk cards on the scorecard header, plus any v3-to-v4 delta view. Not on MRC Protected, which has no v3 counterpart. |
 | Visible text | `Interim` (12px, 600 weight, CSS uppercase) |
-| Style | Platinum #E8E8E8 fill, iron #4D4D4D text (6.9:1 PASS), 1px iron border, 4px radius, plus a 3px lumen-orange #F26522 left accent that is decorative only. **Never** use orange text on white (3.15:1 FAIL) or iron on orange (2.68:1 FAIL). |
+| Style | Platinum #E8E8E8 fill, iron #4D4D4D text (6.9:1 PASS), 1px iron border, 4px radius, plus a 3px accent-orange #F26522 (`--lf-accent-orange`) left accent that is decorative only. **Never** use orange text on white (3.15:1 FAIL) or iron on orange (2.68:1 FAIL). |
 | Tooltip (Info pattern from §1) | `Preliminary v4 figures. Only the hazard-distance fix is included so far. Backbone segmentation and shared-risk updates are still being scored, so these numbers will change.` |
 | aria-label | `Interim figure, v4 candidate, subject to change` |
 | Removal | Driven by the API (`report_status`). When it is FINAL the badge is gone, with no code change. Never hard-code it. |
