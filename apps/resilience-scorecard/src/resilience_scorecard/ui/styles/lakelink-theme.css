@@ -1204,9 +1204,9 @@ select:focus-visible,
   outline: none;
 }
 
-.topo-site-node:focus-visible {
-  outline: none;
-}
+/* BUG-DW-146 (WCAG 2.4.7): no outline suppression on the focusable .topo-site-node group.
+   The global [tabindex]:focus-visible ring (2px dark teal, offset 2px) applies, matching
+   .topo-region-node; the circle stroke change above is an additional cue. */
 
 /* Conduit edges */
 .topo-edge {

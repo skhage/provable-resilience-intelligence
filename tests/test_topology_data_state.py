@@ -416,3 +416,33 @@ def test_dw142_full_brand_name_rendered():
     assert re.search(r'<h2 className="mobile-detail-title">\s*\{detailSite\s*\?\s*detailSite\.site_name', src)
     assert not re.search(r"site_name\s*\.\s*(replace|slice|substring)\(", src)
     assert "lumen" not in src.lower()
+
+
+# --- BUG-DW-146: WCAG 2.4.7 site-node focus indicator (global ring not suppressed) ---
+
+def test_dw146_site_node_group_outline_not_suppressed():
+    css = _read("styles", "lakelink-theme.css")
+    rules = _dw142_rules(css, ".topo-site-node:focus-visible")
+    for body in rules:
+        d = _dw142_decls(body)
+        assert d.get("outline") not in ("none", "0"), body
+        assert d.get("outline-style") != "none", body
+
+
+def test_dw146_global_tabindex_ring_applies_to_site_node():
+    css = _read("styles", "lakelink-theme.css")
+    rules = _dw142_rules(css, "[tabindex]:focus-visible")
+    assert rules
+    d = _dw142_decls(rules[0])
+    assert d.get("outline") == "2px solid var(--lf-dark-teal)"
+    assert d.get("outline-offset") == "2px"
+    src = _read("routes", "topology.tsx")
+    m = re.search(r'className=\{`topo-site-node[^`]*`\}\s*tabIndex=\{0\}', src)
+    assert m, "site node group must carry tabIndex so the global ring matches"
+
+
+def test_dw146_circle_stroke_cue_and_forced_colors_kept():
+    css = _read("styles", "lakelink-theme.css")
+    rules = [_dw142_decls(b) for b in _dw142_rules(css, ".topo-site-node:focus-visible circle")]
+    assert any(r.get("stroke") == "var(--lf-dark-teal)" and r.get("stroke-width") == "3" for r in rules)
+    assert any(r.get("stroke") == "Highlight" and r.get("stroke-width") == "4" for r in rules)
