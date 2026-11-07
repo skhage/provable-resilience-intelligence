@@ -307,3 +307,59 @@ def test_dw140_dead_css_removed():
     css = _read("styles", "lakelink-theme.css")
     assert ".topo-btn-group" not in css
     assert ".topo-toolbar .topo-divider" in css
+
+
+# --- BUG-DW-141: /topology route heading (WCAG 1.3.1 / 2.4.6, G141) ------------
+
+@needs_node
+def test_dw141_topology_heading_copy():
+    out = _node("out = [m.TOPOLOGY_HEADING, m.topologyHeading(null), m.topologyHeading(undefined),"
+                " m.topologyHeading(''), m.topologyHeading('Central'), m.topologyHeading(' West ')];")
+    assert out == ["Network Topology", "Network Topology", "Network Topology",
+                   "Network Topology", "Central Region Topology", "West Region Topology"]
+
+
+def test_dw141_heading_matches_document_title():
+    root = _read("routes", "__root.tsx")
+    lib = _read("lib", "topology-data-state.ts")
+    m = re.search(r'"/topology":\s*"([^"|]+?)\s*\|', root)
+    assert m, "topology document.title not found"
+    assert f'TOPOLOGY_HEADING = "{m.group(1)}"' in lib
+
+
+def _strip_jsx_comments(src):
+    return re.sub(r"\{/\*.*?\*/\}", "", src, flags=re.S)
+
+
+def test_dw141_exactly_one_h2_outside_dialog():
+    src = _strip_jsx_comments(_read("routes", "topology.tsx"))
+    h2s = re.findall(r"<h2\b[^>]*>", src)
+    outside = [h for h in h2s if "mobile-detail-title" not in h]
+    assert outside == ['<h2 className="topo-page-title">'], h2s
+    # the mobile detail h2 is unchanged and lives inside the role=dialog modal
+    i = src.index('<h2 className="mobile-detail-title">')
+    assert 'role="dialog"' in src[src.rindex('className="mobile-detail-modal"', 0, i):i]
+
+
+def test_dw141_heading_precedes_toolbar_and_is_region_aware():
+    src = _strip_jsx_comments(_read("routes", "topology.tsx"))
+    i = src.index('<h2 className="topo-page-title">{topologyHeading(selectedRegion)}</h2>')
+    j = src.index("<Toolbar\n", i)
+    assert src[i:j].count("<") == 2  # only the h2 open/close tags between them
+
+
+def test_dw141_legend_is_h3_and_css_follows():
+    src = _read("routes", "topology.tsx")
+    assert "<h3>Legend</h3>" in src
+    assert "<h4>Legend</h4>" not in src
+    css = _read("styles", "lakelink-theme.css")
+    assert re.search(r"(?m)^\.topo-legend h3 \{", css)
+    assert not re.search(r"(?m)^\.topo-legend h4 \{", css)
+    rule = re.search(r"(?m)^\.topo-page-title \{([^}]*)\}", css)
+    assert rule and "font-size: 22px" in rule.group(1) and "var(--lf-dark-teal)" in rule.group(1)
+
+
+def test_dw141_panels_stay_h3_sections_h4():
+    src = _read("routes", "topology.tsx")
+    assert len(re.findall(r'<h4 className="panel-section-title">', src)) >= 3
+    assert not re.search(r"<h[56]\b", src)

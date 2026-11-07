@@ -328,3 +328,12 @@ export function overlayShortcutFor(
   if (!focusInScope) return null;
   return SHORTCUT_KEYS.get((e.key ?? "").toLowerCase()) ?? null;
 }
+
+// BUG-DW-141 (WCAG 1.3.1 / 2.4.6, G141): /topology section heading.
+// Overview text equals the document.title prefix in __root.tsx.
+export const TOPOLOGY_HEADING = "Network Topology";
+
+export function topologyHeading(region: string | null | undefined): string {
+  const r = (region ?? "").trim();
+  return r ? `${r} Region Topology` : TOPOLOGY_HEADING;
+}

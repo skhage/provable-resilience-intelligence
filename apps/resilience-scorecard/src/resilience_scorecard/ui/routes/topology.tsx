@@ -69,6 +69,7 @@ import {
   traceBannerMessage,
   traceBannerMode,
   traceStatusText,
+  topologyHeading,
   type DataState,
   type HopsShown,
   type TraceBannerMode,
@@ -635,7 +636,7 @@ function Legend({
   return (
     <div className="topo-legend" role="region" aria-label="Graph legend">
       <div id="topo-legend-body">
-      <h4>Legend</h4>
+      <h3>Legend</h3>
 
       <div className="legend-section">
         <div className="legend-section-title">Nodes</div>
@@ -2861,6 +2862,8 @@ function TopologyPage() {
 
   return (
     <>
+      {/* BUG-DW-141: one visible route-level h2 (outside dialogs), above the Toolbar. */}
+      <h2 className="topo-page-title">{topologyHeading(selectedRegion)}</h2>
       <Toolbar
         overlays={overlays}
         onToggle={handleToggle}

@@ -1234,7 +1234,17 @@ select:focus-visible,
   z-index: 10;
 }
 
-.topo-legend h4 {
+/* BUG-DW-141: /topology route heading (matches .section-header h2). */
+.topo-page-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--lf-dark-teal);
+  line-height: 1.35;
+  margin: 0 0 var(--space-sm);
+}
+
+/* BUG-DW-141: Legend heading is h3 (was h4). */
+.topo-legend h3 {
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
