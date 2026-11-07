@@ -1028,7 +1028,8 @@ select:focus-visible,
   justify-content: center;
   min-width: 44px;
   min-height: 44px;
-  border: 1px solid var(--lf-platinum);
+  /* BUG-DW-143: WCAG 1.4.11 — platinum-shade #858585 = 3.69:1 on the white toolbar (platinum was 1.23:1) */
+  border: 1px solid var(--lf-platinum-shade);
   border-radius: var(--radius-sm);
   background: var(--lf-white);
   color: var(--lf-iron);
@@ -1055,7 +1056,8 @@ select:focus-visible,
   gap: 6px;
   padding: 6px 12px;
   min-height: 44px;
-  border: 1px solid var(--lf-platinum);
+  /* BUG-DW-143: WCAG 1.4.11 — unchecked boundary 3.69:1 on white; checked state stays dark teal */
+  border: 1px solid var(--lf-platinum-shade);
   border-radius: var(--radius-sm);
   background: var(--lf-white);
   cursor: pointer;
@@ -1081,7 +1083,8 @@ select:focus-visible,
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--lf-platinum);
+  /* BUG-DW-144: WCAG 1.4.11 — unchecked state indicator 3.69:1 on white (platinum was 1.23:1) */
+  background: var(--lf-platinum-shade);
   transition: background 0.15s;
 }
 
@@ -1682,7 +1685,10 @@ select:focus-visible,
 /* BUG-DW-061: WCAG 2.5.8 — min 24px target size */
 .path-trace-clear {
   background: none;
-  border: 1px solid var(--lf-platinum);
+  /* BUG-DW-143: WCAG 1.4.11. The banner is a 2-6% teal tint over the PLATINUM body (not white),
+     so platinum-shade would be only 2.76:1 there. Iron = 6.33:1 worst case (was platinum, ~1.0:1);
+     6.69:1 on the platinum :hover fill. Matches the button's own iron text colour. */
+  border: 1px solid var(--lf-iron);
   border-radius: 4px;
   padding: 2px 8px;
   cursor: pointer;

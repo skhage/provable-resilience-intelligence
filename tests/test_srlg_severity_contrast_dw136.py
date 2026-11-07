@@ -130,3 +130,118 @@ def test_dw138_mobile_tree_meta_compound_contrast(row):
     fg = _blend_on_white(_iron(), alpha)
     ratio = _contrast(fg, "#FFFFFF")
     assert ratio >= 4.5, (row, alpha, fg, round(ratio, 2))
+
+
+# ---------------------------------------------------------------------------
+# BUG-DW-143 / BUG-DW-144: WCAG 1.4.11 non-text contrast (>=3:1) for the
+# /topology toolbar button, overlay toggle (border + unchecked dot) and the
+# path-trace Clear button. Platinum #E8E8E8 on white was 1.23:1.
+# Checked / hover states and .topo-chip must stay dark teal (unchanged).
+# ---------------------------------------------------------------------------
+
+def _root_vars():
+    css = _strip_comments(CSS.read_text(encoding="utf-8"))
+    return {k: v.upper() for k, v in re.findall(r"(--lf-[a-z-]+)\s*:\s*(#[0-9A-Fa-f]{6})", css)}
+
+
+def _resolve(value):
+    """Hex colour of a declaration value: literal #hex or var(--lf-*)."""
+    m = re.search(r"#[0-9A-Fa-f]{6}", value)
+    if m:
+        return m.group(0).upper()
+    m = re.search(r"var\(\s*(--lf-[a-z-]+)", value, flags=re.I)
+    assert m, value
+    return _root_vars()[m.group(1).lower()]
+
+
+def _base_body(selector):
+    """The single top-level (non-@media) rule body for `selector`."""
+    css = _strip_comments(CSS.read_text(encoding="utf-8"))
+    bodies = re.findall(r"(?m)^" + re.escape(selector) + r"\s*\{([^}]*)\}", css)
+    assert len(bodies) == 1, (selector, len(bodies))
+    return bodies[0]
+
+
+def _border_hex(body):
+    m = re.findall(r"(?:^|;|\s)border\s*:\s*([^;]+);", body)
+    assert len(m) == 1, body
+    return _resolve(m[0])
+
+
+def _blend_hex(fg_hex, alpha, bg_hex):
+    f = [int(fg_hex[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(bg_hex[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x * alpha + y * (1 - alpha)):02X}" for x, y in zip(f, b))
+
+
+def test_dw143_known_answers():
+    v = _root_vars()
+    assert v["--lf-platinum"] == "#E8E8E8"
+    assert v["--lf-platinum-shade"] == "#858585"
+    assert round(_contrast("#E8E8E8", "#FFFFFF"), 2) == 1.23
+    assert round(_contrast("#858585", "#FFFFFF"), 2) == 3.69
+
+
+@pytest.mark.parametrize("selector", [".topo-toolbar button", ".topo-toggle"])
+def test_dw143_white_surface_borders_meet_3_to_1(selector):
+    # Both controls set background: var(--lf-white) and sit on the white toolbar.
+    body = _base_body(selector)
+    assert _resolve(_decl(body, "background")) == "#FFFFFF"
+    fg = _border_hex(body)
+    assert fg != "#E8E8E8"
+    assert _contrast(fg, "#FFFFFF") >= 3.0, (selector, fg)
+
+
+def _path_trace_clear_surfaces():
+    """Clear has background:none inside .path-trace-banner, which renders in a
+    fragment directly in main.page-content (no white card) on the body.
+    Surface = banner background teal tint (each gradient stop) over the body
+    colour, plus the :hover platinum fill."""
+    body_bg = _resolve(_decl(_base_body("body"), "background-color"))
+    banner_bg = _decl(_base_body(".path-trace-banner"), "background")
+    alphas = [float(a) for a in re.findall(r"RGBA\(0,\s*98,\s*114,\s*([0-9.]+)\)", banner_bg)]
+    assert alphas, banner_bg
+    hover = _resolve(_decl(_base_body(".path-trace-clear:hover"), "background"))
+    return body_bg, [_blend_hex("#006272", a, body_bg) for a in alphas] + [hover]
+
+
+def test_dw143_path_trace_clear_surface_known_answer():
+    body_bg, surfaces = _path_trace_clear_surfaces()
+    assert body_bg == "#E8E8E8"  # body is platinum, so white-only maths is wrong here
+    # The designer's platinum-shade would fail on the 6% stop: 2.76:1.
+    assert round(min(_contrast("#858585", s) for s in surfaces), 2) == 2.76
+
+
+def test_dw143_path_trace_clear_on_banner_meets_3_to_1():
+    body = _base_body(".path-trace-clear")
+    assert "NONE" in _decl(body, "background")
+    fg = _border_hex(body)
+    _, surfaces = _path_trace_clear_surfaces()
+    worst = min(_contrast(fg, s) for s in surfaces)
+    assert worst >= 3.0, (fg, surfaces, round(worst, 2))
+
+
+def test_dw144_unchecked_toggle_dot_meets_3_to_1():
+    body = _base_body(".topo-toggle .toggle-dot")
+    fg = _resolve(_decl(body, "background"))
+    assert fg != "#E8E8E8"
+    assert _contrast(fg, "#FFFFFF") >= 3.0, fg
+
+
+@pytest.mark.parametrize("selector,prop", [
+    ('.topo-toggle[aria-checked="true"]', "border-color"),
+    ('.topo-toggle[aria-checked="true"] .toggle-dot', "background"),
+    (".topo-toggle:hover", "border-color"),
+    (".topo-toolbar button:hover", "border-color"),
+])
+def test_dw143_checked_and_hover_states_stay_dark_teal(selector, prop):
+    assert _resolve(_decl(_base_body(selector), prop)) == "#006272"
+
+
+def test_dw143_topo_chip_not_touched():
+    bodies = _all_bodies(".topo-toolbar .topo-chip")
+    assert bodies
+    assert _resolve(_decl(_base_body(".topo-toolbar .topo-chip"), "border-color")
+                    if "border-color" in _base_body(".topo-toolbar .topo-chip")
+                    else _border_hex(_base_body(".topo-toolbar .topo-chip"))) == "#006272"
+    assert not any("platinum-shade" in b for b in bodies)
