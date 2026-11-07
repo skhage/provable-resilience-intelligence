@@ -2021,12 +2021,13 @@ select:focus-visible,
 }
 
 /* Labels and metadata */
+/* BUG-DW-142 (WCAG 1.4.10): every site_name starts with 'Lakelink Fiber ' (15 chars), so an
+   ellipsis hid the distinguishing suffix. Wrap, never truncate; keep the full brand name. */
 .mobile-tree-label {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* BUG-DW-138 (WCAG 1.4.3): no opacity on meta text. Hierarchy comes from font-size only.
@@ -2199,14 +2200,17 @@ select:focus-visible,
   z-index: 1;
 }
 
+/* BUG-DW-142 (WCAG 1.4.10): the dialog heading wraps instead of truncating. flex:1 + min-width:0
+   let it shrink beside the 44px close button. */
 .mobile-detail-title {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   font-size: 18px;
   font-weight: 600;
   color: var(--lf-dark-teal);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .mobile-detail-close {
@@ -2251,9 +2255,9 @@ select:focus-visible,
 
 .mobile-detail-dl dd {
   margin: 0;
+  min-width: 0;
   color: var(--lf-iron);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere; /* BUG-DW-142: long tokens wrap instead of being clipped */
 }
 
 /* BUG-DW-055: Cross-view action link in EdgeDetailPanel (§9.2) */

@@ -363,3 +363,56 @@ def test_dw141_panels_stay_h3_sections_h4():
     src = _read("routes", "topology.tsx")
     assert len(re.findall(r'<h4 className="panel-section-title">', src)) >= 3
     assert not re.search(r"<h[56]\b", src)
+
+
+# --- BUG-DW-142: mobile topology names wrap, never truncate (WCAG 1.4.10) ------
+
+_DW142_SELECTORS = (".mobile-tree-label", ".mobile-detail-title", ".mobile-detail-dl dd")
+
+
+def _dw142_rules(css, selector):
+    """Bodies of every rule (any media block) whose selector list includes `selector` exactly."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    out = []
+    for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
+        sels = [s.strip() for s in m.group(1).split(",")]
+        if selector in sels:
+            out.append(m.group(2))
+    return out
+
+
+def _dw142_decls(body):
+    return {k.strip(): v.strip() for k, v in
+            (d.split(":", 1) for d in body.split(";") if ":" in d)}
+
+
+@pytest.mark.parametrize("selector", _DW142_SELECTORS)
+def test_dw142_no_truncation_anywhere(selector):
+    rules = _dw142_rules(_read("styles", "lakelink-theme.css"), selector)
+    assert rules, selector
+    for body in rules:
+        d = _dw142_decls(body)
+        assert d.get("text-overflow") is None, (selector, body)
+        assert d.get("white-space") != "nowrap", (selector, body)
+        assert d.get("overflow") != "hidden", (selector, body)
+
+
+@pytest.mark.parametrize("selector", _DW142_SELECTORS)
+def test_dw142_base_rule_wraps(selector):
+    css = _read("styles", "lakelink-theme.css")
+    m = re.search(r"(?m)^" + re.escape(selector) + r" \{([^}]*)\}", css)
+    assert m, selector
+    d = _dw142_decls(m.group(1))
+    assert d.get("overflow-wrap") == "anywhere"
+    assert d.get("min-width") == "0"
+    if selector != ".mobile-detail-dl dd":
+        assert d.get("white-space") == "normal"
+        assert d.get("flex") == "1"  # shrinkable beside the meta / 44px close button
+
+
+def test_dw142_full_brand_name_rendered():
+    src = _read("routes", "topology.tsx")
+    # Dialog heading renders the full site_name; no brand stripping (CEO branding mandate).
+    assert re.search(r'<h2 className="mobile-detail-title">\s*\{detailSite\s*\?\s*detailSite\.site_name', src)
+    assert not re.search(r"site_name\s*\.\s*(replace|slice|substring)\(", src)
+    assert "lumen" not in src.lower()
