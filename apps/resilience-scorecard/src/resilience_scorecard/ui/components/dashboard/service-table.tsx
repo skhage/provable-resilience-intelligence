@@ -98,17 +98,12 @@ function ServiceTableContent() {
           <tr>
             <th>Service</th>
             <th>Customer</th>
-            <th onClick={toggleSort}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    toggleSort();
-                  }
-                }}
-                tabIndex={0}
-                aria-sort={sortDir === "asc" ? "ascending" : "descending"}
-                role="columnheader">
-              Resilience {sortDir === "asc" ? "▲" : "▼"}
+            {/* BUG-DW-147 (WCAG 4.1.2): APG sortable-table pattern. aria-sort stays on the th; the operable control is a native button. */}
+            <th aria-sort={sortDir === "asc" ? "ascending" : "descending"}>
+              <button type="button" className="th-sort-button" onClick={toggleSort}>
+                Resilience
+                <span aria-hidden="true">{sortDir === "asc" ? " ▲" : " ▼"}</span>
+              </button>
             </th>
             <th>Physical</th>
             <th>Network</th>

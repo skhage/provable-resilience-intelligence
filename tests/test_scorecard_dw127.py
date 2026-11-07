@@ -166,3 +166,82 @@ def test_dw137_known_answers_live_values():
     # Uniform with the header formatter used beside it under the v4 flag.
     k = _node_ts(FMT_TS, "[3159,6181,8000,3152].map(M.formatKpiCount)")
     assert k == d[:2] + [d[3], d[4]]
+
+
+# --- BUG-DW-147: APG sortable table headers (WCAG 4.1.2 / 2.1.1) ---------------
+HX_TSX = os.path.join(UI, "components", "hazards", "hazard-crosswalk-table.tsx")
+HS_TSX = os.path.join(UI, "components", "hazards", "hazard-summary-table.tsx")
+THEME_CSS = os.path.join(UI, "styles", "lakelink-theme.css")
+DW147_FILES = {ST_TSX: 1, HX_TSX: 4, HS_TSX: 3}  # expected sortable headers per file
+
+
+def _th_open_tags(src):
+    return re.findall(r"<th\b[^>]*>", src)
+
+
+def _sort_fn_body(src, name):
+    m = re.search(r"const " + name + r" = \(field: SortField[^)]*\) => \(\{?(.*?)\n  \}?\);", src, re.S)
+    return m.group(1) if m else ""
+
+
+@pytest.mark.parametrize("path", list(DW147_FILES))
+def test_dw147_no_focusable_or_role_th(path):
+    src = _read(path)
+    for tag in _th_open_tags(src):
+        assert "tabIndex" not in tag, tag
+        assert "onKeyDown" not in tag and "onClick" not in tag, tag
+        assert "role=" not in tag, tag
+    assert 'role="columnheader"' not in src and 'role: "columnheader"' not in src
+    # sortProps spreads onto the th, so it must carry aria-sort only.
+    body = _sort_fn_body(src, "sortProps")
+    if body:
+        for bad in ("tabIndex", "onKeyDown", "onClick", "role", "cursor"):
+            assert bad not in body, f"sortProps still has {bad}"
+        assert '"aria-sort"' in body
+
+
+@pytest.mark.parametrize("path,count", list(DW147_FILES.items()))
+def test_dw147_each_sortable_th_has_one_button(path, count):
+    src = _read(path)
+    cells = re.findall(r"<th\b([^>]*)>(.*?)</th>", src, re.S)
+    sortable = [(a, body) for a, body in cells if "aria-sort" in a or "sortProps" in a]
+    assert len(sortable) == count, (path, len(sortable))
+    for a, body in sortable:
+        n_btn = body.count("<button") + body.count("sortButton(")
+        assert n_btn == 1, body
+    if "sortButton(" in src:
+        fn = _sort_fn_body(src, "sortButton")
+        assert fn.count("<button") == 1 and 'type="button"' in fn and 'className="th-sort-button"' in fn
+        assert '<span aria-hidden="true">{sortIndicator(field)}</span>' in fn
+    else:
+        btn = re.search(r"<button[^>]*th-sort-button[^>]*>(.*?)</button>", src, re.S).group(1)
+        assert '<span aria-hidden="true">' in btn and "▲" in btn
+
+
+@pytest.mark.parametrize("path", list(DW147_FILES))
+def test_dw147_glyphs_only_inside_aria_hidden(path):
+    src = _read(path)
+    # Every sort glyph literal in JSX/expressions must sit in the indicator helper or an aria-hidden span.
+    for line in src.splitlines():
+        if ("▲" in line or "▼" in line) and "sortIndicator = " not in line:
+            stripped = line.strip()
+            if stripped.startswith("sortField ==="):
+                continue  # body of the sortIndicator arrow
+            assert 'aria-hidden="true"' in line, line
+
+
+def test_dw147_css_button_rules():
+    css = _read(THEME_CSS)
+    base = re.search(r"(?m)^\.th-sort-button \{(.*?)\}", css, re.S).group(1)
+    for decl in ("font: inherit", "color: inherit", "background: none", "border: 0", "width: 100%", "cursor: pointer"):
+        assert decl in base, decl
+    ring = re.search(r"(?m)^\.data-table th \.th-sort-button:focus-visible \{(.*?)\}", css, re.S).group(1)
+    assert "var(--lf-white)" in ring  # dark-teal global ring would be 1:1 on the dark-teal th
+    assert re.search(r"@media \(max-width: 767px\) \{\s*\.th-sort-button \{ min-height: 44px; \}", css)
+    # The old focusable-th rule is gone (th is no longer focusable).
+    assert "th[aria-sort]:focus-visible" not in css
+
+
+def test_dw147_brand():
+    for p in list(DW147_FILES) + [THEME_CSS]:
+        assert "lumen" not in _read(p).lower(), p

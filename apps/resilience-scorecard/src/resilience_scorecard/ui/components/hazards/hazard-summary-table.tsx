@@ -83,23 +83,23 @@ function HazardTableContent() {
   const sortIndicator = (field: SortField) =>
     sortField === field ? (sortDir === "asc" ? " ▲" : " ▼") : "";
 
+  // BUG-DW-147 (WCAG 4.1.2): APG sortable-table pattern. The th only carries
+  // aria-sort; sortButton() renders the operable native button inside it.
   const sortProps = (field: SortField) => ({
-    onClick: () => toggleSort(field),
-    onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        toggleSort(field);
-      }
-    },
-    tabIndex: 0,
     "aria-sort":
       sortField === field
         ? sortDir === "asc"
           ? ("ascending" as const)
           : ("descending" as const)
         : undefined,
-    role: "columnheader" as const,
   });
+
+  const sortButton = (field: SortField, label: string) => (
+    <button type="button" className="th-sort-button" onClick={() => toggleSort(field)}>
+      {label}
+      <span aria-hidden="true">{sortIndicator(field)}</span>
+    </button>
+  );
 
   if (hazards.length === 0) {
     return (
@@ -120,15 +120,15 @@ function HazardTableContent() {
             <th style={{ width: 120 }}>Type</th>
             <th>Name</th>
             <th style={{ width: 100 }} {...sortProps("severity")}>
-              Severity{sortIndicator("severity")}
+              {sortButton("severity", "Severity")}
             </th>
             <th style={{ width: 180 }}>Location</th>
             <th style={{ width: 80 }} {...sortProps("spans_affected")}>
-              Spans{sortIndicator("spans_affected")}
+              {sortButton("spans_affected", "Spans")}
             </th>
             <th style={{ width: 100 }}>Status</th>
             <th style={{ width: 120 }} {...sortProps("last_update")}>
-              Updated{sortIndicator("last_update")}
+              {sortButton("last_update", "Updated")}
             </th>
           </tr>
         </thead>

@@ -116,24 +116,23 @@ function CrosswalkTableContent() {
   const sortIndicator = (field: SortField) =>
     sortField === field ? (sortDir === "asc" ? " ▲" : " ▼") : "";
 
+  // BUG-DW-147 (WCAG 4.1.2): APG sortable-table pattern. The th only carries
+  // aria-sort; sortButton() renders the operable native button inside it.
   const sortProps = (field: SortField) => ({
-    onClick: () => toggleSort(field),
-    onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        toggleSort(field);
-      }
-    },
-    tabIndex: 0,
     "aria-sort":
       sortField === field
         ? sortDir === "asc"
           ? ("ascending" as const)
           : ("descending" as const)
         : undefined,
-    role: "columnheader" as const,
-    style: { cursor: "pointer" } as const,
   });
+
+  const sortButton = (field: SortField, label: string) => (
+    <button type="button" className="th-sort-button" onClick={() => toggleSort(field)}>
+      {label}
+      <span aria-hidden="true">{sortIndicator(field)}</span>
+    </button>
+  );
 
   if (rows.length === 0) {
     return (
@@ -175,16 +174,16 @@ function CrosswalkTableContent() {
             <th style={{ width: 150 }}>Hazard Type</th>
             <th style={{ width: 180 }}>Proximity Band</th>
             <th style={{ width: 120 }} {...sortProps("intersection_count")}>
-              Intersections{sortIndicator("intersection_count")}
+              {sortButton("intersection_count", "Intersections")}
             </th>
             <th style={{ width: 120 }} {...sortProps("distinct_spans")}>
-              Spans{sortIndicator("distinct_spans")}
+              {sortButton("distinct_spans", "Spans")}
             </th>
             <th style={{ width: 130 }} {...sortProps("avg_services_per_span")}>
-              Avg Svc/Span{sortIndicator("avg_services_per_span")}
+              {sortButton("avg_services_per_span", "Avg Svc/Span")}
             </th>
             <th style={{ width: 130 }} {...sortProps("avg_distance_km")}>
-              Avg Dist (km){sortIndicator("avg_distance_km")}
+              {sortButton("avg_distance_km", "Avg Dist (km)")}
             </th>
           </tr>
         </thead>

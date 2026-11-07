@@ -259,14 +259,43 @@ body {
   user-select: none;
 }
 
-.data-table th[aria-sort] {
+/* BUG-DW-147 (WCAG 4.1.2, APG sortable table): the th carries aria-sort only;
+   the operable control is a native <button class="th-sort-button"> inside it.
+   It inherits the th typography and fills the cell. The focus ring is white
+   inset (not the global dark-teal ring, which would be invisible on the
+   dark-teal header, 1:1). */
+.th-sort-button {
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  width: 100%;
   cursor: pointer;
 }
 
-.data-table th[aria-sort]:focus-visible {
+.data-table th .th-sort-button:focus-visible {
   outline: 2px solid var(--lf-white);
-  outline-offset: -2px;
-  background: var(--lf-dark-teal-hover);
+  outline-offset: 2px;
+}
+
+.data-table th .th-sort-button:hover,
+.data-table th .th-sort-button:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 767px) {
+  .th-sort-button { min-height: 44px; }
+}
+
+@media (forced-colors: active) {
+  .th-sort-button { color: ButtonText; }
+  .data-table th .th-sort-button:focus-visible { outline-color: Highlight; }
 }
 
 .data-table td {
