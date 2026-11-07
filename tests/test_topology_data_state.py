@@ -265,3 +265,45 @@ def test_dw139_toolbar_hints_kept():
     for t in ('title="Toggle diversity overlay (D)"', 'title="Toggle SRLG overlay (S)"',
               'title="Toggle hazard overlay (H)"'):
         assert t in src
+
+
+# --- BUG-DW-140: dead Fit / Zoom in / Zoom out buttons removed -----------------
+
+def _toolbar_src():
+    src = _read("routes", "topology.tsx")
+    start = src.index("function Toolbar(")
+    return src[start:src.index("\n}\n", start)]
+
+
+def test_dw140_no_noop_handlers_passed_to_toolbar():
+    src = _read("routes", "topology.tsx")
+    usage = src[src.index("<Toolbar"):]
+    usage = usage[:usage.index("/>")]
+    assert "() => {}" not in usage
+    for p in ("onFit", "onZoomIn", "onZoomOut"):
+        assert p not in src, p
+
+
+def test_dw140_fit_zoom_titles_and_labels_gone():
+    src = _read("routes", "topology.tsx")
+    for t in ("Fit (F)", "Zoom in (+)", "Zoom out (\u2212)", "Fit graph to viewport",
+              'aria-label="Zoom in"', 'aria-label="Zoom out"', "topo-btn-group"):
+        assert t not in src, t
+    assert not re.search(r'case ["\']f["\']', src)
+
+
+def test_dw140_toolbar_has_no_unnamed_symbol_buttons():
+    tb = _toolbar_src()
+    # every remaining toolbar <button> carries a visible text label or aria-label
+    buttons = re.findall(r"<button\b[^>]*>(.*?)</button>", tb, flags=re.S)
+    assert buttons, "toolbar buttons not found"
+    for b in buttons:
+        assert b.strip() not in ("\u229e", "+", "\u2212")
+    # leading divider only when the breadcrumb renders before it
+    assert '{selectedRegion && <div className="topo-divider" aria-hidden="true" />}' in tb
+
+
+def test_dw140_dead_css_removed():
+    css = _read("styles", "lakelink-theme.css")
+    assert ".topo-btn-group" not in css
+    assert ".topo-toolbar .topo-divider" in css

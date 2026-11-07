@@ -498,18 +498,12 @@ const regionPos = (idx: number) => ({
 function Toolbar({
   overlays,
   onToggle,
-  onFit,
-  onZoomIn,
-  onZoomOut,
   selectedRegion,
   onBack,
   coverage = null,
 }: {
   overlays: Overlays;
   onToggle: (key: keyof Overlays) => void;
-  onFit: () => void;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
   selectedRegion: string | null;
   onBack: () => void;
   /** P36-APP-V4-CONDUIT-COVERAGE-FILTER: null = PRI_V4_KPIS off (v3 toolbar, no chips) */
@@ -528,18 +522,8 @@ function Toolbar({
           <span style={{ fontWeight: 600 }}>{selectedRegion}</span>
         </div>
       )}
-      <div className="topo-btn-group">
-        <button onClick={onFit} aria-label="Fit graph to viewport" title="Fit (F)">
-          ⊞
-        </button>
-        <button onClick={onZoomIn} aria-label="Zoom in" title="Zoom in (+)">
-          +
-        </button>
-        <button onClick={onZoomOut} aria-label="Zoom out" title="Zoom out (−)">
-          −
-        </button>
-      </div>
-      <div className="topo-divider" aria-hidden="true" />
+      {/* BUG-DW-140: dead Fit/Zoom buttons removed. SVG scales via viewBox; browser zoom covers magnification. Spec zoom before re-adding. */}
+      {selectedRegion && <div className="topo-divider" aria-hidden="true" />}
       <button
         className="topo-toggle"
         role="switch"
@@ -2880,9 +2864,6 @@ function TopologyPage() {
       <Toolbar
         overlays={overlays}
         onToggle={handleToggle}
-        onFit={() => {}}
-        onZoomIn={() => {}}
-        onZoomOut={() => {}}
         selectedRegion={selectedRegion}
         onBack={() => setSelectedRegion(null)}
         coverage={

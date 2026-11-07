@@ -1009,12 +1009,6 @@ select:focus-visible,
   flex-wrap: wrap;
 }
 
-.topo-toolbar .topo-btn-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
 .topo-toolbar .topo-divider {
   width: 1px;
   height: 28px;
