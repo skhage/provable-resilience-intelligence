@@ -467,7 +467,7 @@ function ActionTableContent() {
                             <div>
                               <div className="detail-label">Hazard</div>
                               <div className="detail-value">
-                                <HazardTypeCell type={a.hazard_type!} animated />
+                                <HazardTypeCell type={a.hazard_type!} />
                               </div>
                             </div>
                             <div>

@@ -641,13 +641,13 @@ function Legend({
       <div className="legend-section">
         <div className="legend-section-title">Nodes</div>
         <div className="legend-item">
-          <svg width="14" height="14">
+          <svg width="14" height="14" aria-hidden="true" focusable="false">
             <circle cx="7" cy="7" r="6" fill="none" stroke={BRAND.darkTeal} strokeWidth="2" />
           </svg>
           Backbone Site (tier_1)
         </div>
         <div className="legend-item">
-          <svg width="14" height="14">
+          <svg width="14" height="14" aria-hidden="true" focusable="false">
             <circle cx="7" cy="7" r="5" fill="none" stroke={BRAND.darkTeal} strokeWidth="1.5" />
           </svg>
           Regional Site (tier_2)

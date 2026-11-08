@@ -620,3 +620,58 @@ def test_dw151_heading_colour_and_markup_unchanged():
     base = [b for m, s, b in _dw151_blocks(css) if m is None and ".topo-page-title" in s]
     assert any(_dw142_decls(b).get("color") == "var(--lf-dark-teal)" for b in base)
     assert 'className="topo-page-title"' in _read("routes", "topology.tsx")
+
+
+# --- BUG-DW-148: legend svg aria-hidden + dead hazard-pulse prop ---------------
+
+_DW148_SVG_OPEN = re.compile(r"<svg\b[^>]*>", re.S)
+
+
+def _dw148_legend_blocks(src):
+    """Every `.topo-legend` JSX block from its opening div to the end of that return."""
+    out = []
+    for m in re.finditer(r'<div className="topo-legend"', src):
+        end = src.find("\n  );\n", m.start())
+        assert end > m.start()
+        out.append(src[m.start():end])
+    return out
+
+
+def test_dw148_svg_scanner_known_answer():
+    sample = '<svg width="14" height="14">x</svg><svg\n  width="2" aria-hidden="true">y</svg>'
+    tags = _DW148_SVG_OPEN.findall(sample)
+    assert len(tags) == 2
+    assert [('aria-hidden="true"' in t) for t in tags] == [False, True]
+
+
+def test_dw148_every_legend_svg_is_decorative():
+    blocks = _dw148_legend_blocks(_read("routes", "topology.tsx"))
+    assert blocks, "legend block not found"
+    tags = [t for b in blocks for t in _DW148_SVG_OPEN.findall(b)]
+    assert len(tags) >= 9
+    missing = [t for t in tags if 'aria-hidden="true"' not in t]
+    assert missing == [], missing
+
+
+def test_dw148_node_swatches_not_focusable():
+    blocks = "".join(_dw148_legend_blocks(_read("routes", "topology.tsx")))
+    for label in ("Backbone Site (tier_1)", "Regional Site (tier_2)"):
+        i = blocks.index(label)
+        tag = _DW148_SVG_OPEN.findall(blocks[:i])[-1]
+        assert 'aria-hidden="true"' in tag and 'focusable="false"' in tag, tag
+
+
+def test_dw148_no_animated_hazard_cell_in_action_queue():
+    src = _read("components", "actions", "action-queue-table.tsx")
+    assert re.search(r"\banimated\b", src) is None
+    assert "<HazardTypeCell type={a.hazard_type!} />" in src
+    # no .severity-critical wrapper added just to turn the pulse on
+    assert "severity-critical" not in src
+
+
+def test_dw148_no_animated_hazard_cell_anywhere_in_ui():
+    for root, _dirs, files in os.walk(UI):
+        for fn in files:
+            if fn.endswith(".tsx") and fn != "hazard-type-cell.tsx":
+                with open(os.path.join(root, fn), encoding="utf-8") as f:
+                    assert re.search(r"<HazardTypeCell[^>]*\banimated\b", f.read()) is None, fn
