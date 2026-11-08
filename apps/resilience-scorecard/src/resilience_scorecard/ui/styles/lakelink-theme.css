@@ -1663,10 +1663,20 @@ select:focus-visible,
   50% { filter: drop-shadow(0 0 12px var(--lf-risk-red)); }
 }
 
-/* Dimmed nodes/edges when path trace is active */
-.topo-dimmed {
-  opacity: 0.2;
+/* Dimmed off-path site nodes when a path trace is active.
+   BUG-DW-153 (WCAG 1.4.3/2.4.7/1.4.11): dim the shape only, never the focusable group,
+   so the label (iron, 8.45:1) and the focus ring stay at full strength. */
+.topo-site-node.topo-dimmed circle,
+.topo-site-node.topo-dimmed polygon {
+  opacity: 0.25;
   transition: opacity 0.3s ease;
+}
+
+.topo-site-node.topo-dimmed:focus-visible circle,
+.topo-site-node.topo-dimmed:hover circle,
+.topo-site-node.topo-dimmed:focus-visible polygon,
+.topo-site-node.topo-dimmed:hover polygon {
+  opacity: 1;
 }
 
 /* Path trace banner (§2 — above graph, sticky) */

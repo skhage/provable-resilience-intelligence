@@ -1744,10 +1744,12 @@ function SiteGraph({
             const extra = summary.types.length - 1;
             const mx = (pa.x + pz.x) / 2;
             const my = (pa.y + pz.y) / 2;
-            const dimmed = hasPathTrace && !pathConduitIds.has(c.conduit_id);
+            // BUG-DW-153 (WCAG 1.4.3): while a trace is active, off-path badges are not rendered
+            // (a translucent badge code fails 4.5:1). The SRLG panel still lists them.
+            if (hasPathTrace && !pathConduitIds.has(c.conduit_id)) return null;
             const isCritical = srlgSevByConduit.get(c.conduit_id) === "critical";
             return (
-              <g key={`srlg-badge-${c.conduit_id}`} className="srlg-badge" transform={`translate(${mx},${my})`} opacity={dimmed ? 0.35 : 1}>
+              <g key={`srlg-badge-${c.conduit_id}`} className="srlg-badge" transform={`translate(${mx},${my})`}>
                 {/* BUG-DW-087: static second cue for critical (outer concentric ring), survives reduced-motion, grayscale, forced-colors */}
                 {isCritical && (
                   <circle r={11} className="srlg-badge-critical-ring" stroke={color} strokeWidth={1.5} fill="none" />
@@ -1806,7 +1808,6 @@ function SiteGraph({
                 onSelectSite(isSelected ? null : s);
               }
             }}
-            opacity={dimmed ? 0.25 : 1}
           >
             <circle
               cx={p.x}
@@ -1822,7 +1823,7 @@ function SiteGraph({
               y={p.y + 4}
               textAnchor="middle"
               fontSize={scaledFontSize(isT1 ? 14 : 11, canvasScale)}
-              fill={BRAND.darkTeal}
+              fill={dimmed ? BRAND.iron : BRAND.darkTeal}
               fontWeight={600}
               className="svg-label-primary"
             >

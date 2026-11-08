@@ -446,3 +446,75 @@ def test_dw146_circle_stroke_cue_and_forced_colors_kept():
     rules = [_dw142_decls(b) for b in _dw142_rules(css, ".topo-site-node:focus-visible circle")]
     assert any(r.get("stroke") == "var(--lf-dark-teal)" and r.get("stroke-width") == "3" for r in rules)
     assert any(r.get("stroke") == "Highlight" and r.get("stroke-width") == "4" for r in rules)
+
+
+# --- BUG-DW-153: WCAG 1.4.3/2.4.7 dimmed off-path site nodes keep full-strength label + ring ---
+
+def _dw153_site_group(src):
+    m = re.search(r'className=\{`topo-site-node[^`]*`\}(.*?)\n\s*>\n', src, re.S)
+    assert m, "site node group not found"
+    return m.group(1)
+
+
+def _dw153_hex_lum(h):
+    h = h.lstrip("#")
+    def ch(v):
+        v = int(v, 16) / 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    r, g, b = (ch(h[i:i + 2]) for i in (0, 2, 4))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _dw153_contrast(a, b):
+    la, lb = sorted((_dw153_hex_lum(a), _dw153_hex_lum(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def test_dw153_site_node_group_has_no_opacity():
+    attrs = _dw153_site_group(_read("routes", "topology.tsx"))
+    assert "opacity" not in attrs, attrs
+
+
+def test_dw153_no_group_level_opacity_rule_for_site_nodes():
+    css = _read("styles", "lakelink-theme.css")
+    for sel in (".topo-dimmed", ".topo-site-node.topo-dimmed", ".topo-site-node"):
+        for body in _dw142_rules(css, sel):
+            op = _dw142_decls(body).get("opacity")
+            assert op is None or float(op) >= 1, (sel, body)
+
+
+def test_dw153_dimming_moves_to_shape_and_restores_on_focus_hover():
+    css = _read("styles", "lakelink-theme.css")
+    for shape in ("circle", "polygon"):
+        dim = [_dw142_decls(b) for b in _dw142_rules(css, f".topo-site-node.topo-dimmed {shape}")]
+        assert any(d.get("opacity") == "0.25" for d in dim), shape
+        for st in ("focus-visible", "hover"):
+            full = [_dw142_decls(b) for b in _dw142_rules(css, f".topo-site-node.topo-dimmed:{st} {shape}")]
+            assert any(d.get("opacity") == "1" for d in full), (shape, st)
+
+
+def test_dw153_dimmed_label_fill_is_iron():
+    src = _read("routes", "topology.tsx")
+    assert "fill={dimmed ? BRAND.iron : BRAND.darkTeal}" in src
+
+
+def test_dw153_iron_on_white_contrast_known_answer():
+    assert round(_dw153_contrast("#4D4D4D", "#FFFFFF"), 2) == 8.45
+    assert _dw153_contrast("#4D4D4D", "#E8E8E8") >= 4.5
+
+
+def test_dw153_off_path_srlg_badges_not_rendered_during_trace():
+    src = _read("routes", "topology.tsx")
+    layer = src[src.index('className="srlg-badge-layer"'):]
+    layer = layer[:layer.index("</g>\n      )}")]
+    assert "if (hasPathTrace && !pathConduitIds.has(c.conduit_id)) return null;" in layer
+    assert "opacity={dimmed" not in layer
+    badge = re.search(r'<g key=\{`srlg-badge-[^>]*>', layer).group(0)
+    assert "opacity" not in badge
+
+
+def test_dw153_on_path_aria_suffix_kept_and_brand_clean():
+    src = _read("routes", "topology.tsx")
+    assert '". On traced service path"' in src
+    assert "lumen" not in src.lower()
+    assert "lumen" not in _read("styles", "lakelink-theme.css").lower()
