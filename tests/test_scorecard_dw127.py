@@ -342,7 +342,7 @@ def test_dw154_region_label_house_wording(path):
     src = _read(path)
     labels = re.findall(r'role="region"\s+aria-label="([^"]+)"', src)
     assert labels, f"{path}: no region label"
-    assert all(l.endswith(", scrolls horizontally") for l in labels), labels
+    assert all(lbl.endswith(", scrolls horizontally") for lbl in labels), labels
     assert ", scrollable" not in src
 
 
