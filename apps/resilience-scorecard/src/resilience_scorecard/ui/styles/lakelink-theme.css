@@ -1985,9 +1985,11 @@ select:focus-visible,
   box-shadow: 0 0 0 3px rgba(0, 98, 114, 0.15);
 }
 
+/* BUG-DW-155: no opacity on the placeholder (iron@0.6 = #949494 = 3.03:1 FAIL).
+   Solid iron is 8.45:1 on the white input; italic distinguishes it from typed text. */
 .mobile-tree-search-input::placeholder {
   color: var(--lf-iron);
-  opacity: 0.6;
+  font-style: italic;
 }
 
 /* Tree list */

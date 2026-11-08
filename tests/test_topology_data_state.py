@@ -675,3 +675,52 @@ def test_dw148_no_animated_hazard_cell_anywhere_in_ui():
             if fn.endswith(".tsx") and fn != "hazard-type-cell.tsx":
                 with open(os.path.join(root, fn), encoding="utf-8") as f:
                     assert re.search(r"<HazardTypeCell[^>]*\banimated\b", f.read()) is None, fn
+
+
+# --- BUG-DW-155: mobile tree search placeholder must not use opacity (WCAG 1.4.3) ---
+
+def _dw155_placeholder_rules(css):
+    """(selector_list, body) for every rule in any media block that targets ::placeholder."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    return [(m.group(1).strip(), m.group(2))
+            for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", css)
+            if "placeholder" in m.group(1)]
+
+
+def test_dw155_contrast_known_answers():
+    # Designer's failing value: iron @ 0.6 on white = #949494 = 3.03:1; solid iron = 8.45:1.
+    assert _dw152_blend("#4D4D4D", "#FFFFFF", 0.6) == "#949494"
+    assert round(_dw153_contrast("#949494", "#FFFFFF"), 2) == 3.03
+    assert round(_dw153_contrast("#4D4D4D", "#FFFFFF"), 2) == 8.45
+
+
+def test_dw155_no_opacity_on_any_placeholder_rule():
+    rules = _dw155_placeholder_rules(_read("styles", "lakelink-theme.css"))
+    assert rules, "expected at least the mobile tree search placeholder rule"
+    for sel, body in rules:
+        assert "opacity" not in _dw142_decls(body), (sel, body)
+
+
+def test_dw155_placeholder_is_solid_iron_italic():
+    rules = _dw142_rules(_read("styles", "lakelink-theme.css"),
+                         ".mobile-tree-search-input::placeholder")
+    assert len(rules) == 1
+    d = _dw142_decls(rules[0])
+    assert d.get("color") == "var(--lf-iron)"
+    assert d.get("font-style") == "italic"
+    assert "platinum-shade" not in rules[0]
+
+
+def test_dw155_input_surface_and_ios_zoom_guard_unchanged():
+    # Base rule only; a reduced-motion block also targets the selector (transition: none).
+    rules = [r for r in _dw142_rules(_read("styles", "lakelink-theme.css"),
+                                     ".mobile-tree-search-input")
+             if "font-size" in _dw142_decls(r)]
+    assert len(rules) == 1
+    d = _dw142_decls(rules[0])
+    assert d.get("font-size") == "16px"
+    assert d.get("background") == "var(--lf-white)"
+
+
+def test_dw155_brand_clean():
+    assert "lumen" not in _read("styles", "lakelink-theme.css").lower()
