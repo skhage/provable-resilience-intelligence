@@ -146,7 +146,7 @@ function CrosswalkTableContent() {
   }
 
   return (
-    <div className="data-table">
+    <>
       {/* Filter bar */}
       <div className="filter-bar">
         <label htmlFor="xwalk-hazard-filter" className="filter-label">
@@ -168,6 +168,11 @@ function CrosswalkTableContent() {
         </select>
       </div>
 
+      {/* BUG-DW-150 (WCAG 2.1.1/1.4.10): scroll-region pattern for keyboard access */}
+      <p className="text-caption table-scroll-hint" aria-hidden="true">
+        Scroll for more columns →
+      </p>
+      <div className="data-table table-scroll" tabIndex={0} role="region" aria-label="Hazard span crosswalk matrix, scrollable">
       <table aria-label="Hazard span crosswalk matrix">
         <thead>
           <tr>
@@ -230,7 +235,8 @@ function CrosswalkTableContent() {
           </tfoot>
         )}
       </table>
-    </div>
+      </div>
+    </>
   );
 }
 

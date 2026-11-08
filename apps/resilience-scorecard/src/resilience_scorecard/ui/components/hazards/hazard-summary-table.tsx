@@ -113,7 +113,12 @@ function HazardTableContent() {
   }
 
   return (
-    <div className="data-table">
+    <>
+      {/* BUG-DW-150 (WCAG 2.1.1/1.4.10): scroll-region pattern for keyboard access */}
+      <p className="text-caption table-scroll-hint" aria-hidden="true">
+        Scroll for more columns →
+      </p>
+      <div className="data-table table-scroll" tabIndex={0} role="region" aria-label="Active hazard summary, scrollable">
       <table aria-label="Active hazard summary">
         <thead>
           <tr>
@@ -181,6 +186,7 @@ function HazardTableContent() {
           ))}
         </tbody>
       </table>
+      </div>
 
       <nav className="pagination-bar" aria-label="Hazard table pagination">
         <span>
@@ -224,7 +230,7 @@ function HazardTableContent() {
           </button>
         </div>
       </nav>
-    </div>
+    </>
   );
 }
 

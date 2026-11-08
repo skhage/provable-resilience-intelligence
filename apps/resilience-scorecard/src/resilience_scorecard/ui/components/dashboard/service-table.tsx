@@ -86,7 +86,12 @@ function ServiceTableContent() {
   }
 
   return (
-    <div className="data-table">
+    <>
+      {/* BUG-DW-150 (WCAG 2.1.1/1.4.10): scroll-region pattern for keyboard access */}
+      <p className="text-caption table-scroll-hint" aria-hidden="true">
+        Scroll for more columns →
+      </p>
+      <div className="data-table table-scroll" tabIndex={0} role="region" aria-label="Service resilience scores, scrollable">
       <table aria-label="Service resilience scores">
         {/* P68-APP-PROVISIONAL-BADGE §7.2: one badge in the table caption */}
         {showProvisionalCaption && (
@@ -169,6 +174,7 @@ function ServiceTableContent() {
           ))}
         </tbody>
       </table>
+      </div>
 
       {/* Pagination controls (UX-REM-TABLE-UX) */}
       <nav className="pagination-bar" aria-label="Service table pagination">
@@ -207,7 +213,7 @@ function ServiceTableContent() {
           </button>
         </div>
       </nav>
-    </div>
+    </>
   );
 }
 

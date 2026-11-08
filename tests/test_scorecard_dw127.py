@@ -245,3 +245,69 @@ def test_dw147_css_button_rules():
 def test_dw147_brand():
     for p in list(DW147_FILES) + [THEME_CSS]:
         assert "lumen" not in _read(p).lower(), p
+
+
+# --- BUG-DW-150: table-scroll keyboard region on ALL 5 populated data tables ---
+CONDUITS_TSX = os.path.join(UI, "routes", "conduits.tsx")
+DW150_FILES = [AQ_TSX, CONDUITS_TSX, ST_TSX, HS_TSX, HX_TSX]
+DW150_LABELS = {
+    AQ_TSX: "Action queue table, scrolls horizontally",
+    CONDUITS_TSX: "Conduit table, scrolls horizontally",
+    ST_TSX: "Service resilience scores, scrollable",
+    HS_TSX: "Active hazard summary, scrollable",
+    HX_TSX: "Hazard span crosswalk matrix, scrollable",
+}
+
+
+@pytest.mark.parametrize("path", DW150_FILES)
+def test_dw150_populated_table_has_scroll_region(path):
+    """Every populated data table uses className='data-table table-scroll' +
+    tabIndex={0} + role='region' + a static aria-label."""
+    src = _read(path)
+    assert '"data-table table-scroll"' in src, f"{path}: missing table-scroll class"
+    # tabIndex={0} on the scroll wrapper
+    m = re.search(r'className="data-table table-scroll"[^>]*tabIndex=\{0\}', src, re.S)
+    if not m:
+        m = re.search(r'tabIndex=\{0\}[^>]*className="data-table table-scroll"', src, re.S)
+    assert m, f"{path}: table-scroll wrapper missing tabIndex={{0}}"
+
+
+@pytest.mark.parametrize("path", DW150_FILES)
+def test_dw150_scroll_wrapper_role_and_label(path):
+    """The scroll wrapper has role='region' and a static aria-label."""
+    src = _read(path)
+    # Find the scroll wrapper opening tag
+    idx = src.index('"data-table table-scroll"')
+    tag_end = src.index(">", idx)
+    tag = src[idx:tag_end]
+    assert 'role="region"' in tag, f"{path}: missing role=region"
+    expected_label = DW150_LABELS[path]
+    assert f'aria-label="{expected_label}"' in tag, f"{path}: missing or wrong aria-label"
+
+
+@pytest.mark.parametrize("path", DW150_FILES)
+def test_dw150_scroll_hint_present(path):
+    """Each file has the aria-hidden scroll hint before the table."""
+    src = _read(path)
+    assert 'className="text-caption table-scroll-hint"' in src, f"{path}: missing scroll hint"
+    assert 'aria-hidden="true"' in src
+    assert "Scroll for more columns" in src
+
+
+def test_dw150_empty_and_error_wrappers_no_scroll():
+    """Empty-state and error-fallback wrappers must NOT use table-scroll."""
+    for path in [ST_TSX, HS_TSX, HX_TSX]:
+        src = _read(path)
+        for m in re.finditer(r'className="data-table[^"]*"', src):
+            classes = m.group(0)
+            # Check what follows this div — if it contains empty-state or error-fallback
+            snippet = src[m.start():m.start() + 300]
+            if "empty-state" in snippet or "error-fallback" in snippet:
+                assert "table-scroll" not in classes, (
+                    f"{path}: empty/error wrapper must not have table-scroll: {classes}"
+                )
+
+
+def test_dw150_brand():
+    for p in DW150_FILES:
+        assert "lumen" not in _read(p).lower(), p
