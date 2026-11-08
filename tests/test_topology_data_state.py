@@ -518,3 +518,105 @@ def test_dw153_on_path_aria_suffix_kept_and_brand_clean():
     assert '". On traced service path"' in src
     assert "lumen" not in src.lower()
     assert "lumen" not in _read("styles", "lakelink-theme.css").lower()
+
+
+# --- BUG-DW-152: .mobile-tree-loading must not use opacity (WCAG 1.4.3) -------------
+
+_DW152_CHAIN = (".mobile-tree-loading", ".mobile-tree-group", ".mobile-tree-list",
+                ".mobile-tree-container")
+
+
+def _dw152_blend(fg, bg, alpha):
+    f = [int(fg[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(bg[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(alpha * x + (1 - alpha) * y):02X}" for x, y in zip(f, b))
+
+
+def test_dw152_contrast_known_answers():
+    # Designer's measured failing value: iron at 0.6 on white = #949494 = 3.03:1.
+    assert _dw152_blend("#4D4D4D", "#FFFFFF", 0.6) == "#949494"
+    assert round(_dw153_contrast("#949494", "#FFFFFF"), 2) == 3.03
+
+
+@pytest.mark.parametrize("selector", _DW152_CHAIN)
+def test_dw152_no_opacity_on_loading_or_ancestors(selector):
+    css = _read("styles", "lakelink-theme.css")
+    for body in _dw142_rules(css, selector):
+        assert "opacity" not in _dw142_decls(body), (selector, body)
+
+
+def test_dw152_loading_is_iron_italic_and_passes_on_real_surfaces():
+    rules = _dw142_rules(_read("styles", "lakelink-theme.css"), ".mobile-tree-loading")
+    assert len(rules) == 1
+    d = _dw142_decls(rules[0])
+    assert d.get("color") == "var(--lf-iron)"
+    assert d.get("font-style") == "italic"
+    # No container background: text sits on white or the platinum body.
+    for surface in ("#FFFFFF", "#E8E8E8"):
+        assert _dw153_contrast("#4D4D4D", surface) >= 4.5, surface
+
+
+def test_dw152_markup_unchanged():
+    src = _read("routes", "topology.tsx")
+    assert '<li className="mobile-tree-loading" aria-live="polite">' in src
+
+
+# --- BUG-DW-151: .topo-page-title font-size matches .section-header h2 at all widths ---
+
+def _dw151_blocks(css):
+    """Yield (media_prelude_or_None, selector_list, body) for every rule, one media level deep."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    i, n = 0, len(css)
+    while i < n:
+        j = css.find("{", i)
+        if j < 0:
+            return
+        prelude = css[i:j].strip()
+        depth, k = 1, j + 1
+        while depth and k < n:
+            depth += {"{": 1, "}": -1}.get(css[k], 0)
+            k += 1
+        inner = css[j + 1:k - 1]
+        if prelude.startswith("@media"):
+            for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", inner):
+                yield prelude, [s.strip() for s in m.group(1).split(",")], m.group(2)
+        elif not prelude.startswith("@"):
+            yield None, [s.strip() for s in prelude.split(",")], inner
+        i = k
+
+
+def _dw151_font_size(css, selector, width):
+    """Last-wins font-size for `selector` at viewport `width` (base + max-width media only)."""
+    val = None
+    for media, sels, body in _dw151_blocks(css):
+        if selector not in sels:
+            continue
+        if media is not None:
+            m = re.fullmatch(r"@media\s*\(max-width:\s*(\d+)px\)", media)
+            if not m or width > int(m.group(1)):
+                continue
+        fs = _dw142_decls(body).get("font-size")
+        if fs:
+            val = fs
+    return val
+
+
+def test_dw151_resolver_known_answer():
+    css = ".a{font-size:10px}@media (max-width: 767px){.a,.b{font-size:5px}}.b{font-size:7px}"
+    assert _dw151_font_size(css, ".a", 1200) == "10px"
+    assert _dw151_font_size(css, ".a", 400) == "5px"
+    assert _dw151_font_size(css, ".b", 400) == "7px"  # later base rule wins
+
+
+@pytest.mark.parametrize("width,expected", [(1280, "22px"), (1023, "22px"), (767, "18px"), (375, "18px")])
+def test_dw151_topology_heading_matches_section_header(width, expected):
+    css = _read("styles", "lakelink-theme.css")
+    assert _dw151_font_size(css, ".section-header h2", width) == expected
+    assert _dw151_font_size(css, ".topo-page-title", width) == expected
+
+
+def test_dw151_heading_colour_and_markup_unchanged():
+    css = _read("styles", "lakelink-theme.css")
+    base = [b for m, s, b in _dw151_blocks(css) if m is None and ".topo-page-title" in s]
+    assert any(_dw142_decls(b).get("color") == "var(--lf-dark-teal)" for b in base)
+    assert 'className="topo-page-title"' in _read("routes", "topology.tsx")

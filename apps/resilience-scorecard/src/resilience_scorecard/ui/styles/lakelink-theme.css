@@ -1457,6 +1457,12 @@ select:focus-visible,
 }
 
 @media (max-width: 767px) {
+  /* BUG-DW-151: step down with .section-header h2 (18px). Must sit after the base
+     .topo-page-title rule: at equal specificity an earlier media rule loses. */
+  .topo-page-title {
+    font-size: 18px;
+  }
+
   .topo-toolbar {
     gap: 4px;
     padding: var(--space-xs) var(--space-sm);
@@ -2174,12 +2180,13 @@ select:focus-visible,
 }
 
 /* Loading state within tree */
+/* BUG-DW-152: no opacity (iron 0.6 = 3.03:1 FAIL). Hierarchy via italic + lighter weight only. */
 .mobile-tree-loading {
   padding: var(--space-sm) var(--space-md);
   font-size: 13px;
   color: var(--lf-iron);
-  opacity: 0.6;
   font-style: italic;
+  font-weight: 400;
 }
 
 /* Diversity badge (tinted-bg per §2.1) */
