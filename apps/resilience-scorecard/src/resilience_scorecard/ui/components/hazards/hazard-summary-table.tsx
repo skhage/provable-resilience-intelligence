@@ -118,7 +118,7 @@ function HazardTableContent() {
       <p className="text-caption table-scroll-hint" aria-hidden="true">
         Scroll for more columns →
       </p>
-      <div className="data-table table-scroll" tabIndex={0} role="region" aria-label="Active hazard summary, scrollable">
+      <div className="data-table table-scroll" tabIndex={0} role="region" aria-label="Active hazard summary, scrolls horizontally">
       <table aria-label="Active hazard summary">
         <thead>
           <tr>
@@ -188,7 +188,7 @@ function HazardTableContent() {
       </table>
       </div>
 
-      <nav className="pagination-bar" aria-label="Hazard table pagination">
+      <nav className="pagination-bar pagination-bar-detached" aria-label="Hazard table pagination">
         <span>
           Showing {(safePage - 1) * pageSize + 1}–
           {Math.min(safePage * pageSize, sorted.length)} of {sorted.length}

@@ -91,7 +91,7 @@ function ServiceTableContent() {
       <p className="text-caption table-scroll-hint" aria-hidden="true">
         Scroll for more columns →
       </p>
-      <div className="data-table table-scroll" tabIndex={0} role="region" aria-label="Service resilience scores, scrollable">
+      <div className="data-table table-scroll" tabIndex={0} role="region" aria-label="Service resilience scores, scrolls horizontally">
       <table aria-label="Service resilience scores">
         {/* P68-APP-PROVISIONAL-BADGE §7.2: one badge in the table caption */}
         {showProvisionalCaption && (
@@ -177,7 +177,7 @@ function ServiceTableContent() {
       </div>
 
       {/* Pagination controls (UX-REM-TABLE-UX) */}
-      <nav className="pagination-bar" aria-label="Service table pagination">
+      <nav className="pagination-bar pagination-bar-detached" aria-label="Service table pagination">
         <span>
           {/* BUG-DW-137: thousands separators (of 8,000) */}
           Showing {formatCount((safeCurrentPage - 1) * pageSize + 1)}–

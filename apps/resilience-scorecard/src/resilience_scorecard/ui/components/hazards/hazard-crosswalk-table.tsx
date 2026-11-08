@@ -172,7 +172,7 @@ function CrosswalkTableContent() {
       <p className="text-caption table-scroll-hint" aria-hidden="true">
         Scroll for more columns →
       </p>
-      <div className="data-table table-scroll" tabIndex={0} role="region" aria-label="Hazard span crosswalk matrix, scrollable">
+      <div className="data-table table-scroll" tabIndex={0} role="region" aria-label="Hazard span crosswalk matrix, scrolls horizontally">
       <table aria-label="Hazard span crosswalk matrix">
         <thead>
           <tr>

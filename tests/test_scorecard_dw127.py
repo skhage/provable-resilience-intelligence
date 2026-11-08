@@ -253,9 +253,10 @@ DW150_FILES = [AQ_TSX, CONDUITS_TSX, ST_TSX, HS_TSX, HX_TSX]
 DW150_LABELS = {
     AQ_TSX: "Action queue table, scrolls horizontally",
     CONDUITS_TSX: "Conduit table, scrolls horizontally",
-    ST_TSX: "Service resilience scores, scrollable",
-    HS_TSX: "Active hazard summary, scrollable",
-    HX_TSX: "Hazard span crosswalk matrix, scrollable",
+    # BUG-DW-154: house wording ', scrolls horizontally' (matches /actions and /conduits).
+    ST_TSX: "Service resilience scores, scrolls horizontally",
+    HS_TSX: "Active hazard summary, scrolls horizontally",
+    HX_TSX: "Hazard span crosswalk matrix, scrolls horizontally",
 }
 
 
@@ -309,5 +310,46 @@ def test_dw150_empty_and_error_wrappers_no_scroll():
 
 
 def test_dw150_brand():
+    for p in DW150_FILES:
+        assert "lumen" not in _read(p).lower(), p
+
+
+# --- BUG-DW-154: detached pagination card + house aria-label wording ---
+DW154_NAV_FILES = [ST_TSX, HS_TSX]
+
+
+def _nav_classes(src):
+    return re.findall(r'<nav\s+className="([^"]*pagination-bar[^"]*)"', src)
+
+
+@pytest.mark.parametrize("path", DW154_NAV_FILES)
+def test_dw154_pagination_nav_is_detached(path):
+    """Pagination sits outside the white table card (DW-150), so it must use the
+    BUG-DW-103 detached card pattern like /actions."""
+    navs = _nav_classes(_read(path))
+    assert navs, f"{path}: no pagination nav found"
+    for cls in navs:
+        assert "pagination-bar-detached" in cls.split(), f"{path}: {cls}"
+
+
+def test_dw154_actions_reference_pattern_unchanged():
+    assert "pagination-bar-detached" in " ".join(_nav_classes(_read(AQ_TSX)))
+
+
+@pytest.mark.parametrize("path", DW150_FILES)
+def test_dw154_region_label_house_wording(path):
+    """Every table scroll region label ends with ', scrolls horizontally'."""
+    src = _read(path)
+    labels = re.findall(r'role="region"\s+aria-label="([^"]+)"', src)
+    assert labels, f"{path}: no region label"
+    assert all(l.endswith(", scrolls horizontally") for l in labels), labels
+    assert ", scrollable" not in src
+
+
+def test_dw154_detached_css_rule_exists():
+    assert re.search(r"\.pagination-bar-detached\s*\{", _read(THEME_CSS))
+
+
+def test_dw154_brand():
     for p in DW150_FILES:
         assert "lumen" not in _read(p).lower(), p
