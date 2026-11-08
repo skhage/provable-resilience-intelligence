@@ -130,7 +130,8 @@ function RootLayout() {
       </header>
 
       {/* Page Content (UX-DESIGN-SPEC §4.2) */}
-      <main id="main-content" className="page-content" role="main">
+      {/* BUG-DW-149 (WCAG 2.4.1): tabIndex -1 so the skip link moves focus in Safari/WebKit */}
+      <main id="main-content" className="page-content" role="main" tabIndex={-1}>
         <Outlet />
       </main>
     </>

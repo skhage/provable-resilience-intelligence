@@ -62,7 +62,9 @@ import {
   showSrlgUnavailable,
   srlgUnavailableMsg,
   noTracedPathMsg,
+  trapShouldHandleEscape,
   overlayShortcutFor,
+  pageEscapeShouldYield,
   SHORTCUT_SCOPE_SELECTOR,
   showTraceRetry,
   stillUnavailableMsg,
@@ -176,7 +178,12 @@ function useFocusTrap(
     closeBtn?.focus();
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // BUG-DW-149: close this panel once, then mark the keypress handled so the
+      // page-level Escape (drill out) skips it.
       if (e.key === "Escape") {
+        if (!trapShouldHandleEscape(e, e.target, el)) return;
+        e.preventDefault();
+        e.stopPropagation();
         onClose();
         return;
       }
@@ -205,12 +212,10 @@ function useFocusTrap(
       }
     };
 
-    // Attach to the panel element so the trap only fires when focus is inside
-    el.addEventListener("keydown", handleKeyDown);
-    // Also attach on document to catch the very first Tab before focus enters
+    // BUG-DW-149: one listener only. On document it also catches the first Tab before
+    // focus enters; a second listener on the panel made every keypress run twice.
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      el.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [ref, onClose]);
@@ -2785,6 +2790,9 @@ function TopologyPage() {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if ((e.key ?? "").toLowerCase() === "escape") {
+        // BUG-DW-149: a dialog owns this Escape (already handled, focus inside it, or a
+        // modal is open), so do not also drill out of the current context.
+        if (pageEscapeShouldYield(e, target, document)) return;
         if (target?.tagName === "INPUT") return;
         if (selectedConduit) setSelectedConduit(null);
         else if (selectedSite) setSelectedSite(null);

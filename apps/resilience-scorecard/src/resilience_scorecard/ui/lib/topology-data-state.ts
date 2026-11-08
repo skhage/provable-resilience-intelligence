@@ -329,6 +329,67 @@ export function overlayShortcutFor(
   return SHORTCUT_KEYS.get((e.key ?? "").toLowerCase()) ?? null;
 }
 
+// BUG-DW-149 (WCAG 2.4.3 / 3.2.1): one Escape press has exactly one effect.
+// The dialog focus trap closes its own panel; the page-level Escape (drill out of
+// conduit -> site -> region) yields whenever a dialog owns the keypress.
+
+export const DIALOG_SELECTOR = '[role="dialog"]';
+export const MODAL_DIALOG_SELECTOR = '[role="dialog"][aria-modal="true"]';
+
+/** Structural subset of a key event for the Escape routing helpers. */
+export interface EscapeKeyEvent {
+  key: string;
+  defaultPrevented?: boolean;
+}
+
+/** Structural subset of an Element (event target or dialog panel). */
+export interface EscapeNode {
+  closest?: (selector: string) => unknown;
+  contains?: (other: unknown) => boolean;
+  getAttribute?: (name: string) => string | null;
+}
+
+/** Structural subset of Document. */
+export interface EscapeDoc {
+  querySelector?: (selector: string) => unknown;
+}
+
+function isEscape(e: EscapeKeyEvent): boolean {
+  return (e.key ?? "").toLowerCase() === "escape";
+}
+
+/**
+ * True when the focus trap on `panel` should close it for this keypress: an Escape not
+ * already handled, that starts inside the panel, or any Escape while the panel is an
+ * aria-modal dialog (focus may have fallen to body after a click on static content).
+ */
+export function trapShouldHandleEscape(
+  e: EscapeKeyEvent,
+  target: unknown,
+  panel: EscapeNode | null | undefined,
+): boolean {
+  if (!isEscape(e) || e.defaultPrevented || !panel) return false;
+  if (panel.getAttribute?.("aria-modal") === "true") return true;
+  return !!(target && panel.contains?.(target));
+}
+
+/**
+ * True when the page-level Escape handler must do nothing: a dialog already handled the
+ * keypress (defaultPrevented), focus is inside a dialog, or an aria-modal dialog is open.
+ * Covers either listener order on document.
+ */
+export function pageEscapeShouldYield(
+  e: EscapeKeyEvent,
+  target: EscapeNode | null | undefined,
+  doc: EscapeDoc | null | undefined,
+): boolean {
+  if (e.defaultPrevented) return true;
+  if (target && typeof target.closest === "function" && target.closest(DIALOG_SELECTOR)) {
+    return true;
+  }
+  return !!(doc && typeof doc.querySelector === "function" && doc.querySelector(MODAL_DIALOG_SELECTOR));
+}
+
 // BUG-DW-141 (WCAG 1.3.1 / 2.4.6, G141): /topology section heading.
 // Overview text equals the document.title prefix in __root.tsx.
 export const TOPOLOGY_HEADING = "Network Topology";
