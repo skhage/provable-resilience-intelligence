@@ -134,24 +134,9 @@ Reuses the existing risk palette (BRAND-GUIDE §2.3) with a 4-level CAP-aligned 
 | NIFC Wildfire | `containment_pct` | <10% | 10–50% | 50–90% | >90% |
 | 811 Dig | `proximity_meters` | <50m | 50–200m | 200–500m | >500m |
 
-### 3.1 Severity Pulse Animation (Critical only)
+### 3.1 Severity Pulse Animation (Critical only) — RETIRED
 
-```css
-.severity-critical .hazard-icon {
-  animation: hazard-pulse 2s ease-in-out infinite;
-}
-
-@keyframes hazard-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .severity-critical .hazard-icon {
-    animation: none;
-  }
-}
-```
+**RETIRED (BUG-DW-157).** Critical severity is shown by the severity badge, using text and colour with no motion. See BUG-DW-148/156 and WCAG 2.2.2. Any future motion must have a pause control and must stay inside the `prefers-reduced-motion` override.
 
 ---
 
