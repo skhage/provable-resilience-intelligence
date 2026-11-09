@@ -356,11 +356,18 @@ body {
   gap: 8px;
 }
 
+/* BUG-DW-145 (WCAG 1.4.11): the track was platinum, which is 1.23:1 on white
+   rows and 1:1 on platinum zebra rows. It now has a platinum-shade outline and
+   a white interior. Outline contrast: white row 3.69:1, zebra row 3.01:1,
+   teal-hover row 3.42:1. Fills are measured against the white interior:
+   excellent 5.13, good 3.09, poor 3.56, failing 4.98. Fair is 1.97 and is
+   covered by the adjacent .score-value text. */
 .score-gauge .gauge-bar {
   width: 60px;
   height: 8px;
   border-radius: 4px;
-  background: var(--lf-platinum);
+  border: 1px solid var(--lf-platinum-shade);
+  background: var(--lf-white);
   overflow: hidden;
 }
 

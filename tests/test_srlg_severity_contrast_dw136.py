@@ -245,3 +245,66 @@ def test_dw143_topo_chip_not_touched():
                     if "border-color" in _base_body(".topo-toolbar .topo-chip")
                     else _border_hex(_base_body(".topo-toolbar .topo-chip"))) == "#006272"
     assert not any("platinum-shade" in b for b in bodies)
+
+
+# ---------------------------------------------------------------------------
+# BUG-DW-145: score gauge track (WCAG 1.4.11). ScoreGauge renders in the
+# service-table rows, so the track outline is checked against every row surface
+# (white, platinum zebra, 5% teal hover). Fills are checked against the white interior.
+# ---------------------------------------------------------------------------
+
+GAUGE = ".score-gauge .gauge-bar"
+
+
+def _score_token(name):
+    css = _strip_comments(CSS.read_text(encoding="utf-8"))
+    m = re.search(r"--score-" + name + r"\s*:\s*([^;]+);", css)
+    assert m, name
+    return _resolve(m.group(1))
+
+
+def _row_surfaces():
+    zebra = _resolve(_decl(_base_body(".data-table tbody tr:nth-child(even)"), "background"))
+    hover_decl = _decl(_base_body(".data-table tbody tr:hover"), "background")
+    m = re.search(r"rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)", hover_decl, flags=re.I)
+    assert m, hover_decl
+    fg = "#" + "".join(f"{int(m.group(i)):02X}" for i in (1, 2, 3))
+    hover = _blend_hex(fg, float(m.group(4)), "#FFFFFF")
+    return {"white": "#FFFFFF", "zebra": zebra, "hover": hover}
+
+
+def test_dw145_known_answers():
+    s = _row_surfaces()
+    assert s["zebra"] == "#E8E8E8"
+    assert s["hover"] == "#F2F7F8"
+    assert round(_contrast("#858585", "#FFFFFF"), 2) == 3.69
+    assert round(_contrast("#E8E8E8", "#FFFFFF"), 2) == 1.23  # designer's measured failing value
+
+
+def test_dw145_gauge_track_has_platinum_shade_border():
+    body = _base_body(GAUGE)
+    assert "var(--lf-platinum-shade)" in body
+    assert _border_hex(body) == "#858585"
+    assert re.search(r"border\s*:\s*1px\s+solid", body)
+
+
+@pytest.mark.parametrize("surface", ["white", "zebra", "hover"])
+def test_dw145_track_outline_meets_3_to_1_on_every_row_surface(surface):
+    border = _border_hex(_base_body(GAUGE))
+    bg = _row_surfaces()[surface]
+    assert _contrast(border, bg) >= 3.0, (surface, border, bg, _contrast(border, bg))
+
+
+def test_dw145_track_interior_is_white():
+    assert _resolve(_decl(_base_body(GAUGE), "background")) == "#FFFFFF"
+
+
+@pytest.mark.parametrize("grade", ["excellent", "good", "poor", "failing"])
+def test_dw145_fills_meet_3_to_1_on_white_interior(grade):
+    interior = _resolve(_decl(_base_body(GAUGE), "background"))
+    assert _contrast(_score_token(grade), interior) >= 3.0, grade
+
+
+def test_dw145_no_media_rule_reintroduces_platinum_track():
+    for b in _all_bodies(GAUGE):
+        assert "var(--lf-platinum)" not in b.replace("var(--lf-platinum-shade)", ""), b
