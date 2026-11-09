@@ -3,8 +3,14 @@
  * Root Layout: shared header, nav, skip-nav, lang, and main content area.
  * Extracted from index.tsx + actions.tsx to eliminate duplication (UX-REM-LAYOUT-ROOT).
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, Outlet, createRootRoute, useRouterState } from "@tanstack/react-router";
+import {
+  focusMainContent,
+  navEscapeShouldRestoreFocus,
+  navLinkClickShouldFocusMain,
+  shouldFocusMainOnRouteChange,
+} from "@/lib/root-focus";
 import "@/styles/lakelink-theme.css";
 
 export const Route = createRootRoute({
@@ -14,6 +20,11 @@ export const Route = createRootRoute({
 function RootLayout() {
   const [navOpen, setNavOpen] = useState(false);
   const routerState = useRouterState();
+  const pathname = routerState.location.pathname;
+  // BUG-DW-160: refs for focus return on Escape and focus move on route change
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const prevPathRef = useRef<string | null>(null);
   const isActions = routerState.location.pathname === "/actions";
   const isHazards = routerState.location.pathname === "/hazards";
   const isTopology = routerState.location.pathname === "/topology";
@@ -46,15 +57,42 @@ function RootLayout() {
       "Provable Resilience Intelligence | Lakelink Fiber";
   }, [routerState.location.pathname]);
 
+  // BUG-DW-160: WCAG 2.4.3 — after a client-side route change, move focus to #main-content.
+  // Skipped on first render (prev is null) and when only the query string changes.
+  useEffect(() => {
+    const prev = prevPathRef.current;
+    prevPathRef.current = pathname;
+    if (!shouldFocusMainOnRouteChange(prev, pathname)) return;
+    const frame = requestAnimationFrame(() => focusMainContent(document));
+    return () => cancelAnimationFrame(frame);
+  }, [pathname]);
+
   // BUG-DW-029: WCAG 2.1.1 — Escape key closes hamburger nav
+  // BUG-DW-160: WCAG 2.4.3 — return focus to the hamburger if it was in the nav or on it
   useEffect(() => {
     if (!navOpen) return;
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setNavOpen(false);
+      if (e.key === "Escape") {
+        const restore = navEscapeShouldRestoreFocus(
+          document.activeElement,
+          navRef.current,
+          hamburgerRef.current,
+        );
+        setNavOpen(false);
+        if (restore) hamburgerRef.current?.focus();
+      }
     };
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
   }, [navOpen]);
+
+  // BUG-DW-160: closing the nav hides the clicked link. A different route moves focus via
+  // the pathname effect; the current route does not, so focus #main-content here.
+  const onNavLinkClick = (to: string) => {
+    const focusMain = navOpen && navLinkClickShouldFocusMain(to, pathname);
+    setNavOpen(false);
+    if (focusMain) requestAnimationFrame(() => focusMainContent(document));
+  };
 
   return (
     <>
@@ -68,6 +106,7 @@ function RootLayout() {
           Resilience Intelligence
         </h1>
         <button
+          ref={hamburgerRef}
           className="nav-hamburger"
           onClick={() => setNavOpen((o) => !o)}
           aria-expanded={navOpen}
@@ -78,6 +117,7 @@ function RootLayout() {
         </button>
         <nav
           id="main-nav"
+          ref={navRef}
           className={`nav-tabs${navOpen ? " open" : ""}`}
           role="navigation"
           aria-label="Main navigation"
@@ -86,35 +126,35 @@ function RootLayout() {
             to="/"
             activeOptions={{ exact: true }}
             activeProps={{ className: "active", "aria-current": "page" as const }}
-            onClick={() => setNavOpen(false)}
+            onClick={() => onNavLinkClick("/")}
           >
             Scorecard
           </Link>
           <Link
             to="/actions"
             activeProps={{ className: "active", "aria-current": "page" as const }}
-            onClick={() => setNavOpen(false)}
+            onClick={() => onNavLinkClick("/actions")}
           >
             Action Queue
           </Link>
           <Link
             to="/hazards"
             activeProps={{ className: "active", "aria-current": "page" as const }}
-            onClick={() => setNavOpen(false)}
+            onClick={() => onNavLinkClick("/hazards")}
           >
             Hazard Exposure
           </Link>
           <Link
             to="/topology"
             activeProps={{ className: "active", "aria-current": "page" as const }}
-            onClick={() => setNavOpen(false)}
+            onClick={() => onNavLinkClick("/topology")}
           >
             Network Topology
           </Link>
           <Link
             to="/conduits"
             activeProps={{ className: "active", "aria-current": "page" as const }}
-            onClick={() => setNavOpen(false)}
+            onClick={() => onNavLinkClick("/conduits")}
           >
             Conduit Coverage
           </Link>
