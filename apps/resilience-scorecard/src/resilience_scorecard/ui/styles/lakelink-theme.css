@@ -562,10 +562,6 @@ select:focus-visible,
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  /* Explicit hazard-pulse disable per HAZARD-VIS-SPEC §3.1 */
-  .severity-critical .hazard-icon {
-    animation: none;
-  }
 }
 
 /* === Responsive Breakpoints (UX-DESIGN-SPEC §2 + UX-REM-RESPONSIVE) ===
@@ -748,21 +744,8 @@ select:focus-visible,
   color: inherit;
 }
 
-/* Hazard icon sizing by severity (HAZARD-VIS-SPEC §3) */
-.severity-critical .hazard-icon { width: 24px; height: 24px; }
-.severity-major .hazard-icon    { width: 20px; height: 20px; }
-.severity-moderate .hazard-icon  { width: 16px; height: 16px; }
-.severity-minor .hazard-icon     { width: 16px; height: 16px; }
-
-/* Critical severity pulse animation (HAZARD-VIS-SPEC §3.1) */
-.severity-critical .hazard-icon {
-  animation: hazard-pulse 2s ease-in-out infinite;
-}
-
-@keyframes hazard-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
-}
+/* BUG-DW-156: orphaned .hazard-icon sizing + critical pulse removed (no consumer
+   since BUG-DW-148). The severity badge carries the critical cue (WCAG 2.2.2). */
 
 /* Hazard detail expandable row (HAZARD-VIS-SPEC §5) */
 .hazard-detail-row td {

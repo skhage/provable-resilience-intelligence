@@ -48,8 +48,6 @@ export interface HazardTypeCellProps {
   type: string;
   /** Optional: override icon size (default 16px inline) */
   iconSize?: number;
-  /** Optional: add the .hazard-icon class for severity-based sizing/animation */
-  animated?: boolean;
 }
 
 /**
@@ -59,13 +57,10 @@ export interface HazardTypeCellProps {
  * <HazardTypeCell type="wildfire" />
  * // Renders: 🔥 Wildfire
  *
- * @example — with severity animation context
- * <div className="severity-critical">
- *   <HazardTypeCell type="wildfire" animated />
- * </div>
- * // Icon pulses per HAZARD-VIS-SPEC §3.1
+ * @example — larger icon (static; severity is conveyed by the badge, not motion)
+ * <HazardTypeCell type="wildfire" iconSize={20} />
  */
-export function HazardTypeCell({ type, iconSize, animated }: HazardTypeCellProps) {
+export function HazardTypeCell({ type, iconSize }: HazardTypeCellProps) {
   const Icon = HAZARD_ICONS[type] ?? HelpCircle;
   const label = HAZARD_LABELS[type] ?? type.replace(/_/g, " ");
 
@@ -74,7 +69,6 @@ export function HazardTypeCell({ type, iconSize, animated }: HazardTypeCellProps
       <Icon
         {...ICON_PROPS}
         {...(iconSize ? { size: iconSize } : {})}
-        className={animated ? "hazard-icon" : undefined}
       />
       {label}
     </span>

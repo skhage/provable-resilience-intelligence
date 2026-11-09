@@ -724,3 +724,53 @@ def test_dw155_input_surface_and_ios_zoom_guard_unchanged():
 
 def test_dw155_brand_clean():
     assert "lumen" not in _read("styles", "lakelink-theme.css").lower()
+
+
+# --- BUG-DW-156: orphaned .hazard-icon / hazard-pulse motion path removed (WCAG 2.2.2) ---
+
+def _dw156_ui_files(exts):
+    for root, _dirs, files in os.walk(UI):
+        for fn in files:
+            if fn.endswith(exts):
+                p = os.path.join(root, fn)
+                with open(p, encoding="utf-8") as f:
+                    yield os.path.relpath(p, UI), f.read()
+
+
+def _dw156_css_nocomments():
+    return re.sub(r"/\*.*?\*/", "", _read("styles", "lakelink-theme.css"), flags=re.S)
+
+
+def test_dw156_no_hazard_pulse_anywhere_in_ui():
+    hits = [p for p, s in _dw156_ui_files((".css", ".ts", ".tsx")) if "hazard-pulse" in s]
+    assert hits == [], hits
+
+
+def test_dw156_no_hazard_icon_selector_in_css():
+    assert re.search(r"\.hazard-icon\b", _dw156_css_nocomments()) is None
+
+
+def test_dw156_no_tsx_emits_hazard_icon_class():
+    hits = [p for p, s in _dw156_ui_files((".tsx",)) if "hazard-icon" in s]
+    assert hits == [], hits
+
+
+def test_dw156_hazard_type_cell_has_no_animated_prop():
+    src = _read("components", "hazards", "hazard-type-cell.tsx")
+    assert re.search(r"\banimated\b", src) is None
+    assert "export function HazardTypeCell({ type, iconSize }: HazardTypeCellProps)" in src
+    assert "iconSize?: number;" in src
+
+
+def test_dw156_other_reduced_motion_overrides_unchanged():
+    css = _dw156_css_nocomments()
+    assert ".skeleton-loading { animation: none; background-color: var(--lf-white); }" in css
+    assert re.search(r"\.srlg-highlight,\s*\.srlg-critical \{ animation: none; \}", css)
+    assert "@keyframes skeleton-pulse" in css and "@keyframes srlg-pulse" in css
+    # global reduced-motion catch-all survives the hazard-icon override removal
+    assert "animation-iteration-count: 1 !important;" in css
+
+
+def test_dw156_css_braces_balanced():
+    css = _dw156_css_nocomments()
+    assert css.count("{") == css.count("}")
