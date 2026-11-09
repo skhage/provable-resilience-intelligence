@@ -144,7 +144,7 @@ When an operator clicks an SRLG badge or selects "Show SRLGs" toggle:
 1. All spans in the selected SRLG are highlighted with a **pulsing glow** (4px `box-shadow` in the SRLG severity color).
 2. Non-member spans fade to 20% opacity.
 3. An SRLG detail card appears in the side panel: type, severity, member span count, affected services, geographic coordinates.
-4. If SRLG severity is `critical`: red pulse animation (reuses HAZARD-VIS-SPEC §3.1 `hazard-pulse` keyframes). Respects `prefers-reduced-motion`.
+4. If SRLG severity is `critical`: the edge also gets `.srlg-critical`, which runs `srlg-pulse-critical`, a 1.5s ease-in-out red glow (`drop-shadow` 4px to 12px in `--lf-risk-red`). The glow starts only on user selection: it runs only while the "Show SRLGs" overlay is on (`overlays.srlg`; SRLG badges render only in that state). It stops when the selection is cleared, i.e. the overlay is turned off. Under `prefers-reduced-motion: reduce` the animation is disabled (`animation: none`), and severity is still conveyed by the SRLG badge (text + colour + double ring, BUG-DW-087). Defined in `lakelink-theme.css` (SRLG highlight mode block).
 
 ```css
 .srlg-highlight {
@@ -152,13 +152,23 @@ When an operator clicks an SRLG badge or selects "Show SRLGs" toggle:
   animation: srlg-pulse 2s ease-in-out infinite;
 }
 
+.srlg-critical {
+  animation: srlg-pulse-critical 1.5s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .srlg-highlight { animation: none; }
+  .srlg-highlight,
+  .srlg-critical { animation: none; }
 }
 
 @keyframes srlg-pulse {
   0%, 100% { filter: drop-shadow(0 0 4px var(--srlg-color)); }
   50% { filter: drop-shadow(0 0 8px var(--srlg-color)); }
+}
+
+@keyframes srlg-pulse-critical {
+  0%, 100% { filter: drop-shadow(0 0 4px var(--lf-risk-red)); }
+  50% { filter: drop-shadow(0 0 12px var(--lf-risk-red)); }
 }
 ```
 

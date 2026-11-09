@@ -402,7 +402,7 @@ Fill color classes: `.excellent`, `.good`, `.fair`, `.poor`, `.failing`
 ### 10.5 Motion
 
 * `@media (prefers-reduced-motion: reduce)` — all animations/transitions set to 0.01ms
-* Explicit disable for hazard-pulse animation
+* Explicit disable for the `srlg-pulse` / `srlg-pulse-critical` SRLG highlight animations
 * Skeleton pulse, toast slide-in, panel slide-in all respect reduced-motion
 
 ### 10.6 Semantic HTML
@@ -437,7 +437,7 @@ Fill color classes: `.excellent`, `.good`, `.fair`, `.poor`, `.failing`
 | Color | Inherit from parent text |
 
 Hazard icon sizing by severity:
-* Critical: 24×24px + pulse animation (2s ease-in-out)
+* Critical: 24×24px (no motion; the hazard pulse was retired in BUG-DW-156/157)
 * Major: 20×20px
 * Moderate/Minor: 16×16px
 
@@ -447,7 +447,7 @@ Hazard icon sizing by severity:
 
 | Name | Duration | Easing | Usage |
 | --- | --- | --- | --- |
-| `hazard-pulse` | 2s | ease-in-out, infinite | Critical severity hazard icons |
+| `srlg-pulse-critical` | 1.5s | ease-in-out, infinite | Critical SRLG highlight red glow (only while Show SRLGs is on) |
 | `srlg-pulse` | 2s | ease-in-out, infinite | SRLG highlight drop-shadow |
 | `toast-slide-in` | 0.3s | ease | Toast notification entry |
 | `panel-slide-in` | 0.2s | ease | Detail panel entry |
