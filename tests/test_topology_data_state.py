@@ -758,7 +758,11 @@ def test_dw156_no_tsx_emits_hazard_icon_class():
 def test_dw156_hazard_type_cell_has_no_animated_prop():
     src = _read("components", "hazards", "hazard-type-cell.tsx")
     assert re.search(r"\banimated\b", src) is None
-    assert "export function HazardTypeCell({ type, iconSize }: HazardTypeCellProps)" in src
+    # BUG-DW-162 added an optional fallbackIcon prop; the DW-156 guard is only that `animated` is gone.
+    sig = re.search(r"export function HazardTypeCell\(\{([^}]*)\}: HazardTypeCellProps\)", src)
+    assert sig, "HazardTypeCell signature not found"
+    params = {p.strip() for p in sig.group(1).split(",")}
+    assert {"type", "iconSize"} <= params and "animated" not in params
     assert "iconSize?: number;" in src
 
 

@@ -48,6 +48,8 @@ export interface HazardTypeCellProps {
   type: string;
   /** Optional: override icon size (default 16px inline) */
   iconSize?: number;
+  /** Optional: icon for unknown types (default HelpCircle). BUG-DW-162: topology panel passes AlertTriangle. */
+  fallbackIcon?: LucideIcon;
 }
 
 /**
@@ -60,8 +62,8 @@ export interface HazardTypeCellProps {
  * @example — larger icon (static; severity is conveyed by the badge, not motion)
  * <HazardTypeCell type="wildfire" iconSize={20} />
  */
-export function HazardTypeCell({ type, iconSize }: HazardTypeCellProps) {
-  const Icon = HAZARD_ICONS[type] ?? HelpCircle;
+export function HazardTypeCell({ type, iconSize, fallbackIcon }: HazardTypeCellProps) {
+  const Icon = HAZARD_ICONS[type] ?? fallbackIcon ?? HelpCircle;
   const label = HAZARD_LABELS[type] ?? type.replace(/_/g, " ");
 
   return (

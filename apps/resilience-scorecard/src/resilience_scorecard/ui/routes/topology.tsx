@@ -10,6 +10,9 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
 import { LoadingRegion } from "@/components/ui/loading-region";
+import { AlertTriangle, Building2, Landmark, Link2, Mountain, TrainFront, Zap } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { HazardTypeCell } from "@/components/hazards/hazard-type-cell";
 import {
   buildSrlgSummary,
   canShowAllSrlgs,
@@ -363,6 +366,25 @@ const SRLG_ICONS: Record<string, string> = {
   tunnel: "🛤️",
   central_office: "🏢",
 };
+
+// BUG-DW-162: side-panel SRLG icons are Lucide (decorative, aria-hidden, 16px, stroke 1.5),
+// following the HazardTypeCell pattern. The SRLG type text is already in .conduit-meta, so the
+// icon carries no meaning on its own (WCAG 1.1.1/1.3.1). Unknown types fall back to AlertTriangle.
+// Color comes from .panel-type-icon (iron, CanvasText under forced-colors).
+const SRLG_PANEL_ICONS: Record<string, LucideIcon> = {
+  shared_conduit: Link2,
+  bridge: Landmark,
+  rail_crossing: TrainFront,
+  power_feed: Zap,
+  tunnel: Mountain,
+  central_office: Building2,
+};
+const PANEL_ICON_PROPS = { size: 16, strokeWidth: 1.5, "aria-hidden": true, focusable: "false" } as const;
+
+function SrlgPanelIcon({ type }: { type: string }) {
+  const Icon = SRLG_PANEL_ICONS[type] ?? AlertTriangle;
+  return <Icon {...PANEL_ICON_PROPS} className="panel-type-icon" />;
+}
 
 // BUG-DW-070: all SRLG strokes >=3:1 vs platinum #E8E8E8 canvas (WCAG 1.4.11).
 // #D97706 (2.60:1) -> #B45309 (4.10:1); #F26522 (2.57:1) -> #C2410C (4.23:1).
@@ -807,7 +829,7 @@ function SiteDetailPanel({
           <span className="mono">{site.site_id}</span> · {site.site_name}
         </h3>
         <button className="panel-close" onClick={onClose} aria-label="Close panel">
-          ✕
+          <span aria-hidden="true">✕</span>
         </button>
       </div>
       <div className="panel-body">
@@ -926,7 +948,7 @@ function EdgeDetailPanel({
           {conduit.conduit_name ? ` · ${conduit.conduit_name}` : ""}
         </h3>
         <button className="panel-close" onClick={onClose} aria-label="Close panel">
-          ✕
+          <span aria-hidden="true">✕</span>
         </button>
       </div>
       <div className="panel-body">
@@ -986,9 +1008,7 @@ function EdgeDetailPanel({
             {srlgRows.map((s) => (
               <div key={s.srlg_id} className="panel-conduit-item">
                 <div className="conduit-name">
-                  <span style={{ marginRight: 6 }}>
-                    {SRLG_ICONS[s.srlg_type] ?? "⚠️"}
-                  </span>
+                  <SrlgPanelIcon type={s.srlg_type} />
                   <span className="mono">{s.srlg_id}</span>
                   {s.severity && (
                     <span
@@ -1045,10 +1065,8 @@ function EdgeDetailPanel({
             {hazards.map((h) => (
               <div key={h.hazard_id} className="panel-conduit-item">
                 <div className="conduit-name">
-                  <span style={{ marginRight: 6 }}>
-                    {HAZARD_ICONS[h.hazard_type] ?? "⚠️"}
-                  </span>
-                  {h.name}
+                  <HazardTypeCell type={h.hazard_type} fallbackIcon={AlertTriangle} />
+                  <span className="panel-hazard-name">{h.name}</span>
                 </div>
                 <div className="conduit-meta">
                   {h.severity} · {h.direct_impact_spans} direct impact spans

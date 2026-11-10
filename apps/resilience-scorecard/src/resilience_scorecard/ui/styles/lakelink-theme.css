@@ -1539,6 +1539,31 @@ select:focus-visible,
   color: var(--lf-iron);
 }
 
+/* BUG-DW-162: Lucide panel icons (decorative). Iron #4D4D4D = 8.45:1 on white,
+   6.90:1 on platinum (WCAG 1.4.11). Lucide strokes use currentColor. */
+.panel-conduit-item .panel-type-icon,
+.panel-conduit-item .hazard-type-cell svg {
+  color: var(--lf-iron);
+  flex-shrink: 0;
+  vertical-align: -3px;
+}
+
+.panel-conduit-item .panel-type-icon {
+  margin-right: 6px;
+}
+
+.panel-conduit-item .hazard-type-cell {
+  margin-right: var(--space-sm);
+  font-weight: 500;
+}
+
+@media (forced-colors: active) {
+  .panel-conduit-item .panel-type-icon,
+  .panel-conduit-item .hazard-type-cell svg {
+    color: CanvasText;
+  }
+}
+
 /* BUG-DW-046 + BUG-DW-051: Skeleton loading pattern (UX-DESIGN-SPEC §5.1) */
 .topo-loading {
   display: flex;
