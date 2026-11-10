@@ -139,16 +139,16 @@ SRLGs are the core insight — showing where supposedly independent paths share 
 
 ### 3.2 SRLG Highlight Mode
 
-When an operator clicks an SRLG badge or selects "Show SRLGs" toggle:
+When the operator turns on the "Show SRLGs" overlay (SRLG badges are not clickable: they render only while the overlay is on, in a `pointer-events: none` layer):
 
-1. All spans in the selected SRLG are highlighted with a **pulsing glow** (4px `box-shadow` in the SRLG severity color).
+1. All spans in the selected SRLG are highlighted with a **pulsing glow** (`filter: drop-shadow` 4px in `--srlg-color`, falling back to `--lf-iron`; SVG elements do not support shadows of the other CSS kind).
 2. Non-member spans fade to 20% opacity.
 3. An SRLG detail card appears in the side panel: type, severity, member span count, affected services, geographic coordinates.
 4. If SRLG severity is `critical`: the edge also gets `.srlg-critical`, which runs `srlg-pulse-critical`, a 1.5s ease-in-out red glow (`drop-shadow` 4px to 12px in `--lf-risk-red`). The glow starts only on user selection: it runs only while the "Show SRLGs" overlay is on (`overlays.srlg`; SRLG badges render only in that state). It stops when the selection is cleared, i.e. the overlay is turned off. Under `prefers-reduced-motion: reduce` the animation is disabled (`animation: none`), and severity is still conveyed by the SRLG badge (text + colour + double ring, BUG-DW-087). Defined in `lakelink-theme.css` (SRLG highlight mode block).
 
 ```css
 .srlg-highlight {
-  filter: drop-shadow(0 0 4px var(--srlg-color));
+  filter: drop-shadow(0 0 4px var(--srlg-color, var(--lf-iron)));
   animation: srlg-pulse 2s ease-in-out infinite;
 }
 
@@ -162,8 +162,8 @@ When an operator clicks an SRLG badge or selects "Show SRLGs" toggle:
 }
 
 @keyframes srlg-pulse {
-  0%, 100% { filter: drop-shadow(0 0 4px var(--srlg-color)); }
-  50% { filter: drop-shadow(0 0 8px var(--srlg-color)); }
+  0%, 100% { filter: drop-shadow(0 0 4px var(--srlg-color, var(--lf-iron))); }
+  50% { filter: drop-shadow(0 0 8px var(--srlg-color, var(--lf-iron))); }
 }
 
 @keyframes srlg-pulse-critical {
@@ -349,7 +349,7 @@ Sticky below the header (position: sticky, top: 56px). Background: `--lf-white` 
 * **Edge labels:** Show/Hide
 * **Layout density:** Compact / Normal / Spacious
 * **Color-blind mode:** On/Off (adds patterns to edges)
-* **Animation:** On/Off (overrides `prefers-reduced-motion`)
+* **Animation:** Off only (not yet implemented). It can disable motion further, but it never re-enables motion when the OS requests `prefers-reduced-motion: reduce`.
 
 ---
 
