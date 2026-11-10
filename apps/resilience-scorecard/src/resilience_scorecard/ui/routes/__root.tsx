@@ -11,6 +11,12 @@ import {
   navLinkClickShouldFocusMain,
   shouldFocusMainOnRouteChange,
 } from "@/lib/root-focus";
+import {
+  dataSourceBadgeClass,
+  dataSourceBadgeLabel,
+  dataSourceFromHealth,
+  type DataSourceState,
+} from "@/lib/data-source-badge";
 import "@/styles/lakelink-theme.css";
 
 export const Route = createRootRoute({
@@ -25,18 +31,27 @@ function RootLayout() {
   const hamburgerRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const prevPathRef = useRef<string | null>(null);
-  const isActions = routerState.location.pathname === "/actions";
-  const isHazards = routerState.location.pathname === "/hazards";
-  const isTopology = routerState.location.pathname === "/topology";
-  const isConduits = routerState.location.pathname === "/conduits";
 
-  // Fetch data source from health endpoint
-  const [dataSource, setDataSource] = useState<string>("loading");
+  // Fetch data source from health endpoint.
+  // BUG-DW-161: "loading" renders a neutral "Checking data source" badge, and a failed
+  // check renders "Data source unavailable". "Mock Data" only when health says mock.
+  const [dataSource, setDataSource] = useState<DataSourceState>("loading");
   useEffect(() => {
+    let cancelled = false;
     fetch("/api/health")
-      .then((r) => r.json())
-      .then((d) => setDataSource(d.data_source ?? "mock"))
-      .catch(() => setDataSource("mock"));
+      .then((r) => {
+        if (!r.ok) throw new Error(`health ${r.status}`);
+        return r.json();
+      })
+      .then((d) => {
+        if (!cancelled) setDataSource(dataSourceFromHealth(d?.data_source));
+      })
+      .catch(() => {
+        if (!cancelled) setDataSource("unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -160,11 +175,9 @@ function RootLayout() {
           </Link>
         </nav>
         <div className="ml-auto">
-          <span className={`data-source-badge ${dataSource === "live" ? "live" : "mock"}`} role="status">
+          <span className={dataSourceBadgeClass(dataSource)} role="status">
             <span className="dot" aria-hidden="true" />
-            {dataSource === "live"
-              ? (isActions ? "Lakebase State" : isHazards ? "Live Crosswalk" : isTopology ? "Live Topology" : isConduits ? "Live v4 Coverage" : "Live Data")
-              : "Mock Data"}
+            {dataSourceBadgeLabel(dataSource, pathname)}
           </span>
         </div>
       </header>

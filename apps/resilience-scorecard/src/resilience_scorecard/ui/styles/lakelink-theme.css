@@ -511,6 +511,17 @@ body {
 .data-source-badge.mock .dot { background: var(--lf-risk-amber); }
 .data-source-badge.live .dot { background: var(--lf-risk-green); }
 
+/* BUG-DW-161: neutral states. "loading" (health check pending) and "unavailable"
+   (health check failed) must not look like Mock Data. Iron on platinum is 6.9:1. */
+.data-source-badge.loading,
+.data-source-badge.unavailable {
+  background: var(--lf-platinum);
+  color: var(--lf-iron);
+}
+
+.data-source-badge.loading .dot,
+.data-source-badge.unavailable .dot { background: var(--lf-iron); }
+
 /* Error fallback padding — UX-REM-POLISH-FINAL: replaced inline style={{ padding: 24 }} */
 .error-fallback {
   padding: var(--space-lg);
