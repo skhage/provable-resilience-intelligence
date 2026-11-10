@@ -7,7 +7,7 @@
  * distinct spans, avg services/span, and avg distance. Filterable by hazard_type.
  * Uses HAZARD-VIS-SPEC badge patterns and HazardTypeCell icons.
  */
-import { Suspense, useState, useMemo, useCallback } from "react";
+import { Suspense, useState, useMemo, useCallback, useTransition, useEffect } from "react";
 import { QueryErrorResetBoundary, useSuspenseQuery } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -68,12 +68,33 @@ function useCrosswalkData(hazardType: string) {
   });
 }
 
-function CrosswalkTableContent() {
-  const [hazardFilter, setHazardFilter] = useState("");
+function CrosswalkTableContent({
+  hazardFilter,
+  isPending,
+  filterLabel,
+  onStatusChange,
+}: {
+  hazardFilter: string;
+  isPending: boolean;
+  filterLabel: string;
+  onStatusChange: (text: string) => void;
+}) {
   const [sortField, setSortField] = useState<SortField>("intersection_count");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const { data: rows } = useCrosswalkData(hazardFilter);
+
+  // BUG-DW-163 (b): announce row count after data arrives.
+  useEffect(() => {
+    if (rows.length === 0) {
+      onStatusChange("No crosswalk rows.");
+    } else {
+      const label = hazardFilter ? filterLabel : "all hazard types";
+      onStatusChange(
+        `Showing ${rows.length.toLocaleString()} rows for ${label}.`,
+      );
+    }
+  }, [rows, hazardFilter, filterLabel, onStatusChange]);
 
   const toggleSort = useCallback(
     (field: SortField) => {
@@ -147,32 +168,17 @@ function CrosswalkTableContent() {
 
   return (
     <>
-      {/* Filter bar */}
-      <div className="filter-bar">
-        <label htmlFor="xwalk-hazard-filter" className="filter-label">
-          Filter by hazard type:
-        </label>
-        <select
-          id="xwalk-hazard-filter"
-          value={hazardFilter}
-          onChange={(e) => setHazardFilter(e.target.value)}
-          // BUG-DW-094 (WCAG 2.5.3 Label in Name): no aria-label here; the accessible
-          // name comes from the visible <label htmlFor> so voice-control users can say it.
-          className="filter-select"
-        >
-          {HAZARD_TYPES.map((ht) => (
-            <option key={ht.value} value={ht.value}>
-              {ht.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
       {/* BUG-DW-150 (WCAG 2.1.1/1.4.10): scroll-region pattern for keyboard access */}
       <p className="text-caption table-scroll-hint" aria-hidden="true">
         Scroll for more columns →
       </p>
-      <div className="data-table table-scroll" tabIndex={0} role="region" aria-label="Hazard span crosswalk matrix, scrolls horizontally">
+      <div
+        className="data-table table-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label="Hazard span crosswalk matrix, scrolls horizontally"
+        aria-busy={isPending}
+      >
       <table aria-label="Hazard span crosswalk matrix">
         <thead>
           <tr>
@@ -240,32 +246,92 @@ function CrosswalkTableContent() {
   );
 }
 
+/**
+ * BUG-DW-163 (WCAG 2.4.3 / 3.2.2 / 4.1.3): The filter <select> and the
+ * live-region status text live ABOVE the Suspense boundary so they are never
+ * unmounted by a suspension.  Filter changes are wrapped in startTransition,
+ * which keeps the previous table mounted (with aria-busy) while the new data
+ * loads.  requestedFilter gives immediate visual feedback in the <select>;
+ * committedFilter is what the query actually uses.
+ */
 export function HazardCrosswalkTable() {
+  // Filter state lives above Suspense so the <select> is never unmounted.
+  const [committedFilter, setCommittedFilter] = useState("");
+  const [requestedFilter, setRequestedFilter] = useState("");
+  const [isPending, startTransition] = useTransition();
+  // BUG-DW-163 (b): live-region row count, updated by CrosswalkTableContent.
+  const [statusText, setStatusText] = useState("");
+
+  const changeFilter = useCallback((value: string) => {
+    // Immediate: update the <select> value so the user sees their choice.
+    setRequestedFilter(value);
+    // Deferred: update the committed filter inside a transition so React
+    // keeps the current table mounted instead of swapping in the skeleton.
+    startTransition(() => {
+      setCommittedFilter(value);
+    });
+  }, []);
+
+  const filterLabel = HAZARD_TYPES.find((h) => h.value === requestedFilter)?.label ?? "All Hazard Types";
+
   return (
-    <QueryErrorResetBoundary>
-      {({ reset }) => (
-        <ErrorBoundary
-          onReset={reset}
-          fallbackRender={({ resetErrorBoundary }) => (
-            <div className="data-table error-fallback">
-              <p>Failed to load crosswalk data</p>
-              <button className="btn btn-outline" onClick={resetErrorBoundary}>
-                Retry
-              </button>
-            </div>
-          )}
+    <>
+      {/* BUG-DW-163 (a): filter bar is above Suspense so it never unmounts */}
+      <div className="filter-bar">
+        <label htmlFor="xwalk-hazard-filter" className="filter-label">
+          Filter by hazard type:
+        </label>
+        <select
+          id="xwalk-hazard-filter"
+          value={requestedFilter}
+          onChange={(e) => changeFilter(e.target.value)}
+          // BUG-DW-094 (WCAG 2.5.3 Label in Name): no aria-label here; the
+          // accessible name comes from the visible <label htmlFor>.
+          className="filter-select"
         >
-          <Suspense
-            fallback={
-              <LoadingRegion label="Loading crosswalk table">
-                <Skeleton className="h-96 w-full rounded-lg" />
-              </LoadingRegion>
-            }
+          {HAZARD_TYPES.map((ht) => (
+            <option key={ht.value} value={ht.value}>
+              {ht.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* BUG-DW-163 (b): polite live region announces row count after load */}
+      <div role="status" className="sr-only">
+        {statusText}
+      </div>
+
+      <QueryErrorResetBoundary>
+        {({ reset }) => (
+          <ErrorBoundary
+            onReset={reset}
+            fallbackRender={({ resetErrorBoundary }) => (
+              <div className="data-table error-fallback" role="alert">
+                <p>Failed to load crosswalk data</p>
+                <button className="btn btn-outline" onClick={resetErrorBoundary}>
+                  Retry
+                </button>
+              </div>
+            )}
           >
-            <CrosswalkTableContent />
-          </Suspense>
-        </ErrorBoundary>
-      )}
-    </QueryErrorResetBoundary>
+            <Suspense
+              fallback={
+                <LoadingRegion label="Loading crosswalk table">
+                  <Skeleton className="h-96 w-full rounded-lg" />
+                </LoadingRegion>
+              }
+            >
+              <CrosswalkTableContent
+                hazardFilter={committedFilter}
+                isPending={isPending}
+                filterLabel={filterLabel}
+                onStatusChange={setStatusText}
+              />
+            </Suspense>
+          </ErrorBoundary>
+        )}
+      </QueryErrorResetBoundary>
+    </>
   );
 }
