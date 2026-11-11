@@ -109,7 +109,11 @@ function CrosswalkTableContent({
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const { data: rows } = useCrosswalkData(hazardFilter);
-  const { data: trueTotals } = useCrosswalkTotals(hazardFilter);
+  const {
+    data: trueTotals,
+    isError: totalsError,
+    isFetching: totalsFetching,
+  } = useCrosswalkTotals(hazardFilter);
 
   // BUG-DW-163 (b): announce row count after data arrives.
   useEffect(() => {
@@ -261,16 +265,23 @@ function CrosswalkTableContent({
             <tr style={{ fontWeight: 700, borderTop: "2px solid var(--lf-dark-teal)" }}>
               <td colSpan={2}>Total / Weighted Avg</td>
               <td className="mono">{totals.intersection_count.toLocaleString()}</td>
-              <td className="mono">
+              {/* BUG-DW-166: three honest states. Value when present; "Loading" while the
+                  totals query is in flight with no value; "unavailable" ONLY on isError. */}
+              <td className="mono" aria-busy={totalsFetching}>
                 {totals.distinct_spans !== null ? (
                   <>
                     {totals.distinct_spans.toLocaleString()}
                     <span className="sr-only"> distinct spans, not a sum of rows</span>
                   </>
-                ) : (
+                ) : totalsError || !totalsFetching ? (
                   <>
                     <span aria-hidden="true">—</span>
                     <span className="sr-only">Distinct span total unavailable; per-row span counts are not additive</span>
+                  </>
+                ) : (
+                  <>
+                    <Skeleton className="tfoot-total-skeleton" aria-hidden="true" style={{ display: "inline-block", width: 48, height: 14 }} />
+                    <span className="sr-only">Loading distinct span total</span>
                   </>
                 )}
               </td>

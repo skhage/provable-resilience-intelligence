@@ -365,16 +365,23 @@ def get_hazard_crosswalk_totals(
 
     distinct_spans is COUNT(DISTINCT span_id) over the filter scope; it is not
     the sum of per-bucket distinct counts. intersection_count is additive.
-    """
-    if hasattr(csql, "is_available") and csql.is_available:
-        try:
-            totals = csql.get_crosswalk_totals(hazard_type=hazard_type)
-            if totals is not None:
-                return totals
-        except Exception:
-            logger.warning("Live crosswalk totals failed, falling back to mock", exc_info=True)
 
-    return generate_mock_crosswalk_totals(hazard_type)
+    BUG-DW-166: mock totals are served ONLY when the whole app is in mock mode
+    (live service unavailable). If the live service is available but the totals
+    query fails or returns nothing, respond 503 so the UI shows the em dash and
+    'unavailable' instead of mixing mock totals with live rows.
+    """
+    if not (hasattr(csql, "is_available") and csql.is_available):
+        return generate_mock_crosswalk_totals(hazard_type)
+
+    try:
+        totals = csql.get_crosswalk_totals(hazard_type=hazard_type)
+    except Exception:
+        logger.warning("Live crosswalk totals failed; returning 503 (no mock fallback)", exc_info=True)
+        totals = None
+    if totals is None:
+        raise HTTPException(status_code=503, detail="Crosswalk totals unavailable")
+    return totals
 
 
 @router.get(
