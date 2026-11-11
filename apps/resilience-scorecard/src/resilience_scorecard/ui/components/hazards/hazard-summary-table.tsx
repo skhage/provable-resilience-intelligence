@@ -44,12 +44,17 @@ const SEVERITY_LABEL: Record<string, string> = {
   low: "Low",
 };
 
-function severityBadgeClass(severity: string): string {
-  return SEVERITY_BADGE_CLASS[severity?.toLowerCase()] ?? "severity-minor";
+/**
+ * BUG-DW-167: exported (and re-exported from the hazards barrel) so /actions
+ * reuses the same map instead of interpolating the raw value into a class name.
+ * Null-safe: callers that must render "no badge" for null should check first.
+ */
+export function severityBadgeClass(severity: string | null | undefined): string {
+  return SEVERITY_BADGE_CLASS[(severity ?? "").toLowerCase()] ?? "severity-minor";
 }
 
-function severityLabel(severity: string): string {
-  const key = severity?.toLowerCase();
+export function severityLabel(severity: string | null | undefined): string {
+  const key = (severity ?? "").toLowerCase();
   return SEVERITY_LABEL[key] ?? (key ? key.charAt(0).toUpperCase() + key.slice(1) : "Unknown");
 }
 

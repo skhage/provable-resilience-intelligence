@@ -33,7 +33,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { HazardTypeCell } from "@/components/hazards";
+import { HazardTypeCell, severityBadgeClass, severityLabel } from "@/components/hazards";
 import {
   pageWindow,
   queueResultMessage,
@@ -477,9 +477,16 @@ function ActionTableContent() {
                             <div>
                               <div className="detail-label">Severity</div>
                               <div className="detail-value">
-                                <span className={`badge severity-${a.hazard_severity}`}>
-                                  {a.hazard_severity}
-                                </span>
+                                {a.hazard_severity ? (
+                                  <span
+                                    className={`badge ${severityBadgeClass(a.hazard_severity)}`}
+                                    data-severity={a.hazard_severity}
+                                  >
+                                    {severityLabel(a.hazard_severity)}
+                                  </span>
+                                ) : (
+                                  "—"
+                                )}
                               </div>
                             </div>
                             <div>

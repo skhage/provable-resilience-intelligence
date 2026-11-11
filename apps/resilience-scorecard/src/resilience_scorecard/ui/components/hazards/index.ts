@@ -11,6 +11,11 @@ export {
 } from "./hazard-type-cell";
 export type { HazardTypeCellProps } from "./hazard-type-cell";
 export { HazardKpiRow } from "./hazard-kpi-row";
-export { HazardSummaryTable } from "./hazard-summary-table";
+export {
+  HazardSummaryTable,
+  SEVERITY_BADGE_CLASS,
+  severityBadgeClass,
+  severityLabel,
+} from "./hazard-summary-table";
 export { HazardCrosswalkKpis } from "./hazard-crosswalk-kpis";
 export { HazardCrosswalkTable } from "./hazard-crosswalk-table";
