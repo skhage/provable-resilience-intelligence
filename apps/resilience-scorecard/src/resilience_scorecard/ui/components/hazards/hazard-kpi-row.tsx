@@ -71,7 +71,7 @@ export function HazardKpiRow() {
         <ErrorBoundary
           onReset={reset}
           fallbackRender={({ resetErrorBoundary }) => (
-            <div className="kpi-row">
+            <div className="kpi-row" role="alert">
               <div className="kpi-card">
                 <p>Failed to load hazard summary</p>
                 <button className="btn btn-outline" onClick={resetErrorBoundary}>

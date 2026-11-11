@@ -25,6 +25,34 @@ const SEVERITY_ORDER: Record<string, number> = {
   low: 4,
 };
 
+/**
+ * BUG-DW-165: hazard severity values (critical/high/medium/low) map onto the
+ * badge classes defined in lakelink-theme.css (§3). Unknown values fall back
+ * to severity-minor so no row renders an unstyled badge.
+ */
+export const SEVERITY_BADGE_CLASS: Record<string, string> = {
+  critical: "severity-critical",
+  high: "severity-major",
+  medium: "severity-moderate",
+  low: "severity-minor",
+};
+
+const SEVERITY_LABEL: Record<string, string> = {
+  critical: "Critical",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+};
+
+function severityBadgeClass(severity: string): string {
+  return SEVERITY_BADGE_CLASS[severity?.toLowerCase()] ?? "severity-minor";
+}
+
+function severityLabel(severity: string): string {
+  const key = severity?.toLowerCase();
+  return SEVERITY_LABEL[key] ?? (key ? key.charAt(0).toUpperCase() + key.slice(1) : "Unknown");
+}
+
 const PAGE_SIZES = [10, 25, 50] as const;
 
 function relativeTime(isoStr: string): string {
@@ -161,7 +189,9 @@ function HazardTableContent() {
                 </Link>
               </td>
               <td>
-                <span className={`badge severity-${h.severity}`}>{h.severity}</span>
+                <span className={`badge ${severityBadgeClass(h.severity)}`} data-severity={h.severity}>
+                  {severityLabel(h.severity)}
+                </span>
               </td>
               <td className="mono text-sm">{h.location}</td>
               <td>
@@ -241,7 +271,7 @@ export function HazardSummaryTable() {
         <ErrorBoundary
           onReset={reset}
           fallbackRender={({ resetErrorBoundary }) => (
-            <div className="data-table error-fallback">
+            <div className="data-table error-fallback" role="alert">
               <p>Failed to load hazard data</p>
               <button className="btn btn-outline" onClick={resetErrorBoundary}>
                 Retry

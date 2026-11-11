@@ -2492,6 +2492,11 @@ select:focus-visible,
      also differs. Every severity badge also renders its text label. */
   .severity-critical { border-color: LinkText; border-style: solid; border-width: 2px; }
   .severity-high { border-color: LinkText; border-style: dashed; }
+  /* BUG-DW-165: hazard high/medium/low map to major/moderate/minor badges;
+     give each a distinct border style in forced-colors mode. */
+  .severity-major { border-color: LinkText; border-style: dashed; }
+  .severity-moderate { border-color: CanvasText; border-style: dotted; border-width: 2px; }
+  .severity-minor { border-color: CanvasText; border-style: solid; border-width: 1px; }
 
   /* Data source badge */
   .data-source-badge {
