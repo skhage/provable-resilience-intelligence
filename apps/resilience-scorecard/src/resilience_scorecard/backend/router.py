@@ -22,6 +22,7 @@ from .models import (
     FeatureFlagsOut,
     HazardCrosswalkRowOut,
     HazardCrosswalkSummaryOut,
+    HazardCrosswalkTotalsOut,
     HazardListItemOut,
     HazardOverlayOut,
     HazardSummaryOut,
@@ -47,6 +48,7 @@ from .services.mock_data import (
     generate_mock_conduit_coverage_summary,
     generate_mock_crosswalk,
     generate_mock_crosswalk_summary,
+    generate_mock_crosswalk_totals,
     generate_mock_hazard_list,
     generate_mock_hazard_summary,
     generate_mock_product_offerings,
@@ -348,6 +350,31 @@ def list_hazard_crosswalk(
     if hazard_type:
         data = [d for d in data if d["hazard_type"] == hazard_type]
     return data
+
+
+@router.get(
+    "/hazards/crosswalk/totals",
+    response_model=HazardCrosswalkTotalsOut,
+    operation_id="getHazardCrosswalkTotals",
+)
+def get_hazard_crosswalk_totals(
+    csql: Dependencies.CatalogSql,
+    hazard_type: str | None = Query(None, description="Filter by hazard type"),
+):
+    """True tfoot totals for the crosswalk table (BUG-DW-164).
+
+    distinct_spans is COUNT(DISTINCT span_id) over the filter scope; it is not
+    the sum of per-bucket distinct counts. intersection_count is additive.
+    """
+    if hasattr(csql, "is_available") and csql.is_available:
+        try:
+            totals = csql.get_crosswalk_totals(hazard_type=hazard_type)
+            if totals is not None:
+                return totals
+        except Exception:
+            logger.warning("Live crosswalk totals failed, falling back to mock", exc_info=True)
+
+    return generate_mock_crosswalk_totals(hazard_type)
 
 
 @router.get(

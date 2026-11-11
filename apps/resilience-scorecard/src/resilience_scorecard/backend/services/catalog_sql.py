@@ -237,6 +237,16 @@ ORDER BY hazard_type,
   END
 """
 
+# BUG-DW-164: true distinct total for the crosswalk tfoot. Optional
+# 'AND hazard_type = :hazard_type' is appended (bound parameter, no interpolation).
+_CROSSWALK_TOTALS_SQL = """
+SELECT
+  CAST(COUNT(*) AS INT) AS intersection_count,
+  CAST(COUNT(DISTINCT span_id) AS INT) AS distinct_spans
+FROM hazard_span_intersection
+WHERE is_within_radius = TRUE
+"""
+
 _CROSSWALK_SUMMARY_SQL = """
 SELECT
   CAST(COUNT(*) AS INT) AS total_intersections,
@@ -1100,6 +1110,28 @@ class CatalogSqlService:
             """
             return self._execute(sql, params={"hazard_type": hazard_type})
         return self._execute(_CROSSWALK_SQL)
+
+    def get_crosswalk_totals(self, hazard_type: str | None = None) -> dict | None:
+        """Return true tfoot totals for the crosswalk table (BUG-DW-164).
+
+        distinct_spans is COUNT(DISTINCT span_id) over the whole scope, never a
+        sum of per-bucket distinct counts (a span can sit in many buckets).
+        """
+        if hazard_type:
+            rows = self._execute(
+                _CROSSWALK_TOTALS_SQL + "  AND hazard_type = :hazard_type\n",
+                params={"hazard_type": hazard_type},
+            )
+        else:
+            rows = self._execute(_CROSSWALK_TOTALS_SQL)
+        if rows is None or len(rows) == 0:
+            return None
+        row = rows[0]
+        return {
+            "hazard_type": hazard_type or None,
+            "intersection_count": int(row.get("intersection_count") or 0),
+            "distinct_spans": int(row.get("distinct_spans") or 0),
+        }
 
     def get_crosswalk_summary(self) -> dict | None:
         """Return KPI summary for the hazard crosswalk view."""

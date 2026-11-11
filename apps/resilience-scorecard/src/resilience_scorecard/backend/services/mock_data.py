@@ -272,6 +272,34 @@ def generate_mock_crosswalk() -> list[dict]:
     ]
 
 
+# BUG-DW-164: true COUNT(DISTINCT span_id) per scope from the live
+# hazard_span_intersection (is_within_radius = TRUE) snapshot of 2026-11-11.
+# These are NOT the sum of per-bucket distinct_spans in generate_mock_crosswalk().
+_MOCK_CROSSWALK_DISTINCT_SPANS: dict[str, int] = {
+    "": 10085,
+    "dig_ticket": 341,
+    "earthquake": 9658,
+    "flood": 5932,
+    "severe_weather": 9225,
+    "wildfire": 7624,
+}
+
+
+def generate_mock_crosswalk_totals(hazard_type: str | None = None) -> dict:
+    """Mock tfoot totals: additive intersection_count, true distinct_spans.
+
+    distinct_spans is a looked-up true distinct count (0 for an unknown type with
+    no rows), never a sum of per-bucket values.
+    """
+    key = hazard_type or ""
+    rows = [r for r in generate_mock_crosswalk() if not key or r["hazard_type"] == key]
+    return {
+        "hazard_type": hazard_type or None,
+        "intersection_count": sum(r["intersection_count"] for r in rows),
+        "distinct_spans": _MOCK_CROSSWALK_DISTINCT_SPANS.get(key, 0) if rows else 0,
+    }
+
+
 def generate_mock_crosswalk_summary() -> dict:
     """Mock KPI summary for the hazard crosswalk view (in-radius rows only, BUG-QA-129)."""
     return {

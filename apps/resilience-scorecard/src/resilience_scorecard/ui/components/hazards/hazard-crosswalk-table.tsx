@@ -8,7 +8,7 @@
  * Uses HAZARD-VIS-SPEC badge patterns and HazardTypeCell icons.
  */
 import { Suspense, useState, useMemo, useCallback, useTransition, useEffect } from "react";
-import { QueryErrorResetBoundary, useSuspenseQuery } from "@tanstack/react-query";
+import { QueryErrorResetBoundary, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
@@ -21,6 +21,13 @@ interface CrosswalkRow {
   distinct_spans: number;
   avg_services_per_span: number;
   avg_distance_km: number;
+}
+
+// BUG-DW-164: true (non-additive) totals from /api/hazards/crosswalk/totals.
+interface CrosswalkTotals {
+  hazard_type: string | null;
+  intersection_count: number;
+  distinct_spans: number;
 }
 
 type SortField = "intersection_count" | "distinct_spans" | "avg_services_per_span" | "avg_distance_km";
@@ -68,6 +75,25 @@ function useCrosswalkData(hazardType: string) {
   });
 }
 
+// BUG-DW-164: distinct_spans is COUNT(DISTINCT span_id) per bucket, and one span
+// can sit in many buckets, so the tfoot must NOT sum it. Fetch the true distinct
+// total for the current filter scope instead. Non-suspense so a failure only
+// degrades the Spans tfoot cell to an em dash.
+function useCrosswalkTotals(hazardType: string) {
+  return useQuery<CrosswalkTotals>({
+    queryKey: ["hazardCrosswalkTotals", hazardType],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (hazardType) params.set("hazard_type", hazardType);
+      const url = `/api/hazards/crosswalk/totals${params.toString() ? `?${params}` : ""}`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+}
+
 function CrosswalkTableContent({
   hazardFilter,
   isPending,
@@ -83,6 +109,7 @@ function CrosswalkTableContent({
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const { data: rows } = useCrosswalkData(hazardFilter);
+  const { data: trueTotals } = useCrosswalkTotals(hazardFilter);
 
   // BUG-DW-163 (b): announce row count after data arrives.
   useEffect(() => {
@@ -123,16 +150,16 @@ function CrosswalkTableContent({
   const totals = useMemo(() => {
     if (rows.length === 0) return null;
     const totalIntersections = rows.reduce((s, r) => s + r.intersection_count, 0);
-    const totalSpans = rows.reduce((s, r) => s + r.distinct_spans, 0);
     const weightedSvc = rows.reduce((s, r) => s + r.avg_services_per_span * r.intersection_count, 0);
     const weightedDist = rows.reduce((s, r) => s + r.avg_distance_km * r.intersection_count, 0);
     return {
       intersection_count: totalIntersections,
-      distinct_spans: totalSpans,
+      // BUG-DW-164: true distinct total from the backend, or null (em dash). Never a sum.
+      distinct_spans: typeof trueTotals?.distinct_spans === "number" ? trueTotals.distinct_spans : null,
       avg_services_per_span: totalIntersections > 0 ? Math.round(weightedSvc / totalIntersections * 10) / 10 : 0,
       avg_distance_km: totalIntersections > 0 ? Math.round(weightedDist / totalIntersections * 100) / 100 : 0,
     };
-  }, [rows]);
+  }, [rows, trueTotals]);
 
   const sortIndicator = (field: SortField) =>
     sortField === field ? (sortDir === "asc" ? " ▲" : " ▼") : "";
@@ -234,7 +261,19 @@ function CrosswalkTableContent({
             <tr style={{ fontWeight: 700, borderTop: "2px solid var(--lf-dark-teal)" }}>
               <td colSpan={2}>Total / Weighted Avg</td>
               <td className="mono">{totals.intersection_count.toLocaleString()}</td>
-              <td className="mono">{totals.distinct_spans.toLocaleString()}</td>
+              <td className="mono">
+                {totals.distinct_spans !== null ? (
+                  <>
+                    {totals.distinct_spans.toLocaleString()}
+                    <span className="sr-only"> distinct spans, not a sum of rows</span>
+                  </>
+                ) : (
+                  <>
+                    <span aria-hidden="true">—</span>
+                    <span className="sr-only">Distinct span total unavailable; per-row span counts are not additive</span>
+                  </>
+                )}
+              </td>
               <td className="mono">{totals.avg_services_per_span.toFixed(1)}</td>
               <td className="mono">{totals.avg_distance_km.toFixed(2)}</td>
             </tr>

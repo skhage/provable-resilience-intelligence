@@ -32,6 +32,8 @@ export type HazardSummary = { active_hazards: number; [k: string]: any };
 export type ProductOffering = { [k: string]: any };
 export type HazardCrosswalkRow = { [k: string]: any };
 export type HazardCrosswalkSummary = { [k: string]: any };
+// BUG-DW-164: true (non-additive) tfoot totals.
+export type HazardCrosswalkTotals = { hazard_type: string | null; intersection_count: number; distinct_spans: number };
 export type TopologyRegionSummary = { [k: string]: any };
 export type TopologySite = { [k: string]: any };
 export type TopologyConduit = { [k: string]: any };
@@ -210,6 +212,7 @@ export const useListHazardsSuspense = suspenseHook<HazardListItem[]>("listHazard
 export const useGetHazardSummarySuspense = suspenseHook<HazardSummary>("getHazardSummary", "/api/hazards/summary");
 export const useListHazardCrosswalkSuspense = suspenseHook<HazardCrosswalkRow[]>("listHazardCrosswalk", "/api/hazards/crosswalk");
 export const useGetHazardCrosswalkSummarySuspense = suspenseHook<HazardCrosswalkSummary>("getHazardCrosswalkSummary", "/api/hazards/crosswalk/summary");
+export const useGetHazardCrosswalkTotalsSuspense = suspenseHook<HazardCrosswalkTotals>("getHazardCrosswalkTotals", "/api/hazards/crosswalk/totals");
 
 // ---------------------------------------------------------------------------
 // Topology

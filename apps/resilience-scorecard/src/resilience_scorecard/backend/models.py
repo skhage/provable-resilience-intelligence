@@ -235,6 +235,18 @@ class HazardCrosswalkRowOut(BaseModel):
     avg_distance_km: float = Field(ge=0, description="Average haversine distance in km")
 
 
+class HazardCrosswalkTotalsOut(BaseModel):
+    """True (non-additive) totals for the crosswalk tfoot (BUG-DW-164).
+
+    distinct_spans is COUNT(DISTINCT span_id) over the whole filter scope. One span
+    can fall in many type x band buckets, so the per-row distinct_spans values must
+    NOT be summed. intersection_count is COUNT(*) and is additive.
+    """
+    hazard_type: str | None = Field(default=None, description="Hazard type filter, or null for all types")
+    intersection_count: int = Field(ge=0, description="In-radius intersection records in scope (additive COUNT(*))")
+    distinct_spans: int = Field(ge=0, description="True COUNT(DISTINCT span_id) across all buckets in scope (not a sum)")
+
+
 class HazardCrosswalkSummaryOut(BaseModel):
     """KPI summary for the hazard×span crosswalk view."""
     total_intersections: int = Field(ge=0, description="Total in-radius (is_within_radius = TRUE) hazard×span intersection records")
