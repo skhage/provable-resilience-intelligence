@@ -224,7 +224,7 @@ export function ServiceTable() {
         <ErrorBoundary
           onReset={reset}
           fallbackRender={({ resetErrorBoundary }) => (
-            <div className="data-table error-fallback">
+            <div className="data-table error-fallback" role="alert">
               <p>Failed to load service scores</p>
               <button className="btn btn-outline" onClick={resetErrorBoundary}>
                 Retry
