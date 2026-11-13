@@ -1996,10 +1996,13 @@ select:focus-visible,
   padding: var(--space-sm) 0;
 }
 
+/* BUG-DW-171: resting border uses platinum-shade (#858585), not platinum (#E8E8E8 = 1.23:1).
+   #858585 is 3.69:1 on the white input/wrapper and 3.01:1 on a platinum page bg (WCAG 1.4.11 >= 3:1).
+   Matches filter-select (BUG-DW-089), pagination (BUG-DW-103), toolbar (BUG-DW-143). */
 .mobile-tree-search-input {
   width: 100%;
   padding: var(--space-sm) var(--space-md);
-  border: 2px solid var(--lf-platinum);
+  border: 2px solid var(--lf-platinum-shade);
   border-radius: var(--radius-md);
   font-size: 16px; /* Prevents iOS zoom on focus */
   font-family: inherit;
