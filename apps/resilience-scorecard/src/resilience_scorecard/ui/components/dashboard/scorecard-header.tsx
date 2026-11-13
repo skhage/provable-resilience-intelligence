@@ -186,7 +186,8 @@ export function ScorecardHeader() {
         <ErrorBoundary
           onReset={reset}
           fallbackRender={({ resetErrorBoundary }) => (
-            <div className="kpi-row">
+            /* BUG-DW-170: role=alert so the failure is announced (WCAG 4.1.3), matching ProductCatalog/ServiceTable */
+            <div className="kpi-row" role="alert">
               <div className="kpi-card">
                 <p>Failed to load summary</p>
                 <button className="btn btn-outline" onClick={resetErrorBoundary}>
