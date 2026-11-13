@@ -200,10 +200,8 @@ function HazardTableContent() {
               </td>
               <td className="mono text-sm">{h.location}</td>
               <td>
-                <span
-                  className={h.spans_affected > 5 ? "text-medium" : ""}
-                  style={h.spans_affected > 5 ? { color: "var(--lf-risk-red)" } : undefined}
-                >
+                {/* BUG-DW-172: dark risk-red text token (#B71C1C) passes AA on white, platinum zebra and teal hover rows */}
+                <span className={h.spans_affected > 5 ? "text-risk-strong" : ""}>
                   {h.spans_affected}
                 </span>
               </td>

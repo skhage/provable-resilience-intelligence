@@ -243,14 +243,8 @@ function CrosswalkTableContent({
                 </span>
               </td>
               <td className="mono">
-                <span
-                  className={row.proximity_band === "direct_impact" ? "text-medium" : ""}
-                  style={
-                    row.proximity_band === "direct_impact"
-                      ? { color: "var(--lf-risk-red)", fontWeight: 600 }
-                      : undefined
-                  }
-                >
+                {/* BUG-DW-172: same 4.06:1 zebra-row failure as hazard-summary-table; use the AA-safe dark risk-red class */}
+                <span className={row.proximity_band === "direct_impact" ? "text-risk-strong text-semibold" : ""}>
                   {row.intersection_count.toLocaleString()}
                 </span>
               </td>

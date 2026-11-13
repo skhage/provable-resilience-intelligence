@@ -18,6 +18,7 @@
 
   /* === Risk Severity (UX-DESIGN-SPEC §1.1) === */
   --lf-risk-red: #D32F2F;
+  --lf-risk-red-text: #B71C1C; /* BUG-DW-172: risk-red for body-size TEXT. 6.57:1 white, 5.36:1 platinum zebra, >=4.98:1 teal hover. #D32F2F is 4.06:1 on platinum (fails 1.4.3) */
   --lf-risk-amber: #F9A825;
   --lf-risk-green: #2E7D32;
 
@@ -701,6 +702,9 @@ select:focus-visible,
 .text-sm { font-size: 13px; }
 .text-caption { font-size: 13px; color: #4D4D4D; } /* BUG-DW-033: solid iron — 6.90:1 on platinum, 8.45:1 on white — AAA ✅ */
 .text-medium { font-weight: 500; }
+/* BUG-DW-172: emphasized risk numbers in tables (spans_affected > 5, direct-impact intersections). Never use var(--lf-risk-red) for 14px text on zebra rows. */
+.text-risk-strong { color: var(--lf-risk-red-text); font-weight: 500; }
+.text-semibold { font-weight: 600; } /* after .text-risk-strong so it wins when combined */
 .max-w-280 { max-width: 280px; }
 .filter-bar {
   display: flex;
