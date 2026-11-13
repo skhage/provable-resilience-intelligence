@@ -10,9 +10,9 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
 import { LoadingRegion } from "@/components/ui/loading-region";
-import { AlertTriangle, Building2, Landmark, Link2, MapPinOff, Mountain, Network, TrainFront, Zap } from "lucide-react";
+import { AlertTriangle, Building2, Check, Info, Landmark, Link2, MapPinOff, Mountain, Network, TrainFront, X, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { HazardTypeCell } from "@/components/hazards/hazard-type-cell";
+import { HazardTypeCell, HAZARD_ICONS as HAZARD_TYPE_ICONS } from "@/components/hazards/hazard-type-cell";
 import {
   buildSrlgSummary,
   canShowAllSrlgs,
@@ -357,16 +357,6 @@ interface HazardOverlay {
   advisory_spans: number;
 }
 
-// SRLG type icons per §3.1
-const SRLG_ICONS: Record<string, string> = {
-  shared_conduit: "⛓️",
-  bridge: "🌉",
-  rail_crossing: "🚂",
-  power_feed: "⚡",
-  tunnel: "🛤️",
-  central_office: "🏢",
-};
-
 // BUG-DW-162: side-panel SRLG icons are Lucide (decorative, aria-hidden, 16px, stroke 1.5),
 // following the HazardTypeCell pattern. The SRLG type text is already in .conduit-meta, so the
 // icon carries no meaning on its own (WCAG 1.1.1/1.3.1). Unknown types fall back to AlertTriangle.
@@ -384,6 +374,28 @@ const PANEL_ICON_PROPS = { size: 16, strokeWidth: 1.5, "aria-hidden": true, focu
 function SrlgPanelIcon({ type }: { type: string }) {
   const Icon = SRLG_PANEL_ICONS[type] ?? AlertTriangle;
   return <Icon {...PANEL_ICON_PROPS} className="panel-type-icon" />;
+}
+
+// BUG-DW-174: canvas hazard marker icon reuses the Lucide map from HazardTypeCell (BRAND-GUIDE §6).
+// Rendered as a nested <svg> centred on (cx, cy); stroke follows the severity color via `color`
+// (currentColor). Decorative: the marker <g> keeps its aria-label and name label. Unknown types
+// fall back to AlertTriangle (same as the side panel, BUG-DW-162).
+const HAZARD_MARKER_ICON_SIZE = 16;
+function HazardMarkerIcon({ type, cx, cy, color }: { type: string; cx: number; cy: number; color: string }) {
+  const Icon = HAZARD_TYPE_ICONS[type] ?? AlertTriangle;
+  const half = HAZARD_MARKER_ICON_SIZE / 2;
+  return (
+    <Icon
+      x={cx - half}
+      y={cy - half}
+      size={HAZARD_MARKER_ICON_SIZE}
+      strokeWidth={1.5}
+      color={color}
+      aria-hidden="true"
+      focusable="false"
+      className="hazard-marker-icon"
+    />
+  );
 }
 
 // BUG-DW-070: all SRLG strokes >=3:1 vs platinum #E8E8E8 canvas (WCAG 1.4.11).
@@ -451,23 +463,14 @@ const HAZARD_SEVERITY_STYLES: Record<string, { color: string; dash: string; widt
   low: { color: "#4D4D4D", dash: "1,4", width: 1.5, label: "Low" },           // 6.90:1, sparse dots
 };
 
-// Hazard type icons per HAZARD-VIS-SPEC §1
-const HAZARD_ICONS: Record<string, string> = {
-  wildfire: "🔥",
-  flood: "🌊",
-  severe_weather: "⛈️",
-  earthquake: "🌍",
-  dig_ticket: "🚧",
-};
-
 // Diversity colors per §2.1 — edge stroke colors
 // BUG-DW-057: darkened to ≥3:1 non-text contrast against #E8E8E8 canvas (WCAG 1.4.11)
 const DIVERSITY_COLORS: Record<string, string> = {
   // BUG-DW-073: ratios re-measured vs #E8E8E8 (WCAG relative luminance)
-  fully_diverse: "#15803D",      // was #16A34A (2.69:1) → 4.09:1 ✅
-  partially_diverse: "#B45309",  // was #D97706 (2.60:1) → 4.10:1 ✅
-  single_path: "#DC2626",        // 3.94:1 ✅
-  unknown: "#6B7280",            // was #9CA3AF (2.07:1) → 3.95:1 ✅
+  fully_diverse: "#15803D",      // was #16A34A (2.69:1) → 4.09:1 (pass)
+  partially_diverse: "#B45309",  // was #D97706 (2.60:1) → 4.10:1 (pass)
+  single_path: "#DC2626",        // 3.94:1 (pass)
+  unknown: "#6B7280",            // was #9CA3AF (2.07:1) → 3.95:1 (pass)
 };
 
 // BUG-DW-066: Dash patterns per diversity status for forced-colors (WCAG 1.4.1)
@@ -600,7 +603,7 @@ function Toolbar({
                 onClick={() => coverage.onToggle(chip)}
               >
                 <span className="topo-chip-check" aria-hidden="true">
-                  {coverage.selection[chip] ? "✓" : ""}
+                  {coverage.selection[chip] ? <Check size={12} strokeWidth={2} aria-hidden="true" focusable="false" /> : null}
                 </span>
                 {chipLabel(chip, coverage.counts[chip])}
               </button>
@@ -745,7 +748,7 @@ function Legend({
               <circle cx="10" cy="10" r="8" className="srlg-badge-ring" stroke={SRLG_COLORS[k]} />
               <text x="10" y="10" className="srlg-badge-code" fill={SRLG_COLORS[k]}>{SRLG_CODES[k]}</text>
             </svg>
-            <span aria-hidden="true">{SRLG_ICONS[k]}</span>
+            <SrlgPanelIcon type={k} />
             {SRLG_LABELS[k]}
           </div>
         ))}
@@ -829,7 +832,7 @@ function SiteDetailPanel({
           <span className="mono">{site.site_id}</span> · {site.site_name}
         </h3>
         <button className="panel-close" onClick={onClose} aria-label="Close panel">
-          <span aria-hidden="true">✕</span>
+          <X size={16} strokeWidth={1.5} aria-hidden="true" focusable="false" />
         </button>
       </div>
       <div className="panel-body">
@@ -948,7 +951,7 @@ function EdgeDetailPanel({
           {conduit.conduit_name ? ` · ${conduit.conduit_name}` : ""}
         </h3>
         <button className="panel-close" onClick={onClose} aria-label="Close panel">
-          <span aria-hidden="true">✕</span>
+          <X size={16} strokeWidth={1.5} aria-hidden="true" focusable="false" />
         </button>
       </div>
       <div className="panel-body">
@@ -1166,7 +1169,7 @@ function PathTraceBanner({
           )}
           {/* BUG-DW-111 item 1: real glyph (JSX text does not process \u escapes), hidden from AT */}
           <button type="button" className="path-trace-clear" onClick={onClear}>
-            <span aria-hidden="true">✕</span> Clear trace
+            <X size={16} strokeWidth={1.5} aria-hidden="true" focusable="false" /> Clear trace
           </button>
         </div>
       </div>
@@ -1248,7 +1251,7 @@ function PathTraceBanner({
           View in Service Table →
         </Link>
         <button type="button" className="path-trace-clear" onClick={onClear}>
-          <span aria-hidden="true">✕</span> Clear trace
+          <X size={16} strokeWidth={1.5} aria-hidden="true" focusable="false" /> Clear trace
         </button>
       </div>
     </div>
@@ -1929,15 +1932,7 @@ function SiteGraph({
               stroke={hazColor}
               strokeWidth={sev.width}
             />
-            <text
-              x={hx}
-              y={hy + 5}
-              textAnchor="middle"
-              fontSize={14}
-              aria-hidden="true"
-            >
-              {HAZARD_ICONS[h.hazard_type] ?? "⚠️"}
-            </text>
+            <HazardMarkerIcon type={h.hazard_type} cx={hx} cy={hy} color={hazColor} />
             {/* BUG-DW-131: hide name label at small scales; callout + aria-label carry the name */}
             {showHazardNameLabel(canvasScale) && (
               <text
@@ -2230,7 +2225,7 @@ function MobileTreeView({
         <input
           id="mobile-tree-search"
           type="search"
-          placeholder="🔍 Search sites, conduits, spans…"
+          placeholder="Search sites, conduits, spans…"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="mobile-tree-search-input"
@@ -2254,7 +2249,7 @@ function MobileTreeView({
               onClick={() => onToggleCoverage(chip)}
             >
               <span className="topo-chip-check" aria-hidden="true">
-                {coverageSelection[chip] ? "✓" : ""}
+                {coverageSelection[chip] ? <Check size={12} strokeWidth={2} aria-hidden="true" focusable="false" /> : null}
               </span>
               {chipLabel(chip, coverageCounts[chip])}
             </button>
@@ -2386,7 +2381,7 @@ function MobileTreeView({
                                   }}
                                   aria-label={`View details for ${site.site_name}`}
                                 >
-                                  ℹ️
+                                  <Info size={16} strokeWidth={1.5} aria-hidden="true" focusable="false" />
                                 </button>
                               </div>
 
@@ -2519,7 +2514,7 @@ function MobileTreeView({
               }}
               aria-label="Close detail panel"
             >
-              ✕
+              <X size={16} strokeWidth={1.5} aria-hidden="true" focusable="false" />
             </button>
           </div>
           <div className="mobile-detail-body">

@@ -56,7 +56,8 @@ def test_hazard_rows_use_hazard_type_cell_with_alert_triangle_fallback():
     p = _panels()
     assert "<HazardTypeCell type={h.hazard_type} fallbackIcon={AlertTriangle} />" in p
     src = _read("routes", "topology.tsx")
-    assert re.search(r'import \{ HazardTypeCell \} from "@/components/hazards/hazard-type-cell"', src)
+    # BUG-DW-174 widened this import to also pull the Lucide HAZARD_ICONS map.
+    assert re.search(r'import \{ HazardTypeCell\b[^}]*\} from "@/components/hazards/hazard-type-cell"', src)
 
 
 def test_hazard_type_cell_renders_visible_label_and_hidden_icon():

@@ -94,7 +94,8 @@ def test_both_clear_buttons_typed_and_glyph_hidden():
     assert len(btns) == 2
     for b in btns:
         assert 'type="button"' in b
-        assert '<span aria-hidden="true">\u2715</span> Clear trace' in b
+        # BUG-DW-174: the emoji glyph became a Lucide X icon; it must stay hidden from AT.
+        assert '<X size={16} strokeWidth={1.5} aria-hidden="true" focusable="false" /> Clear trace' in b
 
 
 # --- 2) live summary in the persistent region ------------------------------

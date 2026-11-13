@@ -57,7 +57,7 @@ export interface HazardTypeCellProps {
  *
  * @example
  * <HazardTypeCell type="wildfire" />
- * // Renders: 🔥 Wildfire
+ * // Renders: Lucide Flame icon (16px, stroke 1.5, aria-hidden) followed by the text "Wildfire"
  *
  * @example — larger icon (static; severity is conveyed by the badge, not motion)
  * <HazardTypeCell type="wildfire" iconSize={20} />
