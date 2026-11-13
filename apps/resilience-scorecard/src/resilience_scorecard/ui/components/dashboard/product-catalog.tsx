@@ -4,7 +4,7 @@
  *
  * Displays product_offering bridge table data:
  * - Product name + service type mapping
- * - SLA tier with color-coded badges
+ * - SLA tier with neutral Lakelink tier badges (BUG-DW-169)
  * - Bandwidth options
  * - Path diversity eligibility
  * - MRC range
@@ -30,11 +30,38 @@ interface ProductOffering {
   mrc_range_usd: string;
 }
 
-const SLA_BADGE: Record<string, { label: string; className: string }> = {
-  premium_plus: { label: "Premium+", className: "severity-critical" },
-  premium: { label: "Premium", className: "severity-major" },
-  standard: { label: "Standard", className: "severity-moderate" },
+/* BUG-DW-169: SLA tier is a commercial attribute, not a risk level, so it uses
+   the neutral Lakelink tier family (lakelink-theme.css .badge.tier-*) instead of
+   the hazard risk palette. Unknown tiers fall back to the neutral badge. */
+export const SLA_TIER_BADGE: Record<string, { label: string; className: string }> = {
+  premium_plus: { label: "Premium+", className: "tier-premium-plus" },
+  premium: { label: "Premium", className: "tier-premium" },
+  standard: { label: "Standard", className: "tier-standard" },
 };
+
+export const NEUTRAL_BADGE_CLASS = "neutral";
+
+function titleCase(raw: string): string {
+  return raw
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+/** SLA tier badge: known tiers map to tier-*; unknown or empty map to the neutral badge. */
+export function slaTierBadge(tier: string | null | undefined): { label: string; className: string } {
+  const key = (tier ?? "").trim();
+  const known = SLA_TIER_BADGE[key];
+  if (known) return known;
+  const label = titleCase(key);
+  return { label: label || "Unknown", className: NEUTRAL_BADGE_CLASS };
+}
+
+/** Diverse eligibility badge: Yes keeps the completed (green) badge; No is neutral, not amber. */
+export function diverseBadgeClass(isDiverseEligible: boolean): string {
+  return isDiverseEligible ? "completed" : NEUTRAL_BADGE_CLASS;
+}
 
 const SERVICE_TYPE_LABELS: Record<string, string> = {
   wavelength: "Wavelength",
@@ -72,7 +99,7 @@ function ProductCatalogContent() {
       <div className="data-table">
         <div className="empty-state">
           <p>No product offerings available</p>
-          <p className="empty-hint">The product_offering table has not been seeded yet.</p>
+          <p className="empty-hint">Product reference data is not available yet.</p>
         </div>
       </div>
     );
@@ -97,7 +124,7 @@ function ProductCatalogContent() {
         </thead>
         <tbody>
           {products.map((p) => {
-            const sla = SLA_BADGE[p.sla_tier_default] ?? { label: p.sla_tier_default, className: "" };
+            const sla = slaTierBadge(p.sla_tier_default);
             return (
               <tr key={p.product_offering_id}>
                 <td className="text-medium">{p.product_name}</td>
@@ -111,7 +138,7 @@ function ProductCatalogContent() {
                 <td>
                   {/* BUG-DW-075: aria-label on a role-less span is prohibited (ARIA 1.2);
                       hide the glyph and rely on the visible Yes/No text */}
-                  <span className={`badge ${p.is_diverse_eligible ? "completed" : "severity-moderate"}`}>
+                  <span className={`badge ${diverseBadgeClass(p.is_diverse_eligible)}`}>
                     <span aria-hidden="true">{p.is_diverse_eligible ? "\u2713" : "\u2717"}</span>{" "}
                     {p.is_diverse_eligible ? "Yes" : "No"}
                   </span>

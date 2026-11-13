@@ -350,6 +350,15 @@ body {
 .badge.severity-moderate { background: #FEF3C7; color: #92400E; }
 .badge.severity-minor    { background: #E0F2F1; color: #006272; }
 
+/* BUG-DW-169: neutral SLA tier family (commercial attribute, not risk).
+   Platinum fills also get a platinum-shade outline so the shape survives on
+   platinum zebra rows (same fix as .badge.cancelled, BUG-DW-104). */
+.badge.tier-premium-plus { background: var(--lf-dark-teal); color: #FFFFFF; } /* 7.02:1 ✅ AAA */
+.badge.tier-premium      { background: #E0F2F1; color: var(--lf-dark-teal); } /* 6.07:1 ✅ AA */
+.badge.tier-standard     { background: var(--lf-platinum); color: var(--lf-iron); border-color: var(--lf-platinum-shade); } /* 6.90:1 ✅ AA */
+/* Neutral badge: Diverse=No and unknown SLA tiers */
+.badge.neutral           { background: var(--lf-platinum); color: var(--lf-iron); border-color: var(--lf-platinum-shade); } /* 6.90:1 ✅ AA */
+
 /* Score gauge (inline) */
 .score-gauge {
   display: inline-flex;
@@ -2510,6 +2519,11 @@ select:focus-visible,
   .severity-major { border-color: LinkText; border-style: dashed; }
   .severity-moderate { border-color: CanvasText; border-style: dotted; border-width: 2px; }
   .severity-minor { border-color: CanvasText; border-style: solid; border-width: 1px; }
+  /* BUG-DW-169: tier and neutral badges use a plain CanvasText border (never LinkText). */
+  .badge.tier-premium-plus,
+  .badge.tier-premium,
+  .badge.tier-standard,
+  .badge.neutral { border-color: CanvasText; border-style: solid; border-width: 1px; }
 
   /* Data source badge */
   .data-source-badge {
