@@ -191,7 +191,7 @@ function CrosswalkTableContent({
       <div className="data-table">
         <div className="empty-state">
           <p>No crosswalk data available</p>
-          <p className="empty-hint">The hazard×span intersection pipeline has not run yet.</p>
+          <p className="empty-hint">Hazard exposure data is not available yet.</p>
         </div>
       </div>
     );

@@ -946,6 +946,12 @@ select:focus-visible,
   margin-top: var(--space-xs);
 }
 
+/* BUG-DW-173: on the platinum topology canvas (#E8E8E8) the default rgba(77,77,77,0.8)
+   composites to #6C6C6C = 4.29:1 (FAIL 1.4.3). Solid iron #4D4D4D on #E8E8E8 = 6.90:1 (AA). */
+.topo-canvas-wrap .empty-state {
+  color: var(--lf-iron);
+}
+
 /* === Toast Notification (UX-REM-TABLE-UX) === */
 /* BUG-DW-074: one fixed stack wraps the two always-mounted live regions
    (role=alert + role=status) so they never overlap; empty regions take no space

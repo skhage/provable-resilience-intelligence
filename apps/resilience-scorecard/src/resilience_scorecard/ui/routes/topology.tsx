@@ -10,7 +10,7 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
 import { LoadingRegion } from "@/components/ui/loading-region";
-import { AlertTriangle, Building2, Landmark, Link2, Mountain, TrainFront, Zap } from "lucide-react";
+import { AlertTriangle, Building2, Landmark, Link2, MapPinOff, Mountain, Network, TrainFront, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { HazardTypeCell } from "@/components/hazards/hazard-type-cell";
 import {
@@ -3004,9 +3004,10 @@ function TopologyPage() {
           )}
           {!loading && regions.length === 0 && (
             <div className="empty-state">
-              <div className="empty-icon" aria-hidden="true">🌐</div>
+              {/* BUG-DW-173: Lucide icon replaces emoji; jargon-free copy */}
+              <div className="empty-icon" aria-hidden="true"><Network size={32} strokeWidth={1.5} aria-hidden="true" focusable="false" /></div>
               <p>No topology data available</p>
-              <p className="empty-hint">Gold tables may still be loading</p>
+              <p className="empty-hint">Topology data is not available yet. Try again shortly.</p>
             </div>
           )}
         </div>
@@ -3060,18 +3061,20 @@ function TopologyPage() {
 
           {!loading && !selectedRegion && regions.length === 0 && (
             <div className="empty-state">
+              {/* BUG-DW-173: Lucide icon replaces emoji; jargon-free copy */}
               <div className="empty-icon" aria-hidden="true">
-                🌐
+                <Network size={32} strokeWidth={1.5} aria-hidden="true" focusable="false" />
               </div>
               <p>No topology data available</p>
-              <p className="empty-hint">Gold tables may still be loading</p>
+              <p className="empty-hint">Topology data is not available yet. Try again shortly.</p>
             </div>
           )}
 
           {!loading && selectedRegion && sites.length === 0 && (
             <div className="empty-state">
+              {/* BUG-DW-173: Lucide icon replaces emoji */}
               <div className="empty-icon" aria-hidden="true">
-                📡
+                <MapPinOff size={32} strokeWidth={1.5} aria-hidden="true" focusable="false" />
               </div>
               <p>No sites found in {selectedRegion}</p>
             </div>
