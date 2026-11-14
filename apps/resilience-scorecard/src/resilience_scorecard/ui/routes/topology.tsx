@@ -10,7 +10,7 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
 import { LoadingRegion } from "@/components/ui/loading-region";
-import { AlertTriangle, Building2, Check, Info, Landmark, Link2, MapPinOff, Mountain, Network, TrainFront, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowRight, Building2, Check, Info, Landmark, Link2, MapPinOff, Mountain, Network, TrainFront, X, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { HazardTypeCell, HAZARD_ICONS as HAZARD_TYPE_ICONS } from "@/components/hazards/hazard-type-cell";
 import {
@@ -1248,7 +1248,9 @@ function PathTraceBanner({
           search={{ service: serviceId }}
           className="path-trace-link"
         >
-          View in Service Table →
+          {/* BUG-DW-175: decorative arrow is a Lucide icon hidden from AT (name = "View in Service Table") */}
+          View in Service Table{" "}
+          <ArrowRight size={14} strokeWidth={1.5} aria-hidden="true" focusable="false" />
         </Link>
         <button type="button" className="path-trace-clear" onClick={onClear}>
           <X size={16} strokeWidth={1.5} aria-hidden="true" focusable="false" /> Clear trace
@@ -1388,7 +1390,8 @@ function RegionGraph({
               fontWeight={600}
               fontFamily="'Inter', sans-serif"
             >
-              Click to explore →
+              {/* BUG-DW-175: parent <g role=button> is named by aria-label; arrow glyph also hidden */}
+              Click to explore <tspan aria-hidden="true">→</tspan>
             </text>
           </g>
         );
@@ -2553,7 +2556,9 @@ function MobileTreeView({
                 <dd>{detailConduit.span_count}</dd>
                 <dt>Endpoints</dt>
                 <dd>
-                  {detailConduit.site_a_id} → {detailConduit.site_z_id}
+                  {/* BUG-DW-175: visible arrow hidden from AT; screen readers hear "A to Z" */}
+                  {detailConduit.site_a_id} <span aria-hidden="true">→</span>
+                  <span className="sr-only">to</span> {detailConduit.site_z_id}
                 </dd>
                 {/* P62-APP-MOBILE-COVERAGE-FILTER: same disclosure as the desktop edge hover/aria text */}
                 {isInventoryOnly(detailConduit) && (
