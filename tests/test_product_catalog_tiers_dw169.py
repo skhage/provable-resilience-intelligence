@@ -4,7 +4,7 @@ Acceptance (from @designer S122, P191):
   * product-catalog.tsx references no severity-* class.
   * 3 tiers + unknown tier + Diverse Yes/No are covered.
   * CSS tier family exists with the contrast comments 7.02 / 6.07 / 6.90, no
-    lumen-orange text, and a CanvasText (not LinkText) forced-colors border.
+    accent-orange #F26522 text, and a CanvasText (not LinkText) forced-colors border.
   * Empty-state hint uses no table names.
   * grep lumen = 0.
 The pure helper block is run with `node --experimental-strip-types` when node

@@ -49,10 +49,21 @@ function titleCase(raw: string): string {
     .join(" ");
 }
 
+/* BUG-DW-176: per-contract overrides and upstream feeds may send "Premium",
+   "PREMIUM_PLUS" or "premium-plus", so the lookup key is normalized:
+   trim, lower-case, and collapse runs of '-' / whitespace / '_' into one '_'. */
+export function normalizeTierKey(tier: string | null | undefined): string {
+  return (tier ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 /** SLA tier badge: known tiers map to tier-*; unknown or empty map to the neutral badge. */
 export function slaTierBadge(tier: string | null | undefined): { label: string; className: string } {
-  const key = (tier ?? "").trim();
-  const known = SLA_TIER_BADGE[key];
+  const key = normalizeTierKey(tier);
+  const known = Object.prototype.hasOwnProperty.call(SLA_TIER_BADGE, key) ? SLA_TIER_BADGE[key] : undefined;
   if (known) return known;
   const label = titleCase(key);
   return { label: label || "Unknown", className: NEUTRAL_BADGE_CLASS };
