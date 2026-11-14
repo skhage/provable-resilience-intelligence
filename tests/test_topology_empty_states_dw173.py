@@ -46,7 +46,7 @@ def _empty_state_blocks(src: str) -> list[str]:
     """Return the JSX text from each className="empty-state" opening to its matching </div>."""
     blocks = []
     for m in re.finditer(r'<div className="empty-state"', src):
-        depth, i = 0, m.start()
+        depth = 0
         tag = re.compile(r"<div\b|</div>")
         for t in tag.finditer(src, m.start()):
             depth += 1 if t.group(0) == "<div" else -1
