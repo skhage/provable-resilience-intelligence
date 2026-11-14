@@ -1289,7 +1289,8 @@ function RegionGraph({
   return (
     <svg
       viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
-      role="img"
+      // BUG-DW-177: role=group (not img) so the focusable role=button region nodes stay in the a11y tree
+      role="group"
       aria-label={`Network topology overview: ${formatCount(totalSites)} sites, ${formatCount(totalConduits)} conduits across ${sorted.length} regions` /* BUG-DW-137 */}
       style={{ width: "100%", height: "100%", minHeight: 500 }}
     >
@@ -1350,6 +1351,7 @@ function RegionGraph({
               fill={BRAND.darkTeal}
               fontWeight={700}
               fontFamily="'Inter', sans-serif"
+              aria-hidden="true"
             >
               {r.region}
             </text>
@@ -1389,6 +1391,7 @@ function RegionGraph({
               fill={BRAND.darkTeal}
               fontWeight={600}
               fontFamily="'Inter', sans-serif"
+              aria-hidden="true"
             >
               {/* BUG-DW-175: parent <g role=button> is named by aria-label; arrow glyph also hidden */}
               Click to explore <tspan aria-hidden="true">→</tspan>
@@ -1645,7 +1648,8 @@ function SiteGraph({
     <svg
       ref={svgRef}
       viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
-      role="img"
+      // BUG-DW-177: role=group (not img) so focusable conduit/site buttons and hazard markers keep name/role
+      role="group"
       aria-label={siteGraphAriaLabel(regionName, siteCap, totalSites, drawnConduits, conduits.length)}
       style={{ width: "100%", height: "100%", minHeight: 500 }}
     >
@@ -1855,6 +1859,7 @@ function SiteGraph({
               fill={dimmed ? BRAND.iron : BRAND.darkTeal}
               fontWeight={600}
               className="svg-label-primary"
+              aria-hidden="true"
             >
               {s.site_type === "data_center" ? "DC" : "CO"}
             </text>
