@@ -2758,10 +2758,13 @@ select:focus-visible,
   position: absolute;
   bottom: calc(100% + 6px);
   left: 50%;
-  transform: translateX(-50%);
+  /* BUG-DW-180: --info-tooltip-shift (set inline by InfoTooltip, default 0) clamps the centred
+     tooltip inside the viewport when neither edge-alignment modifier fits. */
+  transform: translateX(calc(-50% + var(--info-tooltip-shift, 0px)));
   z-index: 150;
   width: max-content;
-  max-width: 260px;
+  /* BUG-DW-180 (SC 1.4.10): never wider than the viewport minus 2 x 16px margin. */
+  max-width: min(260px, calc(100vw - 32px));
   padding: 8px 10px;
   border: 1px solid #4D4D4D;
   border-radius: 4px;
@@ -2793,6 +2796,21 @@ select:focus-visible,
 
 .info-tooltip[hidden] {
   display: none;
+}
+
+/* BUG-DW-180 (SC 1.4.10): edge-aware alignment. InfoTooltip measures on open and applies one of
+   these when the centred tooltip would cross the 16px viewport margin. Vertical position, the
+   BUG-DW-092 ::after hover bridge (left:0/right:0 of the tooltip) and the BUG-DW-093 z-index 150
+   are unchanged. */
+.info-tooltip.info-tooltip--align-start {
+  left: 0;
+  right: auto;
+  transform: none;
+}
+.info-tooltip.info-tooltip--align-end {
+  left: auto;
+  right: 0;
+  transform: none;
 }
 
 /* BUG-DW-093 (2): project mobile convention (BUG-QA-019) is a 44x44 target at
@@ -2973,6 +2991,7 @@ select:focus-visible,
   top: calc(100% + 6px);
   bottom: auto;
   left: 0;
+  right: auto; /* BUG-DW-180: caption variant is always left-anchored, even with an align modifier */
   transform: none;
   max-width: min(260px, calc(100vw - 48px));
 }

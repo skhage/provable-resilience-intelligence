@@ -91,7 +91,8 @@ def test_hover_bridge_mirrored_downward_and_covers_gap():
 def test_default_tooltip_unchanged():
     d = _decls(".info-tooltip")
     assert d.get("bottom") == "calc(100% + 6px)"
-    assert d.get("transform") == "translateX(-50%)"
+    # BUG-DW-180: still centred (-50%); the shift var defaults to 0px so the default box is unchanged.
+    assert d.get("transform") == "translateX(calc(-50% + var(--info-tooltip-shift, 0px)))"
     assert "top" not in d
     assert _decls(".info-tooltip::after").get("top") == "100%"
 
