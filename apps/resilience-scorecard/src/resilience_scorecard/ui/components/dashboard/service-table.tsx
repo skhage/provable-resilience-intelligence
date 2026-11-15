@@ -18,6 +18,7 @@ import {
 import { isProvisional } from "@/lib/provisional-disclosure";
 import { InterimBadge } from "@/components/ui/interim-badge";
 import selector from "@/lib/selector";
+import { pageBoundary } from "@/lib/action-queue-focus";
 
 function gaugeClass(score: number): string {
   if (score >= 85) return "excellent";
@@ -196,20 +197,24 @@ function ServiceTableContent() {
               ))}
             </select>
           </label>
+          {/* BUG-DW-184 (WCAG 2.4.3): aria-disabled + onClick guard (same as /actions BUG-DW-109)
+              so a boundary button stays focusable instead of dropping focus to <body>. */}
           <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={safeCurrentPage <= 1}
+            type="button"
+            onClick={() => { if (!pageBoundary(safeCurrentPage, totalPages).atFirst) setPage((p) => Math.max(1, p - 1)); }}
+            aria-disabled={pageBoundary(safeCurrentPage, totalPages).atFirst || undefined}
             aria-label="Previous page"
           >
-            ‹ Prev
+            <span aria-hidden="true">‹</span> Previous
           </button>
           <span>Page {safeCurrentPage} of {totalPages}</span>
           <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={safeCurrentPage >= totalPages}
+            type="button"
+            onClick={() => { if (!pageBoundary(safeCurrentPage, totalPages).atLast) setPage((p) => Math.min(totalPages, p + 1)); }}
+            aria-disabled={pageBoundary(safeCurrentPage, totalPages).atLast || undefined}
             aria-label="Next page"
           >
-            Next ›
+            Next <span aria-hidden="true">›</span>
           </button>
         </div>
       </nav>

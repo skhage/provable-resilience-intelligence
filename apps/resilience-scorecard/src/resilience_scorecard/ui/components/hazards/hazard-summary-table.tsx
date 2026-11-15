@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import { useListHazardsSuspense } from "@/lib/api";
 import { HazardTypeCell } from "./hazard-type-cell";
+import { pageBoundary } from "@/lib/action-queue-focus";
 
 type SortField = "severity" | "spans_affected" | "last_update";
 type SortDir = "asc" | "desc";
@@ -244,22 +245,26 @@ function HazardTableContent() {
               ))}
             </select>
           </label>
+          {/* BUG-DW-184 (WCAG 2.4.3): aria-disabled + onClick guard (same as /actions BUG-DW-109)
+              so a boundary button stays focusable instead of dropping focus to <body>. */}
           <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={safePage <= 1}
+            type="button"
+            onClick={() => { if (!pageBoundary(safePage, totalPages).atFirst) setPage((p) => Math.max(1, p - 1)); }}
+            aria-disabled={pageBoundary(safePage, totalPages).atFirst || undefined}
             aria-label="Previous page"
           >
-            ‹ Prev
+            <span aria-hidden="true">‹</span> Previous
           </button>
           <span>
             Page {safePage} of {totalPages}
           </span>
           <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={safePage >= totalPages}
+            type="button"
+            onClick={() => { if (!pageBoundary(safePage, totalPages).atLast) setPage((p) => Math.min(totalPages, p + 1)); }}
+            aria-disabled={pageBoundary(safePage, totalPages).atLast || undefined}
             aria-label="Next page"
           >
-            Next ›
+            Next <span aria-hidden="true">›</span>
           </button>
         </div>
       </nav>
