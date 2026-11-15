@@ -25,6 +25,9 @@ import {
   CONDUITS_FAILED_MSG,
   CONDUITS_LOADING_MSG,
   conduitResultMessage,
+  fmtCount,
+  fmtKm,
+  noCoordsMessage,
 } from "@/lib/conduits-status";
 import {
   useGetConduitCoverageSummarySuspense,
@@ -144,14 +147,14 @@ function CoverageLegend() {
             <LineSwatch cls={m.cls} />
             <CoverageBadge value={c.span_coverage_class} />
             <span className="mono coverage-legend-count">
-              {c.conduit_count.toLocaleString()} conduits · {Math.round(c.length_km).toLocaleString()} km
+              {fmtCount(c.conduit_count)} conduits · {fmtCount(Math.round(c.length_km))} km
             </span>
             <span className="text-caption">{m.description}</span>
           </li>
         );
       })}
       <li className="coverage-legend-item text-caption">
-        Total {summary.total_conduits.toLocaleString()} active conduits · source{" "}
+        Total {fmtCount(summary.total_conduits)} active conduits · source{" "}
         <span className="mono">{summary.source_table}</span> (v4 shadow)
       </li>
     </ul>
@@ -220,14 +223,14 @@ function ConduitMap({ conduits, filterLabel }: { conduits: ConduitCoverage[]; fi
   const sharedCorridors = corridors.filter((g) => g.count > 1);
   const corridorSummary =
     bbCount > 0
-      ? `${bbCount.toLocaleString()} backbone conduit${bbCount === 1 ? "" : "s"} drawn on ${corridors.length.toLocaleString()} distinct corridor${corridors.length === 1 ? "" : "s"}` +
+      ? `${fmtCount(bbCount)} backbone conduit${bbCount === 1 ? "" : "s"} drawn on ${fmtCount(corridors.length)} distinct corridor${corridors.length === 1 ? "" : "s"}` +
         (sharedCorridors.length > 0
-          ? `; ${sharedCorridors.length.toLocaleString()} corridor${sharedCorridors.length === 1 ? " is" : "s are"} shared by parallel routes, marked with a route count (\u00D7N).`
+          ? `; ${fmtCount(sharedCorridors.length)} corridor${sharedCorridors.length === 1 ? " is" : "s are"} shared by parallel routes, marked with a route count (\u00D7N).`
           : ".")
       : "";
   const tableNote =
     conduits.length > TABLE_ROW_LIMIT
-      ? `The table below lists the ${TABLE_ROW_LIMIT.toLocaleString()} longest of ${conduits.length.toLocaleString()} matching conduits.`
+      ? `The table below lists the ${fmtCount(TABLE_ROW_LIMIT)} longest of ${fmtCount(conduits.length)} matching conduits.`
       : "The table below lists the same conduits.";
   const sites = useMemo(() => {
     const m = new Map<string, [number, number]>();
@@ -244,7 +247,7 @@ function ConduitMap({ conduits, filterLabel }: { conduits: ConduitCoverage[]; fi
         viewBox={`0 0 ${MAP_W} ${MAP_H}`}
         className="conduit-map"
         role="img"
-        aria-label={`Conduit coverage map, ${filterLabel}: ${drawable.length.toLocaleString()} conduits drawn.${corridorSummary ? ` ${corridorSummary}` : ""} ${tableNote}`}
+        aria-label={`Conduit coverage map, ${filterLabel}: ${fmtCount(drawable.length)} conduits drawn.${corridorSummary ? ` ${corridorSummary}` : ""} ${tableNote}`}
       >
         <rect x="0" y="0" width={MAP_W} height={MAP_H} className="conduit-map-bg" />
         {drawable.map((c) => {
@@ -259,7 +262,7 @@ function ConduitMap({ conduits, filterLabel }: { conduits: ConduitCoverage[]; fi
               className={`conduit-line ${m.cls}`}
               vectorEffect="non-scaling-stroke"
             >
-              <title>{`${c.conduit_id} · ${m.label} · ${c.length_km} km · ${c.coverage_pct}% segmented`}</title>
+              <title>{`${c.conduit_id} · ${m.label} · ${fmtKm(c.length_km)} km · ${c.coverage_pct}% segmented`}</title>
             </line>
           );
         })}
@@ -276,7 +279,7 @@ function ConduitMap({ conduits, filterLabel }: { conduits: ConduitCoverage[]; fi
       {corridorSummary && <p className="text-caption corridor-summary">{corridorSummary}</p>}
       {drawable.length < conduits.length && (
         <p className="text-caption">
-          {conduits.length - drawable.length} conduit(s) have no site coordinates and are listed in the table only.
+          {noCoordsMessage(conduits.length - drawable.length)}
         </p>
       )}
     </div>
@@ -316,7 +319,7 @@ function ConduitTable({ conduits }: { conduits: ConduitCoverage[] }) {
     >
       <table>
         <caption id="conduit-table-caption" className="text-caption coverage-caption">
-          Showing {shown.length.toLocaleString()} of {conduits.length.toLocaleString()} conduits, longest first.
+          Showing {fmtCount(shown.length)} of {fmtCount(conduits.length)} conduits, longest first.
         </caption>
         <thead>
           <tr>
@@ -340,8 +343,8 @@ function ConduitTable({ conduits }: { conduits: ConduitCoverage[] }) {
               <td>
                 <CoverageBadge value={c.span_coverage_class} />
               </td>
-              <td className="mono num">{c.length_km.toLocaleString()}</td>
-              <td className="mono num">{c.segmented_km.toLocaleString()}</td>
+              <td className="mono num">{fmtKm(c.length_km)}</td>
+              <td className="mono num">{fmtKm(c.segmented_km)}</td>
               <td className="mono num">{c.coverage_pct.toFixed(2)}</td>
             </tr>
           ))}
