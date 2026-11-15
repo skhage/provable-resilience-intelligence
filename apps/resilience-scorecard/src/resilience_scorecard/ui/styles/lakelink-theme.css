@@ -885,6 +885,12 @@ select:focus-visible,
   outline-offset: 2px;
 }
 
+/* BUG-DW-187 (WCAG 1.4.11/2.4.7): opacity also dims the outline (0.4 -> #99C0C7 = 1.96:1).
+   Restore full opacity while a dimmed boundary button has keyboard focus. */
+.pagination-bar button[aria-disabled="true"]:focus-visible {
+  opacity: 1;
+}
+
 /* BUG-DW-109 item 2: visible pending state while a filter/page transition loads. */
 .data-table[aria-busy="true"] {
   opacity: 0.6;
@@ -1861,6 +1867,10 @@ select:focus-visible,
   opacity: 0.6;
   cursor: default;
   pointer-events: none;
+}
+/* BUG-DW-187 (WCAG 1.4.11/2.4.7): 0.6 opacity dims the focus ring to 2.9:1; full strength on focus. */
+.path-trace-retry[aria-disabled]:focus-visible {
+  opacity: 1;
 }
 /* BUG-DW-111 item 6: focus ring comes from the global [tabindex]:focus-visible rule */
 .path-trace-banner-nodata:focus:not(:focus-visible) {
