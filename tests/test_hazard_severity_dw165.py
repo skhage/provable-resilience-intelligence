@@ -144,7 +144,8 @@ def test_forced_colors_cover_mapped_classes(css, table_src):
 @pytest.mark.parametrize("fname", _FALLBACK_FILES)
 def test_fallback_container_role_alert(fname):
     src = (_HAZ / fname).read_text(encoding="utf-8")
-    m = re.search(r"fallbackRender=\{\(\{ resetErrorBoundary \}\) => \(\s*<div([^>]*)>", src)
+    # BUG-DW-178: fallback moved to <RetryBoundary fallback={(retryButton) => ...}>.
+    m = re.search(r"fallback=\{\(retryButton\) => \(\s*<div([^>]*)>", src)
     assert m, f"{fname}: fallbackRender container not found"
     assert 'role="alert"' in m.group(1), f"{fname}: fallback container lacks role=alert"
     assert not re.search(r"<button[^>]*role=\"alert\"", src), f"{fname}: role=alert on button"

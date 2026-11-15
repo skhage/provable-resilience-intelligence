@@ -141,14 +141,19 @@ def test_boundary_announce_defaults_true_and_gates_roles():
 
 def test_error_fallback_keeps_visible_text_and_retry():
     b = _boundary_src()
-    fb = re.search(r"fallbackRender=\{\(\{ resetErrorBoundary \}\) => \((.*?</div>)\s*\)\}", b, re.S)
+    # BUG-DW-178: fallback moved to <RetryBoundary fallback={(retryButton) => ...}>; the Retry
+    # button is the shared one in components/ui/retry-boundary.tsx.
+    fb = re.search(r"fallback=\{\(retryButton\) => \((.*?</div>)\s*\)\}", b, re.S)
     assert fb
     body = fb.group(1)
     assert "<p>Failed to load {label.toLowerCase()}</p>" in body
-    btn = re.search(r"<button([^>]*)>\s*Retry\s*</button>", body)
+    assert "{retryButton}" in body, "Retry button missing"
+    shared = _read(os.path.join(UI, "components", "ui", "retry-boundary.tsx"))
+    assert re.search(r"<RetryButton[^>]*onRetry=\{resetErrorBoundary\}", shared)
+    btn = re.search(r"<button(.*?)>\s*Retry\s*</button>", shared, re.S)
     assert btn, "Retry button missing"
     # Retry stays a real focusable button, independent of announce.
-    assert "onClick={resetErrorBoundary}" in btn.group(1)
+    assert "onRetry();" in btn.group(1)
     assert "announce" not in btn.group(1) and "disabled" not in btn.group(1) and "tabIndex" not in btn.group(1)
 
 

@@ -75,10 +75,15 @@ def test_fallback_keeps_class_names(fname, message):
 
 @pytest.mark.parametrize("fname,message", COMPONENTS.items())
 def test_retry_is_real_button_wired_to_reset(fname, message):
+    # BUG-DW-178: Retry is now the shared RetryBoundary button (still a real <button> that
+    # calls resetErrorBoundary), injected into the fallback as {retryButton}.
     block = _fallback_block(_read(_DASH / fname), message)
-    assert re.search(r"<button[^>]*onClick=\{resetErrorBoundary\}", block), block
-    assert "Retry" in block
+    assert "{retryButton}" in block, block
     assert 'role="button"' not in block
+    shared = _read(_UI / "components/ui/retry-boundary.tsx")
+    assert re.search(r"<RetryButton[^>]*onRetry=\{resetErrorBoundary\}", shared)
+    assert re.search(r'<button\s+ref=\{buttonRef\}\s+type="button"', shared)
+    assert re.search(r">\s*Retry\s*</button>", shared)
 
 
 @pytest.mark.parametrize("fname", COMPONENTS)

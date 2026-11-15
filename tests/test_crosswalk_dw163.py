@@ -36,7 +36,8 @@ def test_select_above_suspense(source: str):
     <Suspense in the file.  If it is inside the Suspense subtree, React
     will unmount it on suspension and the user loses focus."""
     sel_pos = source.find('id="xwalk-hazard-filter"')
-    sus_pos = source.find("<Suspense")
+    # BUG-DW-178: Suspense now lives inside the shared <RetryBoundary>.
+    sus_pos = source.find("<RetryBoundary")
     assert sel_pos != -1, "select element not found"
     assert sus_pos != -1, "Suspense boundary not found"
     assert sel_pos < sus_pos, (
@@ -98,8 +99,9 @@ def test_error_fallback_role_alert(source: str):
     """The ErrorBoundary fallback container must carry role='alert' so a load
     failure is announced to assistive technology."""
     # Find the fallbackRender region
-    fb_idx = source.find("fallbackRender")
-    assert fb_idx != -1, "fallbackRender not found"
+    # BUG-DW-178: fallback moved to <RetryBoundary fallback={(retryButton) => ...}>.
+    fb_idx = source.find("fallback={(retryButton) =>")
+    assert fb_idx != -1, "RetryBoundary fallback not found"
     fb_region = source[fb_idx : fb_idx + 400]
     assert 'role="alert"' in fb_region, (
         "role='alert' missing from error-fallback container"

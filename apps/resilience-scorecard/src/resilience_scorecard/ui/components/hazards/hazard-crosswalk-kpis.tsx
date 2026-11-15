@@ -5,9 +5,8 @@
  * Cards: Total Intersections, Network Exposure, Direct Impact Spans, Hazard Types
  * Pattern: mirrors HazardKpiRow with Suspense + ErrorBoundary.
  */
-import { Suspense } from "react";
 import { QueryErrorResetBoundary, useSuspenseQuery } from "@tanstack/react-query";
-import { ErrorBoundary } from "react-error-boundary";
+import { RetryBoundary } from "@/components/ui/retry-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 
@@ -87,31 +86,26 @@ export function HazardCrosswalkKpis() {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
-        <ErrorBoundary
+        <RetryBoundary
           onReset={reset}
-          fallbackRender={({ resetErrorBoundary }) => (
+          fallback={(retryButton) => (
             <div className="kpi-row" role="alert">
               <div className="kpi-card">
                 <p>Failed to load crosswalk summary</p>
-                <button className="btn btn-outline" onClick={resetErrorBoundary}>
-                  Retry
-                </button>
+                {retryButton}
               </div>
             </div>
           )}
+          loading={
+            <LoadingRegion className="kpi-row" label="Loading crosswalk summary">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-24 w-full rounded-lg" />
+              ))}
+            </LoadingRegion>
+          }
         >
-          <Suspense
-            fallback={
-              <LoadingRegion className="kpi-row" label="Loading crosswalk summary">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <Skeleton key={i} className="h-24 w-full rounded-lg" />
-                ))}
-              </LoadingRegion>
-            }
-          >
-            <CrosswalkKpiContent />
-          </Suspense>
-        </ErrorBoundary>
+          <CrosswalkKpiContent />
+        </RetryBoundary>
       )}
     </QueryErrorResetBoundary>
   );

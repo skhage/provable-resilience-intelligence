@@ -6,9 +6,9 @@
  * Default sort by severity. Uses hazard type badges (§2) and severity badges (§3).
  * Follows ServiceTable pattern with Suspense + ErrorBoundary.
  */
-import { Suspense, useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
-import { ErrorBoundary } from "react-error-boundary";
+import { RetryBoundary } from "@/components/ui/retry-boundary";
 import { Link } from "@tanstack/react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
@@ -271,27 +271,22 @@ export function HazardSummaryTable() {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
-        <ErrorBoundary
+        <RetryBoundary
           onReset={reset}
-          fallbackRender={({ resetErrorBoundary }) => (
+          fallback={(retryButton) => (
             <div className="data-table error-fallback" role="alert">
               <p>Failed to load hazard data</p>
-              <button className="btn btn-outline" onClick={resetErrorBoundary}>
-                Retry
-              </button>
+              {retryButton}
             </div>
           )}
+          loading={
+            <LoadingRegion label="Loading hazard table">
+              <Skeleton className="h-96 w-full rounded-lg" />
+            </LoadingRegion>
+          }
         >
-          <Suspense
-            fallback={
-              <LoadingRegion label="Loading hazard table">
-                <Skeleton className="h-96 w-full rounded-lg" />
-              </LoadingRegion>
-            }
-          >
-            <HazardTableContent />
-          </Suspense>
-        </ErrorBoundary>
+          <HazardTableContent />
+        </RetryBoundary>
       )}
     </QueryErrorResetBoundary>
   );

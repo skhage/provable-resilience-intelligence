@@ -2,9 +2,8 @@
  * Lakelink Fiber — Resilience Scorecard Dashboard Header
  * Displays aggregate KPIs: avg score, risk counts, SPFs, SRLGs
  */
-import { Suspense } from "react";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
-import { ErrorBoundary } from "react-error-boundary";
+import { RetryBoundary } from "@/components/ui/retry-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
@@ -183,32 +182,27 @@ export function ScorecardHeader() {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
-        <ErrorBoundary
+        <RetryBoundary
           onReset={reset}
-          fallbackRender={({ resetErrorBoundary }) => (
+          fallback={(retryButton) => (
             /* BUG-DW-170: role=alert so the failure is announced (WCAG 4.1.3), matching ProductCatalog/ServiceTable */
             <div className="kpi-row" role="alert">
               <div className="kpi-card">
                 <p>Failed to load summary</p>
-                <button className="btn btn-outline" onClick={resetErrorBoundary}>
-                  Retry
-                </button>
+                {retryButton}
               </div>
             </div>
           )}
+          loading={
+            <LoadingRegion className="kpi-row" label="Loading KPI summary">
+              {Array.from({ length: 9 }).map((_, i) => ( /* BUG-DW-034: match 9 KPI cards including Revenue at Risk */
+                <Skeleton key={i} className="h-24 w-full rounded-lg" />
+              ))}
+            </LoadingRegion>
+          }
         >
-          <Suspense
-            fallback={
-              <LoadingRegion className="kpi-row" label="Loading KPI summary">
-                {Array.from({ length: 9 }).map((_, i) => ( /* BUG-DW-034: match 9 KPI cards including Revenue at Risk */
-                  <Skeleton key={i} className="h-24 w-full rounded-lg" />
-                ))}
-              </LoadingRegion>
-            }
-          >
-            <ScorecardHeaderContent />
-          </Suspense>
-        </ErrorBoundary>
+          <ScorecardHeaderContent />
+        </RetryBoundary>
       )}
     </QueryErrorResetBoundary>
   );

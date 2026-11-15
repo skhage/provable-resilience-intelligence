@@ -6,9 +6,8 @@
  * Conditional render: only shown if hazard data is available.
  * Pattern: mirrors ScorecardHeader with Suspense + ErrorBoundary.
  */
-import { Suspense } from "react";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
-import { ErrorBoundary } from "react-error-boundary";
+import { RetryBoundary } from "@/components/ui/retry-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import { useGetHazardSummarySuspense } from "@/lib/api";
@@ -68,31 +67,26 @@ export function HazardKpiRow() {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
-        <ErrorBoundary
+        <RetryBoundary
           onReset={reset}
-          fallbackRender={({ resetErrorBoundary }) => (
+          fallback={(retryButton) => (
             <div className="kpi-row" role="alert">
               <div className="kpi-card">
                 <p>Failed to load hazard summary</p>
-                <button className="btn btn-outline" onClick={resetErrorBoundary}>
-                  Retry
-                </button>
+                {retryButton}
               </div>
             </div>
           )}
+          loading={
+            <LoadingRegion className="kpi-row" label="Loading hazard summary">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-24 w-full rounded-lg" />
+              ))}
+            </LoadingRegion>
+          }
         >
-          <Suspense
-            fallback={
-              <LoadingRegion className="kpi-row" label="Loading hazard summary">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <Skeleton key={i} className="h-24 w-full rounded-lg" />
-                ))}
-              </LoadingRegion>
-            }
-          >
-            <HazardKpiContent />
-          </Suspense>
-        </ErrorBoundary>
+          <HazardKpiContent />
+        </RetryBoundary>
       )}
     </QueryErrorResetBoundary>
   );

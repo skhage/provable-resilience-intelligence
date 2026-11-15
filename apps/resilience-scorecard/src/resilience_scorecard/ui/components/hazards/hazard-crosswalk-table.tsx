@@ -7,9 +7,9 @@
  * distinct spans, avg services/span, and avg distance. Filterable by hazard_type.
  * Uses HAZARD-VIS-SPEC badge patterns and HazardTypeCell icons.
  */
-import { Suspense, useState, useMemo, useCallback, useTransition, useEffect } from "react";
+import { useState, useMemo, useCallback, useTransition, useEffect } from "react";
 import { QueryErrorResetBoundary, useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { ErrorBoundary } from "react-error-boundary";
+import { RetryBoundary } from "@/components/ui/retry-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import { HazardTypeCell } from "./hazard-type-cell";
@@ -348,32 +348,27 @@ export function HazardCrosswalkTable() {
 
       <QueryErrorResetBoundary>
         {({ reset }) => (
-          <ErrorBoundary
+          <RetryBoundary
             onReset={reset}
-            fallbackRender={({ resetErrorBoundary }) => (
+            fallback={(retryButton) => (
               <div className="data-table error-fallback" role="alert">
                 <p>Failed to load crosswalk data</p>
-                <button className="btn btn-outline" onClick={resetErrorBoundary}>
-                  Retry
-                </button>
+                {retryButton}
               </div>
             )}
+            loading={
+              <LoadingRegion label="Loading crosswalk table">
+                <Skeleton className="h-96 w-full rounded-lg" />
+              </LoadingRegion>
+            }
           >
-            <Suspense
-              fallback={
-                <LoadingRegion label="Loading crosswalk table">
-                  <Skeleton className="h-96 w-full rounded-lg" />
-                </LoadingRegion>
-              }
-            >
-              <CrosswalkTableContent
-                hazardFilter={committedFilter}
-                isPending={isPending}
-                filterLabel={filterLabel}
-                onStatusChange={setStatusText}
-              />
-            </Suspense>
-          </ErrorBoundary>
+            <CrosswalkTableContent
+              hazardFilter={committedFilter}
+              isPending={isPending}
+              filterLabel={filterLabel}
+              onStatusChange={setStatusText}
+            />
+          </RetryBoundary>
         )}
       </QueryErrorResetBoundary>
     </>

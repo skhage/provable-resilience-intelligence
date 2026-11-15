@@ -3,9 +3,9 @@
  * Shows pending/in-progress actions with status update buttons.
  * State is persisted in Lakebase Postgres.
  */
-import { Suspense, useState, useCallback, useEffect, useRef, useTransition, Fragment } from "react";
+import { useState, useCallback, useEffect, useRef, useTransition, Fragment } from "react";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
-import { ErrorBoundary } from "react-error-boundary";
+import { RetryBoundary } from "@/components/ui/retry-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import {
@@ -615,34 +615,29 @@ export function ActionQueueTable() {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
-        <ErrorBoundary
+        <RetryBoundary
           onReset={reset}
-          fallbackRender={({ resetErrorBoundary }) => (
-            // BUG-DW-104 (5) WCAG 4.1.3: announced on mount.
+          fallback={(retryButton) => (
+            // BUG-DW-104 (5) WCAG 4.1.3: announced on mount. BUG-DW-178: shared Retry focus.
             <div className="error-fallback" role="alert">
               <p>{ACTION_QUEUE_LOAD_ERROR}</p>
-              <button className="btn btn-outline" onClick={resetErrorBoundary}>
-                Retry
-              </button>
+              {retryButton}
             </div>
           )}
+          loading={
+            <LoadingRegion label="Loading action queue">
+              <div className="kpi-row">
+                {Array.from({ length: skeletonCards }).map((_, i) => (
+                  <Skeleton key={i} className="h-24 w-full rounded-lg" />
+                ))}
+              </div>
+              <Skeleton className="h-96 w-full rounded-lg" />
+            </LoadingRegion>
+          }
         >
-          <Suspense
-            fallback={
-              <LoadingRegion label="Loading action queue">
-                <div className="kpi-row">
-                  {Array.from({ length: skeletonCards }).map((_, i) => (
-                    <Skeleton key={i} className="h-24 w-full rounded-lg" />
-                  ))}
-                </div>
-                <Skeleton className="h-96 w-full rounded-lg" />
-              </LoadingRegion>
-            }
-          >
-            <ActionSummaryCards />
-            <ActionTableContent />
-          </Suspense>
-        </ErrorBoundary>
+          <ActionSummaryCards />
+          <ActionTableContent />
+        </RetryBoundary>
       )}
     </QueryErrorResetBoundary>
   );

@@ -19,6 +19,10 @@ _UI = pathlib.Path(__file__).resolve().parent.parent / (
 _HEADER = _UI / "components/dashboard/scorecard-header.tsx"
 _MESSAGE = "Failed to load summary"
 _ALLOWED_ROLE = re.compile(r'role="alert"|role=\{announce \? "alert" : undefined\}')
+# BUG-DW-178: fallbacks moved from <ErrorBoundary fallbackRender> to <RetryBoundary fallback>.
+_FALLBACK = "fallback={(retryButton) =>"
+_END = "</RetryBoundary>"
+_SHARED = _UI / "components/ui/retry-boundary.tsx"
 
 
 def _src() -> str:
@@ -35,7 +39,7 @@ def _fallback_body(src: str, start: int) -> str:
 
 def test_header_fallback_outer_has_role_alert():
     src = _src()
-    i = src.find("fallbackRender")
+    i = src.find(_FALLBACK)
     assert i >= 0
     tag = _fallback_body(src, i)
     assert 'className="kpi-row"' in tag, tag
@@ -44,8 +48,9 @@ def test_header_fallback_outer_has_role_alert():
 
 def test_header_fallback_keeps_message_and_kpi_card():
     src = _src()
-    i = src.find("fallbackRender")
-    block = src[i : src.find("</ErrorBoundary>", i)]
+    i = src.find(_FALLBACK)
+    assert i >= 0
+    block = src[i : src.find(_END, i)]
     assert _MESSAGE in block
     assert 'className="kpi-card"' in block
 
@@ -54,23 +59,29 @@ def test_header_retry_is_real_button_wired_to_reset():
     src = _src()
     i = src.find(_MESSAGE)
     block = src[i : src.find("</div>", i)]
-    assert re.search(r'<button[^>]*onClick=\{resetErrorBoundary\}', block), block
-    assert "Retry" in block
+    assert "{retryButton}" in block, block
     assert 'role="button"' not in block
+    shared = _SHARED.read_text(encoding="utf-8")
+    assert re.search(r"<RetryButton[^>]*onRetry=\{resetErrorBoundary\}", shared)
+    assert re.search(r'<button\s+ref=\{buttonRef\}\s+type="button"', shared)
+    assert re.search(r">\s*Retry\s*</button>", shared)
 
 
 def test_header_has_single_alert_not_nested():
     src = _src()
-    i = src.find("fallbackRender")
-    block = src[i : src.find("</ErrorBoundary>", i)]
+    i = src.find(_FALLBACK)
+    assert i >= 0
+    block = src[i : src.find(_END, i)]
     assert block.count('role="alert"') == 1
 
 
 def test_every_fallback_render_in_ui_has_alert_role():
     missing = []
     for p in sorted(_UI.rglob("*.tsx")):
+        if p == _SHARED:  # delegates to the caller's fallback; it renders no container itself
+            continue
         src = p.read_text(encoding="utf-8")
-        for m in re.finditer(r"fallbackRender=\{", src):
+        for m in re.finditer(r"fallbackRender=\{|fallback=\{(?=\(retryButton\) =>)", src):
             tag = _fallback_body(src, m.end())
             if not _ALLOWED_ROLE.search(tag):
                 line = src.count("\n", 0, m.start()) + 1

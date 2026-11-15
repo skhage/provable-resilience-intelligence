@@ -14,10 +14,10 @@
  * alternative to the map.
  * Deep links: /conduits?coverage=BB_SEGMENTED&region=Central
  */
-import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
-import { ErrorBoundary } from "react-error-boundary";
+import { RetryBoundary } from "@/components/ui/retry-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import {
@@ -408,32 +408,28 @@ function Boundary({
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
-        <ErrorBoundary
+        <RetryBoundary
           resetKeys={resetKeys}
           onError={onError ? () => onError() : undefined}
           onReset={() => {
             reset();
             onRetry?.();
           }}
-          fallbackRender={({ resetErrorBoundary }) => (
+          fallback={(retryButton) => (
+            /* BUG-DW-178: shared Retry focus management (WCAG 2.4.3) */
             <div className="data-table error-fallback" role={announce ? "alert" : undefined}>
               <p>Failed to load {label.toLowerCase()}</p>
-              <button className="btn btn-outline" onClick={resetErrorBoundary}>
-                Retry
-              </button>
+              {retryButton}
             </div>
           )}
+          loading={
+            <LoadingRegion label={`Loading ${label.toLowerCase()}`} announce={announce}>
+              <Skeleton className="h-48 w-full rounded-lg" />
+            </LoadingRegion>
+          }
         >
-          <Suspense
-            fallback={
-              <LoadingRegion label={`Loading ${label.toLowerCase()}`} announce={announce}>
-                <Skeleton className="h-48 w-full rounded-lg" />
-              </LoadingRegion>
-            }
-          >
-            {children}
-          </Suspense>
-        </ErrorBoundary>
+          {children}
+        </RetryBoundary>
       )}
     </QueryErrorResetBoundary>
   );

@@ -3091,3 +3091,16 @@ select:focus-visible,
 @media (forced-colors: active) {
   .panel-srlg-status { color: CanvasText; }
 }
+
+/* BUG-DW-178 (WCAG 2.4.3): RetryBoundary focus container. Programmatic focus target only;
+   no visible change except the :focus-visible teal 2px ring (7.02:1). */
+.retry-focus-target:focus {
+  outline: none;
+}
+.retry-focus-target:focus-visible {
+  outline: 2px solid var(--lf-dark-teal);
+  outline-offset: 2px;
+}
+@media (forced-colors: active) {
+  .retry-focus-target:focus-visible { outline-color: Highlight; }
+}
