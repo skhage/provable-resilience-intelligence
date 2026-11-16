@@ -24,13 +24,9 @@ import {
 } from "@/lib/v4-delta-format";
 import { badgeVariant, type BadgeVariant } from "@/lib/provisional-disclosure";
 import selector from "@/lib/selector";
-
-function scoreClass(score: number): string {
-  if (score >= 80) return "success";
-  if (score >= 60) return "warning";
-  if (score >= 40) return "high";
-  return "critical";
-}
+// BUG-DW-189: shared 85/70/55/40 bands (same as the service table gauge). Border colour is
+// mapped from the band and is supplementary; under the v4 flag the band label is visible text.
+import { scoreBand, scoreBandKpiClass } from "@/lib/score-band";
 
 /**
  * P36-APP-V4-BB-SRLG-DISCLOSURE (V4-KPI-COPY-SPEC §2.1/§2.2, §6.3, §6.4). Rendered only when
@@ -74,6 +70,7 @@ function ScorecardHeaderContent() {
     v4Kpis, summary.report_status, provisionalObjects, "scorecard_header",
   );
   const avgScore = v4Kpis ? formatScore(summary.avg_resilience_score) : summary.avg_resilience_score.toFixed(1);
+  const avgBand = scoreBand(summary.avg_resilience_score);
   const critical = v4Kpis ? formatKpiCount(summary.critical_count) : summary.critical_count;
   // BUG-DW-123 (§7.7 #4): High Risk uses the same thousands formatting as Critical under the flag.
   const highRisk = v4Kpis ? formatKpiCount(summary.high_risk_count) : summary.high_risk_count;
@@ -87,8 +84,8 @@ function ScorecardHeaderContent() {
 
   return (
     <div className="kpi-row">
-      <div className={`kpi-card ${scoreClass(summary.avg_resilience_score)}`}
-           role="group" aria-label={`Avg Resilience Score: ${avgScore}`}>
+      <div className={`kpi-card ${scoreBandKpiClass(summary.avg_resilience_score)}`}
+           role="group" aria-label={v4Kpis ? `Avg Resilience Score: ${avgScore}, ${avgBand.label}` : `Avg Resilience Score: ${avgScore}`}>
         {headerVariant ? (
           <div className="kpi-label kpi-label-row kpi-label-row--interim">
             <span>Avg Resilience Score</span>
@@ -98,6 +95,8 @@ function ScorecardHeaderContent() {
           <div className="kpi-label">Avg Resilience Score</div>
         )}
         <div className="kpi-value score">{avgScore}</div>
+        {/* BUG-DW-189 (WCAG 1.4.1): band as text, solid iron 8.45:1; v4 flag only (v3 freeze unchanged). */}
+        {v4Kpis && <div className="kpi-caption">{avgBand.label}</div>}
       </div>
       <div className="kpi-card critical"
            role="group" aria-label={`Critical Risk: ${critical}`}>

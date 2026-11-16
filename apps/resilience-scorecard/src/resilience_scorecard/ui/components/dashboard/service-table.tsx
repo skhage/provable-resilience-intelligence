@@ -19,14 +19,8 @@ import { isProvisional } from "@/lib/provisional-disclosure";
 import { InterimBadge } from "@/components/ui/interim-badge";
 import selector from "@/lib/selector";
 import { pageBoundary } from "@/lib/action-queue-focus";
-
-function gaugeClass(score: number): string {
-  if (score >= 85) return "excellent";
-  if (score >= 70) return "good";
-  if (score >= 55) return "fair";
-  if (score >= 40) return "poor";
-  return "failing";
-}
+// BUG-DW-189: thresholds 85/70/55/40 now live in the shared lib (also used by the Home Avg card).
+import { scoreBand } from "@/lib/score-band";
 
 function ScoreGauge({ score, label }: { score: number; label?: string }) {
   return (
@@ -39,7 +33,7 @@ function ScoreGauge({ score, label }: { score: number; label?: string }) {
       <span className="score-value">{score.toFixed(1)}</span>
       <span className="gauge-bar" aria-hidden="true">
         <span
-          className={`gauge-fill ${gaugeClass(score)}`}
+          className={`gauge-fill ${scoreBand(score).key}`}
           style={{ width: `${score}%` }}
         />
       </span>
