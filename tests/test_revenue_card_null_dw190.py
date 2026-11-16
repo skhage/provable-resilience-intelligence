@@ -31,17 +31,29 @@ def _content_fn():
     return src[start:end]
 
 
-def _branches():
-    """Split the revenue ternary into (null_branch, value_branch)."""
+def _card():
+    """The single Revenue at Risk card (opening tag through its closing div)."""
     body = _content_fn()
-    m = re.search(r"\{revenueAtRisk == null \? \(", body)
-    assert m, "revenue card must be a null ternary, not a conditional guard"
-    rest = body[m.end():]
-    sep = rest.index(") : (")
-    null_branch = rest[:sep]
-    value_branch = rest[sep + len(") : ("):]
-    value_branch = value_branch[: value_branch.index("</div>\n      )}") + len("</div>")]
-    return null_branch, value_branch
+    start = body.index("aria-label={revenueAtRisk == null")
+    start = body.rindex('<div className="kpi-card critical"', 0, start)
+    end = body.index("\n      </div>\n    </div>\n  );", start)
+    return body[start:end]
+
+
+def _branches():
+    """Split the value-region ternary into (null_branch, value_branch); the label/badge is shared."""
+    card = _card()
+    m = re.search(r"\{revenueAtRisk == null \? \(", card)
+    assert m, "revenue value region must be a null ternary, not a conditional guard"
+    rest = card[m.end():]
+    sep = rest.index("\n        ) : (\n")
+    return rest[:sep], rest[sep:]
+
+
+def _aria():
+    card = _card()
+    a = card.index("aria-label={revenueAtRisk == null")
+    return card[a: card.index("`}>", a) + 3]
 
 
 # (a) no conditional guard that drops the card
@@ -63,9 +75,15 @@ def test_backend_still_allows_none():
 
 # (b) null branch content
 def test_null_branch_aria_label():
-    nb, _ = _branches()
-    assert 'aria-label="Revenue at Risk: not available"' in nb
-    assert 'role="group"' in nb
+    aria = _aria()
+    assert '? "Revenue at Risk: not available"' in aria
+    assert 'role="group"' in _card()
+
+
+def test_single_card_always_rendered():
+    body = _content_fn()
+    assert body.count("<span>Revenue at Risk</span>") == 1
+    assert body.count('<div className="kpi-label">Revenue at Risk</div>') == 1
 
 
 def test_null_branch_caption():
@@ -75,14 +93,15 @@ def test_null_branch_caption():
 
 def test_null_branch_em_dash_aria_hidden():
     nb, _ = _branches()
-    assert re.search(r'<div className="kpi-value" aria-hidden="true">\{"\\u2014"\}</div>', nb)
+    assert '<div className="kpi-value" aria-hidden="true">{"\\u2014"}</div>' in nb
 
 
-def test_null_branch_keeps_critical_border_and_badge():
-    nb, _ = _branches()
-    assert 'className="kpi-card critical"' in nb
-    assert "<InterimBadge variant={headerVariant} />" in nb
-    assert '<div className="kpi-label">Revenue at Risk</div>' in nb
+def test_card_keeps_critical_border_and_badge_for_both_states():
+    card = _card()
+    assert card.startswith('<div className="kpi-card critical"')
+    head = card[: card.index("{revenueAtRisk == null ? (")]
+    assert "<InterimBadge variant={headerVariant} />" in head
+    assert '<div className="kpi-label">Revenue at Risk</div>' in head
 
 
 def test_null_branch_no_number_formatting():
@@ -93,13 +112,12 @@ def test_null_branch_no_number_formatting():
 # (c) non-null branch unchanged (flag on or off)
 def test_value_branch_unchanged():
     _, vb = _branches()
-    assert 'className="kpi-card critical"' in vb
-    assert ('aria-label={`Revenue at Risk: $${v4Kpis ? formatMillions(revenueAtRisk) : '
-            '(revenueAtRisk / 1_000_000).toFixed(1)}M${v4Kpis ? " per month" : ""}`}') in vb
+    assert (': `Revenue at Risk: $${v4Kpis ? formatMillions(revenueAtRisk) : '
+            '(revenueAtRisk / 1_000_000).toFixed(1)}M${v4Kpis ? " per month" : ""}`}') in _aria()
+    assert '<div className="kpi-value">' in vb
     assert "${v4Kpis ? formatMillions(revenueAtRisk) : (revenueAtRisk / 1_000_000).toFixed(1)}M" in vb
     assert '{v4Kpis && <span className="kpi-sub">/mo</span>}' in vb
-    assert "<InterimBadge variant={headerVariant} />" in vb
-    assert "Not available" not in vb
+    assert "Not available" not in vb and "aria-hidden" not in vb
 
 
 def test_skeleton_still_nine_cards():

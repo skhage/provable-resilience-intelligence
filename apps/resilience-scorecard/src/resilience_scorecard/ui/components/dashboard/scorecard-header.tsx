@@ -160,37 +160,30 @@ function ScorecardHeaderContent() {
       {/* UX-REVENUE-DISPLAY: Core business metric (~$47.7M/year project value) */}
       {/* BUG-DW-190: always render the card so the 9-card layout (BUG-DW-034 skeleton) never collapses;
           a null value is shown honestly as "Not available" (same rule as BUG-DW-164/166). */}
-      {revenueAtRisk == null ? (
-        <div className="kpi-card critical"
-             role="group" aria-label="Revenue at Risk: not available">
-          {headerVariant ? (
-            <div className="kpi-label kpi-label-row kpi-label-row--interim">
-              <span>Revenue at Risk</span>
-              <InterimBadge variant={headerVariant} />
-            </div>
-          ) : (
-            <div className="kpi-label">Revenue at Risk</div>
-          )}
-          <div className="kpi-value" aria-hidden="true">{"\u2014"}</div>
-          <div className="kpi-caption">Not available</div>
-        </div>
-      ) : (
-        <div className="kpi-card critical"
-             role="group" aria-label={`Revenue at Risk: $${v4Kpis ? formatMillions(revenueAtRisk) : (revenueAtRisk / 1_000_000).toFixed(1)}M${v4Kpis ? " per month" : ""}`}>
-          {headerVariant ? (
-            <div className="kpi-label kpi-label-row kpi-label-row--interim">
-              <span>Revenue at Risk</span>
-              <InterimBadge variant={headerVariant} />
-            </div>
-          ) : (
-            <div className="kpi-label">Revenue at Risk</div>
-          )}
+      <div className="kpi-card critical"
+           role="group" aria-label={revenueAtRisk == null
+             ? "Revenue at Risk: not available"
+             : `Revenue at Risk: $${v4Kpis ? formatMillions(revenueAtRisk) : (revenueAtRisk / 1_000_000).toFixed(1)}M${v4Kpis ? " per month" : ""}`}>
+        {headerVariant ? (
+          <div className="kpi-label kpi-label-row kpi-label-row--interim">
+            <span>Revenue at Risk</span>
+            <InterimBadge variant={headerVariant} />
+          </div>
+        ) : (
+          <div className="kpi-label">Revenue at Risk</div>
+        )}
+        {revenueAtRisk == null ? (
+          <>
+            <div className="kpi-value" aria-hidden="true">{"\u2014"}</div>
+            <div className="kpi-caption">Not available</div>
+          </>
+        ) : (
           <div className="kpi-value">
             ${v4Kpis ? formatMillions(revenueAtRisk) : (revenueAtRisk / 1_000_000).toFixed(1)}M
             {v4Kpis && <span className="kpi-sub">/mo</span>}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
