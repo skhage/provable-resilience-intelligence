@@ -109,8 +109,9 @@ def test_no_coords_message_used():
     assert "noCoordsMessage(conduits.length - drawable.length)" in _read(ROUTE)
 
 
-def test_coverage_pct_unchanged():
-    assert "c.coverage_pct.toFixed(2)" in _read(ROUTE)
+def test_coverage_pct_two_decimals():
+    # BUG-DW-188 superseded toFixed(2) with fmtPct (same 2-decimal output, en-US); see test_conduits_pct_format_dw188.py
+    assert "{fmtPct(c.coverage_pct)}</td>" in _read(ROUTE)
 
 
 def test_helpers_are_en_us():

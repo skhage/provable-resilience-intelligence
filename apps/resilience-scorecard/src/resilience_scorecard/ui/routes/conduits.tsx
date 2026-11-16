@@ -27,6 +27,7 @@ import {
   conduitResultMessage,
   fmtCount,
   fmtKm,
+  fmtPct,
   noCoordsMessage,
 } from "@/lib/conduits-status";
 import {
@@ -262,7 +263,7 @@ function ConduitMap({ conduits, filterLabel }: { conduits: ConduitCoverage[]; fi
               className={`conduit-line ${m.cls}`}
               vectorEffect="non-scaling-stroke"
             >
-              <title>{`${c.conduit_id} · ${m.label} · ${fmtKm(c.length_km)} km · ${c.coverage_pct}% segmented`}</title>
+              <title>{`${c.conduit_id} · ${m.label} · ${fmtKm(c.length_km)} km · ${fmtPct(c.coverage_pct)}% segmented`}</title>
             </line>
           );
         })}
@@ -345,7 +346,7 @@ function ConduitTable({ conduits }: { conduits: ConduitCoverage[] }) {
               </td>
               <td className="mono num">{fmtKm(c.length_km)}</td>
               <td className="mono num">{fmtKm(c.segmented_km)}</td>
-              <td className="mono num">{c.coverage_pct.toFixed(2)}</td>
+              <td className="mono num">{fmtPct(c.coverage_pct)}</td>
             </tr>
           ))}
         </tbody>

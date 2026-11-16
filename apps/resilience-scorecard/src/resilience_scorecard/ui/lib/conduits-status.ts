@@ -43,6 +43,15 @@ export function fmtKm(n: number): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
+/**
+ * BUG-DW-188 (BINDING @designer S137): coverage percentages always show exactly two decimals in
+ * en-US, so the map <title> ("100.00% segmented") matches the Coverage % table cell ("100.00")
+ * instead of printing the raw double ("100" or "37.254901...").
+ */
+export function fmtPct(n: number): string {
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 /** BUG-DW-179 (c): subject-verb agreement (BUG-DW-128 rule) and grouping, no "conduit(s)". */
 export function noCoordsMessage(n: number): string {
   return n === 1
