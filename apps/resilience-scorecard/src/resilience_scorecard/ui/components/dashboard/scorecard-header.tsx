@@ -81,6 +81,8 @@ function ScorecardHeaderContent() {
   const lowRisk = v4Kpis ? formatKpiCount(summary.low_risk_count) : summary.low_risk_count;
   const singlePointFailures = v4Kpis ? formatKpiCount(summary.total_single_point_failures) : summary.total_single_point_failures;
   const monitoredServices = v4Kpis ? formatKpiCount(summary.total_services) : summary.total_services;
+  // BUG-DW-190: backend/models.py allows None; treat undefined the same way.
+  const revenueAtRisk = summary.total_revenue_at_risk_usd ?? null;
 
   return (
     <div className="kpi-row">
@@ -156,9 +158,25 @@ function ScorecardHeaderContent() {
         <div className="kpi-value">{monitoredServices}</div>
       </div>
       {/* UX-REVENUE-DISPLAY: Core business metric (~$47.7M/year project value) */}
-      {summary.total_revenue_at_risk_usd != null && (
+      {/* BUG-DW-190: always render the card so the 9-card layout (BUG-DW-034 skeleton) never collapses;
+          a null value is shown honestly as "Not available" (same rule as BUG-DW-164/166). */}
+      {revenueAtRisk == null ? (
         <div className="kpi-card critical"
-             role="group" aria-label={`Revenue at Risk: $${v4Kpis ? formatMillions(summary.total_revenue_at_risk_usd) : (summary.total_revenue_at_risk_usd / 1_000_000).toFixed(1)}M${v4Kpis ? " per month" : ""}`}>
+             role="group" aria-label="Revenue at Risk: not available">
+          {headerVariant ? (
+            <div className="kpi-label kpi-label-row kpi-label-row--interim">
+              <span>Revenue at Risk</span>
+              <InterimBadge variant={headerVariant} />
+            </div>
+          ) : (
+            <div className="kpi-label">Revenue at Risk</div>
+          )}
+          <div className="kpi-value" aria-hidden="true">{"\u2014"}</div>
+          <div className="kpi-caption">Not available</div>
+        </div>
+      ) : (
+        <div className="kpi-card critical"
+             role="group" aria-label={`Revenue at Risk: $${v4Kpis ? formatMillions(revenueAtRisk) : (revenueAtRisk / 1_000_000).toFixed(1)}M${v4Kpis ? " per month" : ""}`}>
           {headerVariant ? (
             <div className="kpi-label kpi-label-row kpi-label-row--interim">
               <span>Revenue at Risk</span>
@@ -168,7 +186,7 @@ function ScorecardHeaderContent() {
             <div className="kpi-label">Revenue at Risk</div>
           )}
           <div className="kpi-value">
-            ${v4Kpis ? formatMillions(summary.total_revenue_at_risk_usd) : (summary.total_revenue_at_risk_usd / 1_000_000).toFixed(1)}M
+            ${v4Kpis ? formatMillions(revenueAtRisk) : (revenueAtRisk / 1_000_000).toFixed(1)}M
             {v4Kpis && <span className="kpi-sub">/mo</span>}
           </div>
         </div>
