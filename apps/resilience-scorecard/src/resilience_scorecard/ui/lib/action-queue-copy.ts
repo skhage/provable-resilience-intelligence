@@ -23,6 +23,17 @@ export function statusLabel(status: string | null | undefined): string {
   return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase() : "All";
 }
 
+/**
+ * BUG-DW-185: Type-column label for an action_type enum. Sentence case with every underscore
+ * replaced ('reroute_service' -> 'Reroute service'), matching statusLabel(). Done in source,
+ * not CSS text-transform, so screen readers announce the same text that is shown.
+ */
+export function actionTypeLabel(actionType: string | null | undefined): string {
+  if (!actionType) return "";
+  const spaced = actionType.replace(/_/g, " ").trim();
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase() : "";
+}
+
 /** Success toast after a status change: 'Action marked In progress for <service_name>'. */
 export function statusToast(status: string, serviceName?: string | null): string {
   const base = `Action marked ${statusLabel(status)}`;

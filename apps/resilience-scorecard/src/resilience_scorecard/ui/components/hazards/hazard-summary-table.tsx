@@ -15,6 +15,7 @@ import { LoadingRegion } from "@/components/ui/loading-region";
 import { useListHazardsSuspense } from "@/lib/api";
 import { HazardTypeCell } from "./hazard-type-cell";
 import { pageBoundary } from "@/lib/action-queue-focus";
+import { formatCount } from "@/lib/bb-srlg-disclosure";
 
 type SortField = "severity" | "spans_affected" | "last_update";
 type SortDir = "asc" | "desc";
@@ -256,7 +257,7 @@ function HazardTableContent() {
             <span aria-hidden="true">‹</span> Previous
           </button>
           <span>
-            Page {safePage} of {totalPages}
+            Page {formatCount(safePage)} of {formatCount(totalPages)}
           </span>
           <button
             type="button"

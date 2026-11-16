@@ -50,6 +50,7 @@ import {
 import {
   statusLabel,
   statusToast,
+  actionTypeLabel,
   formatHazardTime,
   actionKpiSkeletonCount,
   ACTION_QUEUE_LOAD_ERROR,
@@ -406,7 +407,7 @@ function ActionTableContent() {
                             const Icon = ACTION_TYPE_ICONS[a.action_type] ?? HelpCircle;
                             return <Icon {...ICON_PROPS} />;
                           })()}
-                          {" "}{a.action_type.replace(/_/g, " ")}
+                          {" "}{actionTypeLabel(a.action_type)}
                         </span>
                       </td>
                       <td className="text-medium">
@@ -562,7 +563,7 @@ function ActionTableContent() {
                     {/* BUG-DW-104 (3) WCAG 2.5.3: visible 'Previous' is inside the name 'Previous page'. */}
                     <span aria-hidden="true">‹</span> Previous
                   </button>
-                  <span>Page {safeCurrentPage} of {totalPages}</span>
+                  <span>Page {formatCount(safeCurrentPage)} of {formatCount(totalPages)}</span>
                   <button
                     type="button"
                     onClick={() => { if (!atLast) changePage((p) => Math.min(totalPages, p + 1)); }}

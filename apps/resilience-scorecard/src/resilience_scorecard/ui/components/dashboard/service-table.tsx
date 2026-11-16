@@ -201,7 +201,7 @@ function ServiceTableContent() {
           >
             <span aria-hidden="true">‹</span> Previous
           </button>
-          <span>Page {safeCurrentPage} of {totalPages}</span>
+          <span>Page {formatCount(safeCurrentPage)} of {formatCount(totalPages)}</span>
           <button
             type="button"
             onClick={() => { if (!pageBoundary(safeCurrentPage, totalPages).atLast) setPage((p) => Math.min(totalPages, p + 1)); }}

@@ -72,8 +72,8 @@ def test_tsx_has_no_first_underscore_replace_and_uses_label_map():
     assert "{statusLabel(s)}" in s
     assert "{statusLabel(a.status)}" in s
     assert "statusToast(variables.data.status, serviceName)" in s
-    # Action type keeps its global replace.
-    assert 'a.action_type.replace(/_/g, " ")' in s
+    # Action type: global underscore replace now lives in actionTypeLabel() (BUG-DW-185).
+    assert "{actionTypeLabel(a.action_type)}" in s
 
 
 # ---------- (2) no raw snake_case tooltip ----------
