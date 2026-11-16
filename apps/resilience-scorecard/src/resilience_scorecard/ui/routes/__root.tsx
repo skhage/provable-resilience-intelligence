@@ -5,6 +5,8 @@
  */
 import { useState, useEffect, useRef } from "react";
 import { Link, Outlet, createRootRoute, useRouterState } from "@tanstack/react-router";
+// BUG-DW-181: Lucide icons for the hamburger toggle (BRAND-GUIDE §6), not Unicode glyphs.
+import { Menu, X } from "lucide-react";
 import {
   focusMainContent,
   navEscapeShouldRestoreFocus,
@@ -128,7 +130,11 @@ function RootLayout() {
           aria-controls="main-nav"
           aria-label={navOpen ? "Close navigation menu" : "Open navigation menu"}
         >
-          {navOpen ? "\u2715" : "\u2630"}
+          {navOpen ? (
+            <X size={24} strokeWidth={1.5} aria-hidden={true} focusable="false" />
+          ) : (
+            <Menu size={24} strokeWidth={1.5} aria-hidden={true} focusable="false" />
+          )}
         </button>
         <nav
           id="main-nav"
