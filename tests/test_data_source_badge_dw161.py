@@ -169,7 +169,8 @@ def test_dw161_effect_states(impl, expected):
 def test_dw161_root_initial_state_and_render():
     src = _strip_comments(_root())
     assert 'useState<DataSourceState>("loading")' in src
-    m = re.search(r'<span className=\{([^}]*)\} role="status">\s*<span className="dot"', src)
+    # BUG-DW-182 moved role=status off the visible badge into a sibling sr-only region.
+    m = re.search(r'<span className=\{([^}]*)\}>\s*<span className="dot"', src)
     assert m, "data-source badge span not found"
     assert m.group(1).strip() == "dataSourceBadgeClass(dataSource)"
     assert "dataSourceBadgeLabel(dataSource, pathname)" in src

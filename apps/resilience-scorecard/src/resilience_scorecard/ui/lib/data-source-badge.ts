@@ -42,7 +42,7 @@ export function liveDataSourceLabel(pathname: string): string {
   }
 }
 
-/** Visible (and announced) badge text for a state. */
+/** Visible badge text for a state (route-specific when live). Not announced; see below. */
 export function dataSourceBadgeLabel(state: DataSourceState, pathname: string): string {
   switch (state) {
     case "live":
@@ -53,5 +53,25 @@ export function dataSourceBadgeLabel(state: DataSourceState, pathname: string): 
       return DATA_SOURCE_UNAVAILABLE_LABEL;
     default:
       return DATA_SOURCE_LOADING_LABEL;
+  }
+}
+
+/**
+ * BUG-DW-182 (WCAG 4.1.3): text for the sr-only role=status live region next to the badge.
+ * It depends on the state only, never on the route, so a client-side navigation does not
+ * change it and does not trigger an announcement that competes with the BUG-DW-160 focus
+ * move to #main-content. "loading" is empty, so the region is mounted empty and speaks
+ * only when the health check settles (loading -> live | mock | unavailable).
+ */
+export function dataSourceAnnouncement(state: DataSourceState): string {
+  switch (state) {
+    case "live":
+      return "Data source: Live Data";
+    case "mock":
+      return `Data source: ${DATA_SOURCE_MOCK_LABEL}`;
+    case "unavailable":
+      return "Data source: unavailable";
+    default:
+      return "";
   }
 }

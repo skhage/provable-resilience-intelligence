@@ -14,6 +14,7 @@ import {
   shouldFocusMainOnRouteChange,
 } from "@/lib/root-focus";
 import {
+  dataSourceAnnouncement,
   dataSourceBadgeClass,
   dataSourceBadgeLabel,
   dataSourceFromHealth,
@@ -181,9 +182,16 @@ function RootLayout() {
           </Link>
         </nav>
         <div className="ml-auto">
-          <span className={dataSourceBadgeClass(dataSource)} role="status">
+          {/* BUG-DW-182 (WCAG 4.1.3): the visible badge has no live role, because its live
+              label changes per route and every navigation would re-announce it. The sr-only
+              region below depends on the state only, starts empty while loading, and speaks
+              once when the health check settles. */}
+          <span className={dataSourceBadgeClass(dataSource)}>
             <span className="dot" aria-hidden="true" />
             {dataSourceBadgeLabel(dataSource, pathname)}
+          </span>
+          <span className="sr-only" role="status">
+            {dataSourceAnnouncement(dataSource)}
           </span>
         </div>
       </header>
