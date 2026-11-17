@@ -65,16 +65,17 @@ def test_component_retry_pending_guard():
     src = strip_comments(COMPONENT.read_text())
     assert 'tabIndex={-1} className="retry-focus-target"' in src
     assert "retryPendingRef = useRef(false)" in src
+    # BUG-QA-171: decisions moved to lib/retry-focus.ts (behaviour-tested in test_retry_focus_qa171.py).
     # Pending is set only by the user's Retry click, then the boundary resets.
-    assert re.search(r"onClick=\{\(\) => \{\s*retryPendingRef\.current = true;\s*onRetry\(\);", src)
+    assert re.search(r"onClick=\{\(\) => \{\s*markRetryPending\(retryPendingRef\);\s*onRetry\(\);", src)
     # resetKeys resets (filter changes) never steal focus.
-    assert 'details.reason === "keys"' in src
+    assert "handleBoundaryReset(retryPendingRef, details.reason)" in src
     # Repeat failure: new Retry button focuses itself only when pending.
-    assert re.search(r"if \(retryPendingRef\.current\) \{\s*retryPendingRef\.current = false;\s*buttonRef\.current\?\.focus\(\);", src)
+    assert "focusRetryButtonIfPending(retryPendingRef, buttonRef.current, containerRef.current, document)" in src
     # Success: probe inside Suspense focuses the container on the next frame.
-    assert re.search(r"if \(!retryPendingRef\.current\) return;", src)
+    assert re.search(r"if \(!shouldScheduleRetryFocus\(retryPendingRef\)\) return;", src)
     assert "requestAnimationFrame" in src and "cancelAnimationFrame" in src
-    assert "containerRef.current?.focus()" in src
+    assert "focusContainerAfterRetry(retryPendingRef, containerRef.current, document)" in src
     assert re.search(r"<Suspense fallback=\{loading\}>\s*<RetryFocusProbe", src)
     # No new live regions.
     assert "role=" not in src and "aria-live" not in src

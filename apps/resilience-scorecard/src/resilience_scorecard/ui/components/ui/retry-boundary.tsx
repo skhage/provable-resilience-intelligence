@@ -12,11 +12,22 @@
  *  - Focus is never moved on the first error, on initial load, or on a resetKeys-driven reset
  *    (e.g. a /conduits filter change): only after a user-initiated Retry.
  *  - No new live regions: callers keep their existing role (alert or none per BUG-DW-128/170).
+ *  - BUG-QA-171: if the user moved focus outside the boundary while the retry was in flight
+ *    (late resolve or late re-error), focus is left where the user put it.
+ *
+ * The decisions live in lib/retry-focus.ts (pure, Node-tested in tests/test_retry_focus_qa171.py).
  *
  * Generalises the BUG-DW-105 /topology path-trace fix. Lakelink Fiber tokens only.
  */
 import { Suspense, useEffect, useRef, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { ErrorBoundary } from "react-error-boundary";
+import {
+  focusContainerAfterRetry,
+  focusRetryButtonIfPending,
+  handleBoundaryReset,
+  markRetryPending,
+  shouldScheduleRetryFocus,
+} from "@/lib/retry-focus";
 
 type RetryBoundaryProps = {
   /** Usually the QueryErrorResetBoundary `reset`, plus any caller side effect (e.g. announceLoading). */
@@ -41,12 +52,14 @@ export function RetryBoundary({ onReset, resetKeys, onError, loading, fallback, 
         resetKeys={resetKeys}
         onError={onError ? () => onError() : undefined}
         onReset={(details) => {
-          // A resetKeys change is not a user Retry: never steal focus for it.
-          if (details.reason === "keys") retryPendingRef.current = false;
+          // A resetKeys change (details.reason === "keys") is not a user Retry: never steal focus for it.
+          handleBoundaryReset(retryPendingRef, details.reason);
           onReset?.();
         }}
         fallbackRender={({ resetErrorBoundary }) =>
-          fallback(<RetryButton retryPendingRef={retryPendingRef} onRetry={resetErrorBoundary} />)
+          fallback(
+            <RetryButton retryPendingRef={retryPendingRef} containerRef={containerRef} onRetry={resetErrorBoundary} />,
+          )
         }
       >
         <Suspense fallback={loading}>
@@ -61,19 +74,18 @@ export function RetryBoundary({ onReset, resetKeys, onError, loading, fallback, 
 /** Retry button: focuses itself on mount only when it replaces a fallback after a user Retry. */
 function RetryButton({
   retryPendingRef,
+  containerRef,
   onRetry,
 }: {
   retryPendingRef: MutableRefObject<boolean>;
+  containerRef: RefObject<HTMLDivElement>;
   onRetry: () => void;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (retryPendingRef.current) {
-      retryPendingRef.current = false;
-      buttonRef.current?.focus();
-    }
-  }, [retryPendingRef]);
+    focusRetryButtonIfPending(retryPendingRef, buttonRef.current, containerRef.current, document);
+  }, [retryPendingRef, containerRef]);
 
   return (
     <button
@@ -81,7 +93,7 @@ function RetryButton({
       type="button"
       className="btn btn-outline"
       onClick={() => {
-        retryPendingRef.current = true;
+        markRetryPending(retryPendingRef);
         onRetry();
       }}
     >
@@ -102,10 +114,9 @@ function RetryFocusProbe({
   containerRef: RefObject<HTMLDivElement>;
 }) {
   useEffect(() => {
-    if (!retryPendingRef.current) return;
+    if (!shouldScheduleRetryFocus(retryPendingRef)) return;
     const frame = requestAnimationFrame(() => {
-      retryPendingRef.current = false;
-      containerRef.current?.focus();
+      focusContainerAfterRetry(retryPendingRef, containerRef.current, document);
     });
     return () => cancelAnimationFrame(frame);
   }, [retryPendingRef, containerRef]);
