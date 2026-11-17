@@ -19,7 +19,8 @@
   /* === Risk Severity (UX-DESIGN-SPEC §1.1) === */
   --lf-risk-red: #D32F2F;
   --lf-risk-red-text: #B71C1C; /* BUG-DW-172: risk-red for body-size TEXT. 6.57:1 white, 5.36:1 platinum zebra, >=4.98:1 teal hover. #D32F2F is 4.06:1 on platinum (fails 1.4.3) */
-  --lf-risk-amber: #F9A825;
+  --lf-risk-amber: #F9A825; /* decorative dots on tinted fills only; 1.97:1 white, 1.61:1 platinum */
+  --lf-risk-amber-strong: #B45309; /* BUG-DW-193: non-text amber (WCAG 1.4.11). 5.02:1 white, 4.10:1 platinum. Medium Risk KPI stripe + fair gauge fill */
   --lf-risk-green: #2E7D32;
 
   /* === Hazard Type Colors (HAZARD-VIS-SPEC §1.1) === */
@@ -32,7 +33,7 @@
   /* Score gauge (derived from risk) */
   --score-excellent: var(--lf-risk-green);
   --score-good: #65A30D;
-  --score-fair: var(--lf-risk-amber);
+  --score-fair: var(--lf-risk-amber-strong); /* BUG-DW-193 */
   --score-poor: #EA580C;
   --score-failing: var(--lf-risk-red);
 
@@ -202,7 +203,7 @@ body {
 
 .kpi-card.critical { border-left-color: var(--lf-risk-red); }
 .kpi-card.high { border-left-color: var(--lf-accent-orange); }
-.kpi-card.warning { border-left-color: var(--lf-risk-amber); }
+.kpi-card.warning { border-left-color: var(--lf-risk-amber-strong); } /* BUG-DW-193: was #F9A825 (1.97:1 white / 1.61:1 platinum) */
 .kpi-card.success { border-left-color: var(--lf-risk-green); }
 
 .kpi-card .kpi-label {
@@ -370,8 +371,8 @@ body {
    rows and 1:1 on platinum zebra rows. It now has a platinum-shade outline and
    a white interior. Outline contrast: white row 3.69:1, zebra row 3.01:1,
    teal-hover row 3.42:1. Fills are measured against the white interior:
-   excellent 5.13, good 3.09, poor 3.56, failing 4.98. Fair is 1.97 and is
-   covered by the adjacent .score-value text. */
+   excellent 5.13, good 3.09, fair 5.02 (BUG-DW-193, was 1.97), poor 3.56,
+   failing 4.98. The band label is also exposed as aria-valuetext. */
 .score-gauge .gauge-bar {
   width: 60px;
   height: 8px;

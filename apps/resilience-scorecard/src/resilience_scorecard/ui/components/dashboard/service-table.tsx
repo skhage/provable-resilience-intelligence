@@ -23,17 +23,21 @@ import { pageBoundary } from "@/lib/action-queue-focus";
 import { scoreBand } from "@/lib/score-band";
 
 function ScoreGauge({ score, label }: { score: number; label?: string }) {
+  // BUG-DW-193 (WCAG 1.4.1): band name as text, so the fill colour is never the only signal.
+  const band = scoreBand(score);
   return (
     <span className="score-gauge"
           role="meter"
           aria-valuenow={score}
           aria-valuemin={0}
           aria-valuemax={100}
+          aria-valuetext={`${score.toFixed(1)} out of 100, ${band.label}`}
+          title={band.label}
           aria-label={label ? `${label}: ${score.toFixed(1)} out of 100` : `${score.toFixed(1)} out of 100`}>
       <span className="score-value">{score.toFixed(1)}</span>
       <span className="gauge-bar" aria-hidden="true">
         <span
-          className={`gauge-fill ${scoreBand(score).key}`}
+          className={`gauge-fill ${band.key}`}
           style={{ width: `${score}%` }}
         />
       </span>
