@@ -11,6 +11,8 @@ import { RetryBoundary } from "@/components/ui/retry-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import { useGetHazardSummarySuspense } from "@/lib/api";
+// BUG-DW-192: §6.4 counts pinned to en-US (no browser-locale drift; aria-label == visible).
+import { formatCount } from "@/lib/bb-srlg-disclosure";
 
 function HazardKpiContent() {
   const { data: summary } = useGetHazardSummarySuspense();
@@ -25,28 +27,28 @@ function HazardKpiContent() {
       <div
         className={`kpi-card ${summary.active_hazards > 0 ? "critical" : ""}`}
         role="group"
-        aria-label={`Active Hazards: ${summary.active_hazards.toLocaleString()}`}
+        aria-label={`Active Hazards: ${formatCount(summary.active_hazards)}`}
       >
         <div className="kpi-label">Active Hazards</div>
-        <div className="kpi-value">{summary.active_hazards.toLocaleString()}</div>
+        <div className="kpi-value">{formatCount(summary.active_hazards)}</div>
       </div>
 
       <div
         className="kpi-card high"
         role="group"
-        aria-label={`Spans at Risk: ${summary.spans_at_risk.toLocaleString()}`}
+        aria-label={`Spans at Risk: ${formatCount(summary.spans_at_risk)}`}
       >
         <div className="kpi-label">Spans at Risk</div>
-        <div className="kpi-value">{summary.spans_at_risk.toLocaleString()}</div>
+        <div className="kpi-value">{formatCount(summary.spans_at_risk)}</div>
       </div>
 
       <div
         className="kpi-card warning"
         role="group"
-        aria-label={`Services Impacted: ${summary.services_impacted.toLocaleString()}`}
+        aria-label={`Services Impacted: ${formatCount(summary.services_impacted)}`}
       >
         <div className="kpi-label">Services Impacted</div>
-        <div className="kpi-value">{summary.services_impacted.toLocaleString()}</div>
+        <div className="kpi-value">{formatCount(summary.services_impacted)}</div>
       </div>
 
       <div

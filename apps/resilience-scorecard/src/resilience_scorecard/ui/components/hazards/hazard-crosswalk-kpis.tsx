@@ -9,6 +9,8 @@ import { QueryErrorResetBoundary, useSuspenseQuery } from "@tanstack/react-query
 import { RetryBoundary } from "@/components/ui/retry-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
+// BUG-DW-192: §6.4 counts pinned to en-US (no browser-locale drift; aria-label == visible).
+import { formatCount } from "@/lib/bb-srlg-disclosure";
 
 interface CrosswalkSummary {
   total_intersections: number;
@@ -41,10 +43,10 @@ function CrosswalkKpiContent() {
       <div
         className="kpi-card"
         role="group"
-        aria-label={`Total Intersections: ${summary.total_intersections.toLocaleString()}`}
+        aria-label={`Total Intersections: ${formatCount(summary.total_intersections)}`}
       >
         <div className="kpi-label">Total Intersections</div>
-        <div className="kpi-value">{summary.total_intersections.toLocaleString()}</div>
+        <div className="kpi-value">{formatCount(summary.total_intersections)}</div>
       </div>
 
       <div
@@ -56,7 +58,7 @@ function CrosswalkKpiContent() {
         <div className="kpi-value">
           {summary.exposure_pct}%
           <span className="kpi-sub">
-            {" "}{summary.distinct_spans_exposed.toLocaleString()} / {summary.total_spans.toLocaleString()} spans
+            {" "}{formatCount(summary.distinct_spans_exposed)} / {formatCount(summary.total_spans)} spans
           </span>
         </div>
       </div>
@@ -64,10 +66,10 @@ function CrosswalkKpiContent() {
       <div
         className="kpi-card high"
         role="group"
-        aria-label={`Direct Impact: ${summary.direct_impact_count.toLocaleString()} intersections`}
+        aria-label={`Direct Impact: ${formatCount(summary.direct_impact_count)} intersections`}
       >
         <div className="kpi-label">Direct Impact (&lt;1 km)</div>
-        <div className="kpi-value">{summary.direct_impact_count.toLocaleString()}</div>
+        <div className="kpi-value">{formatCount(summary.direct_impact_count)}</div>
       </div>
 
       <div

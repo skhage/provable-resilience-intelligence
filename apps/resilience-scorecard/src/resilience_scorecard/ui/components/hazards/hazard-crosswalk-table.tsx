@@ -13,6 +13,8 @@ import { RetryBoundary } from "@/components/ui/retry-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/loading-region";
 import { HazardTypeCell } from "./hazard-type-cell";
+// BUG-DW-192: §6.4 counts pinned to en-US (no browser-locale drift).
+import { formatCount } from "@/lib/bb-srlg-disclosure";
 
 interface CrosswalkRow {
   hazard_type: string;
@@ -122,7 +124,7 @@ function CrosswalkTableContent({
     } else {
       const label = hazardFilter ? filterLabel : "all hazard types";
       onStatusChange(
-        `Showing ${rows.length.toLocaleString()} rows for ${label}.`,
+        `Showing ${formatCount(rows.length)} rows for ${label}.`,
       );
     }
   }, [rows, hazardFilter, filterLabel, onStatusChange]);
@@ -245,10 +247,10 @@ function CrosswalkTableContent({
               <td className="mono">
                 {/* BUG-DW-172: same 4.06:1 zebra-row failure as hazard-summary-table; use the AA-safe dark risk-red class */}
                 <span className={row.proximity_band === "direct_impact" ? "text-risk-strong text-semibold" : ""}>
-                  {row.intersection_count.toLocaleString()}
+                  {formatCount(row.intersection_count)}
                 </span>
               </td>
-              <td className="mono">{row.distinct_spans.toLocaleString()}</td>
+              <td className="mono">{formatCount(row.distinct_spans)}</td>
               <td className="mono">{row.avg_services_per_span.toFixed(1)}</td>
               <td className="mono">{row.avg_distance_km.toFixed(2)}</td>
             </tr>
@@ -258,13 +260,13 @@ function CrosswalkTableContent({
           <tfoot>
             <tr style={{ fontWeight: 700, borderTop: "2px solid var(--lf-dark-teal)" }}>
               <td colSpan={2}>Total / Weighted Avg</td>
-              <td className="mono">{totals.intersection_count.toLocaleString()}</td>
+              <td className="mono">{formatCount(totals.intersection_count)}</td>
               {/* BUG-DW-166: three honest states. Value when present; "Loading" while the
                   totals query is in flight with no value; "unavailable" ONLY on isError. */}
               <td className="mono" aria-busy={totalsFetching}>
                 {totals.distinct_spans !== null ? (
                   <>
-                    {totals.distinct_spans.toLocaleString()}
+                    {formatCount(totals.distinct_spans)}
                     <span className="sr-only"> distinct spans, not a sum of rows</span>
                   </>
                 ) : totalsError || !totalsFetching ? (
