@@ -70,6 +70,19 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('bundle/requirements.txt') }}
           restore-keys: ${{ runner.os }}-pip-
 
+      - name: Set up Node 22
+        # P243-DEVOPS-CI-NODE22: Node-evaluated TS tests (e.g. tests/test_retry_focus_qa171.py) run
+        # `node --experimental-strip-types`, which ubuntu-latest's default Node 20 lacks, so they skipped.
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify Node supports --experimental-strip-types
+        run: |
+          node --version
+          echo 'const x: number = 1; console.log(x)' > /tmp/strip_check.ts
+          node --experimental-strip-types --no-warnings /tmp/strip_check.ts
+
       - name: Install dependencies
         run: |
           pip install ruff pytest
