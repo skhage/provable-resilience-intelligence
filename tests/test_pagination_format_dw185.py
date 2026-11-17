@@ -81,7 +81,8 @@ def test_action_type_label_known_answers():
     d = _node_ts(_COPY, "[M.actionTypeLabel('reroute_service'), M.actionTypeLabel('escalate_noc'), "
                         "M.actionTypeLabel('preposition_splice'), M.actionTypeLabel('dispatch'), "
                         "M.actionTypeLabel('NOTIFY_CUSTOMER'), M.actionTypeLabel(null), M.actionTypeLabel('')]")
-    assert d == ["Reroute service", "Escalate noc", "Preposition splice", "Dispatch",
+    # BUG-DW-191: escalate_noc now maps to 'Escalate to NOC' via ACTION_TYPE_LABEL.
+    assert d == ["Reroute service", "Escalate to NOC", "Preposition splice", "Dispatch",
                  "Notify customer", "", ""]
 
 

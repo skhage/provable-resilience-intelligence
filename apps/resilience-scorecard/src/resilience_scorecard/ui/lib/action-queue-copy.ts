@@ -24,12 +24,25 @@ export function statusLabel(status: string | null | undefined): string {
 }
 
 /**
+ * BUG-DW-191: known action_type labels, checked before the generic sentence-case rule so
+ * acronyms survive ('escalate_noc' -> 'Escalate to NOC', not 'Escalate noc'). Keys are the
+ * lowercase enum values. The other live types (reroute, dispatch_crew, notify_customer,
+ * preposition_splice) stay on the generic rule.
+ */
+export const ACTION_TYPE_LABEL: Readonly<Record<string, string>> = {
+  escalate_noc: "Escalate to NOC",
+};
+
+/**
  * BUG-DW-185: Type-column label for an action_type enum. Sentence case with every underscore
  * replaced ('reroute_service' -> 'Reroute service'), matching statusLabel(). Done in source,
  * not CSS text-transform, so screen readers announce the same text that is shown.
+ * BUG-DW-191: ACTION_TYPE_LABEL is consulted first (own-property only, case-insensitive key).
  */
 export function actionTypeLabel(actionType: string | null | undefined): string {
   if (!actionType) return "";
+  const key = actionType.trim().toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(ACTION_TYPE_LABEL, key)) return ACTION_TYPE_LABEL[key];
   const spaced = actionType.replace(/_/g, " ").trim();
   return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase() : "";
 }

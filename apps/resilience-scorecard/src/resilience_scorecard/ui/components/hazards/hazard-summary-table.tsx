@@ -225,8 +225,8 @@ function HazardTableContent() {
 
       <nav className="pagination-bar pagination-bar-detached" aria-label="Hazard table pagination">
         <span>
-          Showing {(safePage - 1) * pageSize + 1}–
-          {Math.min(safePage * pageSize, sorted.length)} of {sorted.length}
+          Showing {formatCount((safePage - 1) * pageSize + 1)}–
+          {formatCount(Math.min(safePage * pageSize, sorted.length))} of {formatCount(sorted.length)}
         </span>
         <div className="page-controls">
           <label>
