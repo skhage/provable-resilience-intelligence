@@ -37,12 +37,8 @@
   --score-poor: #EA580C;
   --score-failing: var(--lf-risk-red);
 
-  /* Path diversity ratings */
-  --rating-a: var(--lf-risk-green);
-  --rating-b: #65A30D;
-  --rating-c: var(--lf-risk-amber);
-  --rating-d: #EA580C;
-  --rating-f: var(--lf-risk-red);
+  /* BUG-DW-194: dead --rating-a..f tokens removed (0 consumers; --rating-c resolved to pale amber #F9A825).
+     Path-diversity colours live in --lf-diversity-* below. */
 
   /* Diversity status (TOPOLOGY-VIS-SPEC §2.1) — BUG-QA-054: synced with DIVERSITY_COLORS (BUG-DW-057 fix) */
   --lf-diversity-full: #15803D;

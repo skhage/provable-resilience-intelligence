@@ -32,10 +32,10 @@ function ScoreGauge({ score, label }: { score: number; label?: string }) {
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuetext={`${score.toFixed(1)} out of 100, ${band.label}`}
-          title={band.label}
           aria-label={label ? `${label}: ${score.toFixed(1)} out of 100` : `${score.toFixed(1)} out of 100`}>
       <span className="score-value">{score.toFixed(1)}</span>
-      <span className="gauge-bar" aria-hidden="true">
+      {/* BUG-DW-194: hover tooltip lives on the aria-hidden bar so screen readers hear the band once (aria-valuetext). */}
+      <span className="gauge-bar" aria-hidden="true" title={band.label}>
         <span
           className={`gauge-fill ${band.key}`}
           style={{ width: `${score}%` }}

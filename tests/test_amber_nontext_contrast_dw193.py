@@ -188,6 +188,63 @@ def test_gauge_exposes_band_label():
     assert "gauge-fill ${band.key}" in gauge
 
 
+# --- BUG-DW-194: regression guard, pale amber only via --lf-risk-amber on the mock-badge dot ---
+PALE_AMBER = "#F9A825"
+PALE_AMBER_TOKEN = "--lf-risk-amber"
+PALE_AMBER_CONSUMERS = {".data-source-badge.mock .dot"}
+
+
+def test_only_decorative_token_resolves_to_pale_amber(vars_):
+    offenders = []
+    for name, val in vars_.items():
+        if name == PALE_AMBER_TOKEN:
+            continue
+        try:
+            col = _resolve(val, vars_)
+        except AssertionError:
+            continue  # non-colour token (sizes, fonts, shadows)
+        if col == PALE_AMBER:
+            offenders.append(name)
+    assert not offenders, offenders
+
+
+def test_dead_rating_tokens_removed(vars_):
+    assert not [n for n in vars_ if n.startswith("--rating-")], "dead --rating-* tokens are back"
+
+
+def test_pale_amber_consumer_allowlist(css):
+    body = _strip_comments(css)
+    sels = set()
+    for m in re.finditer(r"([^{}]*)\{([^{}]*)\}", body):
+        if re.search(r"var\(" + re.escape(PALE_AMBER_TOKEN) + r"\)", m.group(2)) or PALE_AMBER.lower() in m.group(2).lower():
+            sel = m.group(1).strip()
+            if not sel.startswith(":root"):
+                sels.add(sel)
+    assert sels <= PALE_AMBER_CONSUMERS, sels - PALE_AMBER_CONSUMERS
+
+
+def test_no_ts_consumer_of_rating_or_pale_amber():
+    hits = []
+    for d, _, files in os.walk(UI):
+        if "node_modules" in d:
+            continue
+        for f in files:
+            if f.endswith((".ts", ".tsx")):
+                src = _read(os.path.join(d, f))
+                if "--rating-" in src or PALE_AMBER.lower() in src.lower():
+                    hits.append(f)
+    assert not hits, hits
+
+
+def test_gauge_band_announced_once():
+    """title on the role=meter span doubles the band as an accessible description."""
+    src = _read(TABLE)
+    gauge = src[src.index("function ScoreGauge"):src.index("const PAGE_SIZES")]
+    meter_open = gauge[gauge.index('role="meter"'):gauge.index(">", gauge.index("aria-label="))]
+    assert "title=" not in meter_open
+    assert '<span className="gauge-bar" aria-hidden="true" title={band.label}>' in gauge
+
+
 # --- branding ---
 def test_brand_grep_zero():
     for p in (CSS, TABLE, __file__):
