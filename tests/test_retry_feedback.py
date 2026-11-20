@@ -85,7 +85,9 @@ def test_banner_accepts_retry_feedback_prop():
 
 def test_banner_accepts_banner_ref_prop():
     src = _get_topology_src()
-    assert "bannerRef?: React.RefObject<HTMLDivElement | null>;" in src
+    # P297: React 18 RefObject<T> already allows null in .current; the | null form is not
+    # assignable to the div ref prop under @types/react 18.3 (tsc TS2322).
+    assert "bannerRef?: React.RefObject<HTMLDivElement>;" in src
 
 
 def test_nonlive_banner_has_aria_busy():

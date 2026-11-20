@@ -228,11 +228,20 @@ function useFocusTrap(
 // Route definition
 // ---------------------------------------------------------------------------
 
+/** P297: URL search params for /topology deep links (?service= and ?hazard=). Not exported:
+ *  route files keep a single export (Route) for TanStack code-splitting. */
+interface TopologySearch {
+  service?: string;
+  hazard?: string;
+}
+
 export const Route = createFileRoute("/topology")({
   component: TopologyPage,
-  validateSearch: (search: Record<string, unknown>) => ({
-    service: (search.service as string) ?? undefined,
-    hazard: (search.hazard as string) ?? undefined,
+  // P297: both params are optional in the input type, so links to /topology may omit
+  // either one (or pass search={{}}). Non-string values are dropped instead of cast.
+  validateSearch: (search: { service?: unknown; hazard?: unknown }): TopologySearch => ({
+    service: typeof search.service === "string" ? search.service : undefined,
+    hazard: typeof search.hazard === "string" ? search.hazard : undefined,
   }),
 });
 
@@ -312,6 +321,8 @@ interface PathHop {
   corridor: string | null;
   site_a_name: string | null;
   site_z_name: string | null;
+  /** Region of the hop's A-end site (backend models.py PathHop.site_a_region). */
+  site_a_region?: string | null;
 }
 
 interface ServiceDiversity {
@@ -1132,7 +1143,7 @@ function PathTraceBanner({
   /** BUG-DW-105: "Still unavailable. Last checked HH:MM." after a repeat failure */
   retryFeedback?: string | null;
   /** BUG-DW-105: ref for focus management after a successful retry */
-  bannerRef?: React.RefObject<HTMLDivElement | null>;
+  bannerRef?: React.RefObject<HTMLDivElement>;
 }) {
   // BUG-DW-111 item 3: a live result with 0 hops still renders a (neutral) banner so the
   // Retry->live focus target exists and the user is told why nothing is drawn.

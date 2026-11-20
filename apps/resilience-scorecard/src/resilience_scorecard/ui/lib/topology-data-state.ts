@@ -344,9 +344,11 @@ export interface EscapeKeyEvent {
 
 /** Structural subset of an Element (event target or dialog panel). */
 export interface EscapeNode {
-  closest?: (selector: string) => unknown;
-  contains?: (other: unknown) => boolean;
-  getAttribute?: (name: string) => string | null;
+  // P297: method syntax (bivariant params) so a real HTMLElement, whose contains takes
+  // Node | null, is assignable. Property-function syntax rejected it under strict mode.
+  closest?(selector: string): unknown;
+  contains?(other: unknown): boolean;
+  getAttribute?(name: string): string | null;
 }
 
 /** Structural subset of Document. */

@@ -42,15 +42,27 @@ type CoverageFilter = SpanCoverageClass | "ALL";
 const COVERAGE_FILTERS: readonly CoverageFilter[] = ["REAL_SEGMENTED", "BB_SEGMENTED", "INVENTORY_ONLY", "ALL"];
 const REGIONS = ["West", "Central", "East", "Southeast"] as const;
 const TABLE_ROW_LIMIT = 200;
+const DEFAULT_COVERAGE: CoverageFilter = "REAL_SEGMENTED";
+
+/**
+ * P297: URL search params for /conduits. Both are optional in the type so nav links need
+ * no search prop (newer @tanstack/react-router requires search when an output key is
+ * required). validateSearch still always fills coverage; the page defaults it as well.
+ * Not exported: route files keep a single export (Route) for TanStack code-splitting.
+ */
+interface ConduitsSearch {
+  coverage?: CoverageFilter;
+  region?: string;
+}
 
 export const Route = createFileRoute("/conduits")({
   component: ConduitCoveragePage,
-  validateSearch: (search: Record<string, unknown>) => {
+  validateSearch: (search: { coverage?: unknown; region?: unknown }): ConduitsSearch => {
     let raw = typeof search.coverage === "string" ? search.coverage.toUpperCase() : "";
     if (raw === "BB_ONLY") raw = "BB_SEGMENTED"; // superseded by DE B2
     const coverage = (COVERAGE_FILTERS as readonly string[]).includes(raw)
       ? (raw as CoverageFilter)
-      : "REAL_SEGMENTED";
+      : DEFAULT_COVERAGE;
     const region =
       typeof search.region === "string" && (REGIONS as readonly string[]).includes(search.region)
         ? search.region
@@ -443,7 +455,7 @@ function Boundary({
 // Page
 // ---------------------------------------------------------------------------
 function ConduitCoveragePage() {
-  const { coverage, region } = useSearch({ from: "/conduits" });
+  const { coverage = DEFAULT_COVERAGE, region } = useSearch({ from: "/conduits" });
   const navigate = useNavigate({ from: "/conduits" });
   // Stable setter (useState) so the child effect does not re-run on every page render.
   const [resultMessage, setResultMessage] = useState("");
