@@ -50,12 +50,6 @@ const BAND_LABELS: Record<string, string> = {
   buffer_zone: "Buffer Zone (≥5 km)",
 };
 
-const BAND_ORDER: Record<string, number> = {
-  direct_impact: 1,
-  near_field: 2,
-  buffer_zone: 3,
-};
-
 const BAND_CLASSES: Record<string, string> = {
   direct_impact: "severity-critical",
   near_field: "severity-major",

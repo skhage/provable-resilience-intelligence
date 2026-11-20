@@ -1190,9 +1190,6 @@ function PathTraceBanner({
   const bbUnverified = showBackboneUnverified(bbCoverage, diversity?.diversity_status, diversity?.crosses_backbone);
   const workingHops = hops.filter((h) => h.path_type === "working");
   const protectHops = hops.filter((h) => h.path_type === "protect");
-  const divColor = diversity
-    ? DIVERSITY_COLORS[diversity.diversity_status] ?? DIVERSITY_COLORS.unknown
-    : DIVERSITY_COLORS.unknown;
   // BUG-DW-099: sentence-case map ("No path data" for unknown), shared with mobile + legend
   const divLabel = diversityLabel(diversity?.diversity_status);
 
@@ -2042,10 +2039,10 @@ interface MobileTreeProps {
   pinnedConduitIds?: ReadonlySet<string> | null;
 }
 
+// P303: onSelectSite/onSelectConduit stay in MobileTreeProps (callers pass them) but are not
+// destructured here: tree rows navigate via region/site expansion, not via these callbacks.
 function MobileTreeView({
   regions,
-  onSelectSite,
-  onSelectConduit,
   overlays,
   diversity,
   tracedServiceId,
@@ -2667,6 +2664,9 @@ function TopologyPage() {
       setTracedServiceId(search.service);
       setOverlays((o) => ({ ...o, diversity: true }));
     }
+    // P303: deliberately keyed on the URL param only. Adding tracedServiceId would snap a
+    // user-chosen trace back to ?service= whenever they trace a different service.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.service]);
 
   // Cross-view nav: auto-enable hazard overlay if ?hazard= (§9.2)
@@ -2774,6 +2774,9 @@ function TopologyPage() {
     return () => {
       cancelled = true;
     };
+    // P303: selectedRegion is read once for auto-navigation only. Adding it would refetch the
+    // path trace on every region change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tracedServiceId, traceRetry]);
 
 

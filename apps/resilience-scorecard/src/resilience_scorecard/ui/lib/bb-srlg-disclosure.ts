@@ -33,7 +33,7 @@ export const METRO_ACCESS = "(metro/access)";
 export const METRO_ACCESS_SPOKEN = "metro and access";
 const NBSP = "\u00A0";
 
-/** `74.2% (metro/access)` while partial; the bare value otherwise (§6.3). */
+/** `74.2%` + NBSP + `(metro/access)` while partial; the bare value otherwise (§6.3). */
 export function withMetroAccess(value: string, coverage: BbSrlgCoverage | null): string {
   return coverage === "partial" ? `${value}${NBSP}${METRO_ACCESS}` : value;
 }
