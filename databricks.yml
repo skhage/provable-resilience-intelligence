@@ -30,6 +30,11 @@ variables:
   schema:
     description: Schema for resilience intelligence assets
     default: provable_resilience_intelligence
+  app_name:
+    description: >-
+      Name of the existing Databricks App (P300). Bind it before the first
+      deploy so bundle deploy updates it instead of creating a duplicate.
+    default: resilience-scorecard
   warehouse_id:
     description: SQL warehouse for queries and dashboards
     lookup:

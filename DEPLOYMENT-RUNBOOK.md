@@ -105,12 +105,20 @@ This auto-resolves the warehouse ID at deploy time. If the warehouse name change
 | --- | --- | --- | --- |
 | `resilience_pipeline` | Pipeline (SDP) | `provable-resilience-intelligence-pipeline` | Bronze/Silver/Gold tables in `cdm_tmforum.provable_resilience_intelligence` |
 | `resilience_daily` | Job | `provable-resilience-intelligence-daily` | Pipeline (runs it as task), cron 6AM CT |
-| `resilience_scorecard` | App | `resilience-scorecard-<user>` | App source in `apps/resilience-scorecard/` |
+| `resilience_scorecard` | App | `resilience-scorecard` (`var.app_name`, bound to the existing app; see 5.0) | App source in `apps/resilience-scorecard/` |
 | `span_risk_endpoint` | Model Serving | `provable-resilience-span-risk` | ML model `span_risk_classifier` v1, inference table logging |
 | `lakelink_fiber_provable_resilience_scorecard` | Dashboard | Lakelink Fiber — Provable Resilience Scorecard | Metric views in schema |
 | `resilience_dashboard` | Dashboard | (superseded — empty) | N/A |
 
 ## 5. Deployment Procedures
+
+### 5.0 Bind the existing app (one time per target, P300)
+
+The workspace already has an app named `resilience-scorecard`. The bundle points at that app through `var.app_name`. Bind it before the first `bundle deploy` so the deploy updates the existing app instead of failing or creating a duplicate:
+
+```bash
+databricks bundle deployment bind resilience_scorecard resilience-scorecard -t dev
+```
 
 ### 5.1 First-Time Setup
 

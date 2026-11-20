@@ -4,7 +4,11 @@
 resources:
   apps:
     resilience_scorecard:
-      name: resilience-scorecard-${workspace.current_user.domain_friendly_name}
+      # P300-DEVOPS-BUNDLE-APP-NAME-ALIGN: target the existing workspace app
+      # 'resilience-scorecard' (var.app_name) instead of creating a second
+      # per-user app. Before the first bundle deploy, bind once per target:
+      #   databricks bundle deployment bind resilience_scorecard resilience-scorecard -t <target>
+      name: ${var.app_name}
       description: >-
         Lakelink Fiber Provable Resilience Scorecard —
         real-time resilience scores, SRLG analysis, proactive action queue
