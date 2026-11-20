@@ -2151,10 +2151,20 @@ function MobileTreeView({
           break;
         }
         case "Enter":
-        case " ":
+        case " ": {
           e.preventDefault();
-          target.click();
+          // BUG-DW-195: onClick handlers live on the direct child
+          // .mobile-tree-row, not the <li role="treeitem">. Click events do
+          // not propagate downward, so dispatch to the row itself. :scope >
+          // restricts the match to this item's own row (never a nested
+          // descendant's), and onClick stays off the <li> so nested items
+          // cannot bubble a toggle into their parents.
+          const row = target.querySelector(
+            ":scope > .mobile-tree-row"
+          ) as HTMLElement | null;
+          row?.click();
           break;
+        }
       }
     },
     [expandedRegions, expandedSites, toggleRegion, toggleSite]
