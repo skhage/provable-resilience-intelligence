@@ -6,7 +6,13 @@ Validates gold_resilience_score (Cell 4) and silver_srlg_diversity_analysis
 Project: Lakelink Fiber — Provable Resilience Intelligence
 """
 
-from conftest import composite_score
+import math
+import os
+import re
+
+import pytest
+
+from conftest import SLA_BOOST, composite_score, revenue_at_risk  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +56,145 @@ class TestCompositeScoreWeights:
             t = random.uniform(0, 100)
             s = composite_score(d, h, t)
             assert 0.0 <= s <= 100.0, f"Score {s} out of bounds for ({d}, {h}, {t})"
+
+    def test_score_bounded_0_100_all_tiers(self):
+        """Boosted score never exceeds the 100 cap for any tier."""
+        import random
+        random.seed(183)
+        for tier in SLA_BOOST:
+            for _ in range(500):
+                d, h, t = (random.uniform(0, 100) for _ in range(3))
+                assert 0.0 <= composite_score(d, h, t, tier) <= 100.0
+
+
+# ---------------------------------------------------------------------------
+# SLA boost + cap tests (BUG-QA-183)
+# ---------------------------------------------------------------------------
+
+class TestSlaBoostAndCap:
+    """overall = LEAST(100, base + boost); boost +5 premium_plus / +2 premium / 0 standard."""
+
+    def test_boost_values(self):
+        assert SLA_BOOST == {"premium_plus": 5.0, "premium": 2.0, "standard": 0.0}
+
+    def test_premium_plus_near_cap(self):
+        """Base 97 + 5 = 102 -> capped at 100."""
+        assert composite_score(97, 97, 97) == 97.0
+        assert composite_score(97, 97, 97, "premium_plus") == 100.0
+
+    def test_premium_plus_below_cap(self):
+        assert composite_score(50, 50, 50, "premium_plus") == 55.0
+
+    def test_premium_adds_two(self):
+        assert composite_score(50, 50, 50, "premium") == 52.0
+        assert composite_score(99, 99, 99, "premium") == 100.0  # 101 -> cap
+
+    def test_standard_adds_zero(self):
+        assert composite_score(50, 50, 50, "standard") == 50.0
+        assert composite_score(50, 50, 50) == 50.0  # default tier
+
+    def test_null_tier_treated_as_standard(self):
+        """Pipeline uses COALESCE(si.sla_tier, 'standard')."""
+        assert composite_score(50, 50, 50, None) == 50.0
+
+    def test_perfect_score_not_inflated(self):
+        for tier in SLA_BOOST:
+            assert composite_score(100, 100, 100, tier) == 100.0
+
+    def test_boost_applies_at_zero(self):
+        assert composite_score(0, 0, 0, "premium_plus") == 5.0
+        assert composite_score(0, 0, 0, "premium") == 2.0
+
+
+# ---------------------------------------------------------------------------
+# Checks against real pipeline output and pipeline SQL (BUG-QA-183)
+# ---------------------------------------------------------------------------
+
+class TestAgainstPipelineOutput:
+    """Compare the reference formulas to real resilience_score_snapshot rows.
+
+    These are not local copies: expected values come from the governed table
+    (see conftest.SNAPSHOT_SAMPLE for provenance).
+    """
+
+    def test_sample_covers_all_tiers_and_cap(self, snapshot_sample):
+        tiers = {r[1] for r in snapshot_sample}
+        assert tiers == set(SLA_BOOST)
+        capped = [r for r in snapshot_sample if r[7] == 100.0 and 0.4 * r[3] + 0.3 * r[4] + 0.3 * r[5] < 100.0]
+        assert {r[1] for r in capped} == {"premium", "premium_plus"}
+
+    def test_overall_score_matches_snapshot(self, snapshot_sample):
+        for sid, tier, _mrc, d, h, t, _n, overall, _rar in snapshot_sample:
+            got = composite_score(d, h, t, tier)
+            assert abs(got - overall) < 1e-9, f"{sid} ({tier}): {got} != snapshot {overall}"
+
+    def test_plain_40_30_30_fails_for_boosted_tiers(self, snapshot_sample):
+        """Regression guard: the old unboosted formula must NOT reproduce premium rows."""
+        boosted = [r for r in snapshot_sample if r[1] != "standard"]
+        mismatches = [r for r in boosted if abs(composite_score(r[3], r[4], r[5]) - r[7]) > 0.01]
+        assert len(mismatches) == len(boosted)
+
+    def test_revenue_at_risk_uses_boosted_score(self, snapshot_sample):
+        for sid, tier, mrc, d, h, t, _n, _overall, rar in snapshot_sample:
+            got = revenue_at_risk(mrc, composite_score(d, h, t, tier))
+            assert abs(got - rar) < 1e-9, f"{sid}: RaR {got} != snapshot {rar}"
+
+    def test_sql_round_is_half_up(self):
+        """SVC-00013 base 34.605 must round to 34.61 like Spark (Python round gives 34.6)."""
+        from conftest import sql_round
+        assert sql_round(34.605) == 34.61
+        assert composite_score(84.6, 0.04, 2.51, "premium_plus") == 39.61
+
+    def test_hazard_v2_half_life_matches_snapshot(self, snapshot_sample):
+        """V2 hazard = ROUND(100 * EXP(-n * LN(2) / 20), 2) (DEC-PRI-HAZARD-HL20-V3)."""
+        for sid, _tier, _mrc, _d, h, _t, n, _o, _r in snapshot_sample:
+            got = round(100.0 * math.exp(-n * math.log(2) / 20.0), 2)
+            assert abs(got - h) <= 0.01, f"{sid}: hazard {got} != snapshot {h} (n={n})"
+
+
+def _pipeline_source():
+    root = os.path.join(os.path.dirname(__file__), os.pardir, "pipelines")
+    for name in ("resilience_scoring_pipeline.py", "resilience_scoring_pipeline"):
+        p = os.path.abspath(os.path.join(root, name))
+        if os.path.isfile(p):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    return f.read()
+            except OSError:
+                return None
+    return None
+
+
+class TestPipelineSqlContract:
+    """Read the pipeline source so a formula change there breaks these tests."""
+
+    @pytest.fixture
+    def src(self):
+        s = _pipeline_source()
+        if not s:
+            pytest.skip("pipelines/resilience_scoring_pipeline source not readable here")
+        return s
+
+    def test_sla_boost_case_matches_reference(self, src):
+        m = re.search(
+            r"WHEN\s+'premium_plus'\s+THEN\s+([\d.]+)\s+WHEN\s+'premium'\s+THEN\s+([\d.]+)\s+ELSE\s+([\d.]+)",
+            src,
+        )
+        assert m, "SLA boost CASE not found in pipeline SQL"
+        assert tuple(float(x) for x in m.groups()) == (
+            SLA_BOOST["premium_plus"], SLA_BOOST["premium"], SLA_BOOST["standard"])
+
+    def test_overall_is_capped_weighted_sum_plus_boost(self, src):
+        flat = re.sub(r"\s+", " ", src)
+        assert re.search(
+            r"LEAST\(100\.0, ROUND\(ROUND\(0\.4 \* path_diversity_score \+ 0\.3 \* hazard_exposure_score "
+            r"\+ 0\.3 \* telemetry_health_score, 2\) \+ sla_boost, 2\)\)",
+            flat,
+        ), "overall_score expression drifted from conftest.composite_score"
+
+    def test_revenue_at_risk_expression(self, src):
+        flat = re.sub(r"\s+", " ", src)
+        assert "ROUND(mrc_usd * (1 - overall_score / 100.0), 2) AS revenue_at_risk_usd" in flat
 
 
 # ---------------------------------------------------------------------------
@@ -189,11 +334,19 @@ class TestSRLGDiversityVerdict:
 # ---------------------------------------------------------------------------
 
 class TestRevenueAtRisk:
-    """Revenue at risk = MRC * (1 - overall_score / 100)."""
+    """Revenue at risk = MRC * (1 - overall_score / 100), overall_score = boosted V2 score."""
 
-    @staticmethod
-    def revenue_at_risk(mrc: float, overall_score: float) -> float:
-        return round(mrc * (1.0 - overall_score / 100.0), 2)
+    revenue_at_risk = staticmethod(revenue_at_risk)
+
+    def test_premium_plus_boost_reduces_risk(self):
+        """Same components, premium_plus tier -> +5 score -> lower RaR."""
+        std = self.revenue_at_risk(10000, composite_score(50, 50, 50, "standard"))
+        pp = self.revenue_at_risk(10000, composite_score(50, 50, 50, "premium_plus"))
+        assert std == 5000.0
+        assert pp == 4500.0
+
+    def test_capped_score_zero_risk(self):
+        assert self.revenue_at_risk(10000, composite_score(97, 97, 97, "premium_plus")) == 0.0
 
     def test_score_100_zero_risk(self):
         assert self.revenue_at_risk(10000, 100.0) == 0.0
