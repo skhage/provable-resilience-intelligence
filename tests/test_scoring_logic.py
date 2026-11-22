@@ -6,13 +6,14 @@ Validates gold_resilience_score (Cell 4) and silver_srlg_diversity_analysis
 Project: Lakelink Fiber — Provable Resilience Intelligence
 """
 
+import json
 import math
 import os
 import re
 
 import pytest
 
-from conftest import SLA_BOOST, composite_score, revenue_at_risk  # noqa: E402
+from .scoring_reference import SLA_BOOST, composite_score, revenue_at_risk, sql_round
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +115,7 @@ class TestAgainstPipelineOutput:
     """Compare the reference formulas to real resilience_score_snapshot rows.
 
     These are not local copies: expected values come from the governed table
-    (see conftest.SNAPSHOT_SAMPLE for provenance).
+    (see scoring_reference.SNAPSHOT_SAMPLE for provenance).
     """
 
     def test_sample_covers_all_tiers_and_cap(self, snapshot_sample):
@@ -141,7 +142,6 @@ class TestAgainstPipelineOutput:
 
     def test_sql_round_is_half_up(self):
         """SVC-00013 base 34.605 must round to 34.61 like Spark (Python round gives 34.6)."""
-        from conftest import sql_round
         assert sql_round(34.605) == 34.61
         assert composite_score(84.6, 0.04, 2.51, "premium_plus") == 39.61
 
@@ -152,16 +152,43 @@ class TestAgainstPipelineOutput:
             assert abs(got - h) <= 0.01, f"{sid}: hazard {got} != snapshot {h} (n={n})"
 
 
+_PIPELINE_NAMES = (
+    "resilience_scoring_pipeline.py",
+    "resilience_scoring_pipeline.ipynb",  # workspace/Git export format (BUG-QA-184)
+    "resilience_scoring_pipeline",
+)
+
+
+def _read_source(path):
+    """Return pipeline source text; for .ipynb join all cell sources."""
+    with open(path, encoding="utf-8") as f:
+        raw = f.read()
+    if path.endswith(".ipynb") or raw.lstrip().startswith("{"):
+        try:
+            nb = json.loads(raw)
+        except ValueError:
+            return raw
+        cells = []
+        for cell in nb.get("cells", []):
+            s = cell.get("source", "")
+            cells.append("".join(s) if isinstance(s, list) else s)
+        return "\n".join(cells)
+    return raw
+
+
 def _pipeline_source():
+    # The DAB entrypoint bundle/pipeline/resilience_scoring_pipeline.py is a stub with no
+    # scoring SQL, so only pipelines/ is searched.
     root = os.path.join(os.path.dirname(__file__), os.pardir, "pipelines")
-    for name in ("resilience_scoring_pipeline.py", "resilience_scoring_pipeline"):
+    for name in _PIPELINE_NAMES:
         p = os.path.abspath(os.path.join(root, name))
         if os.path.isfile(p):
             try:
-                with open(p, encoding="utf-8") as f:
-                    return f.read()
+                s = _read_source(p)
             except OSError:
-                return None
+                continue
+            if s and s.strip():
+                return s
     return None
 
 
@@ -172,7 +199,10 @@ class TestPipelineSqlContract:
     def src(self):
         s = _pipeline_source()
         if not s:
-            pytest.skip("pipelines/resilience_scoring_pipeline source not readable here")
+            msg = "pipelines/resilience_scoring_pipeline(.py|.ipynb) source not readable here"
+            if os.environ.get("CI"):
+                pytest.fail(msg + " (CI set: SQL drift guard must run, not skip)")
+            pytest.skip(msg)
         return s
 
     def test_sla_boost_case_matches_reference(self, src):
@@ -190,7 +220,7 @@ class TestPipelineSqlContract:
             r"LEAST\(100\.0, ROUND\(ROUND\(0\.4 \* path_diversity_score \+ 0\.3 \* hazard_exposure_score "
             r"\+ 0\.3 \* telemetry_health_score, 2\) \+ sla_boost, 2\)\)",
             flat,
-        ), "overall_score expression drifted from conftest.composite_score"
+        ), "overall_score expression drifted from scoring_reference.composite_score"
 
     def test_revenue_at_risk_expression(self, src):
         flat = re.sub(r"\s+", " ", src)

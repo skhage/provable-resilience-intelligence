@@ -9,7 +9,7 @@ Project: Lakelink Fiber — Provable Resilience Intelligence
 
 import math
 
-from conftest import haversine_km
+from .scoring_reference import haversine_km
 
 
 # ---------------------------------------------------------------------------
