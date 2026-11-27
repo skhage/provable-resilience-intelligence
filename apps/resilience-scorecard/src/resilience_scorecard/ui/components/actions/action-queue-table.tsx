@@ -54,6 +54,9 @@ import {
   formatHazardTime,
   actionKpiSkeletonCount,
   ACTION_QUEUE_LOAD_ERROR,
+  priorityLabel,
+  priorityAria,
+  priorityBadgeClass,
 } from "@/lib/action-queue-copy";
 
 /** Lucide icon per action type — brand guide §6: 1.5px stroke, 16px inline */
@@ -427,7 +430,10 @@ function ActionTableContent() {
                       </td>
                       <td className="text-sm max-w-280">{a.risk_trigger}</td>
                       <td>
-                        <span className={`badge ${a.priority}`}>{a.priority}</span>
+                        {/* P363 §8.3: urgency text P1 Urgent..P4 Low, never a risk word; colour supplementary. */}
+                        <span className={`badge ${priorityBadgeClass(a.priority)}`} aria-label={priorityAria(a.priority)}>
+                          {priorityLabel(a.priority)}
+                        </span>
                       </td>
                       <td>
                         <span className={`badge ${a.status}`}>

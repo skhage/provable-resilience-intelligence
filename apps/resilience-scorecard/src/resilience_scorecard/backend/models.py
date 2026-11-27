@@ -14,6 +14,22 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------------------------
 
 class RiskLevel(str, Enum):
+    """P363 / V4-KPI-COPY-SPEC §8.4: governed resilience risk level.
+
+    Same four levels and cuts (40/60/80) as risk_band_vocabulary GOVERNED_RISK_LEVEL rows,
+    the resilience_score metric view, Genie and the dashboards.
+    """
+    CRITICAL = "critical"
+    AT_RISK = "at_risk"
+    MODERATE = "moderate"
+    HEALTHY = "healthy"
+
+
+class ActionPriority(str, Enum):
+    """proactive_action.priority = action urgency, NOT a risk level (V4-KPI-COPY-SPEC §8.3).
+
+    Stored values are unchanged; the UI shows them as P1 Urgent..P4 Low.
+    """
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
@@ -68,14 +84,29 @@ class ResilienceScoreOut(BaseModel):
     revenue_at_risk_usd: float | None = Field(default=None, description="Monthly revenue at risk in USD")
 
 
+class RiskLevelCutOut(BaseModel):
+    """One governed risk level band, read from risk_band_vocabulary (P363, §8.1)."""
+    level: RiskLevel
+    score_min_inclusive: float = Field(ge=0, description="Lowest overall_score in the band, inclusive")
+    score_max_exclusive: float = Field(gt=0, description="Upper overall_score bound, exclusive (100.01 for healthy)")
+
+
 class ResilienceSummaryOut(BaseModel):
-    """Aggregate resilience dashboard summary."""
+    """Aggregate resilience dashboard summary.
+
+    P363: risk counts use the governed levels (critical / at_risk / moderate / healthy, cuts
+    40/60/80) and add up to total_services.
+    """
     total_services: int
     avg_resilience_score: float
-    critical_count: int
-    high_risk_count: int
-    medium_risk_count: int
-    low_risk_count: int
+    critical_count: int = Field(ge=0, description="Services with overall_score < 40 (governed critical)")
+    at_risk_count: int = Field(ge=0, description="Services with 40 <= overall_score < 60 (governed at_risk)")
+    moderate_count: int = Field(ge=0, description="Services with 60 <= overall_score < 80 (governed moderate)")
+    healthy_count: int = Field(ge=0, description="Services with overall_score >= 80 (governed healthy)")
+    risk_level_cuts: list[RiskLevelCutOut] = Field(
+        default_factory=list,
+        description="Governed bands worst to best, so the UI never hard-codes the cuts",
+    )
     total_single_point_failures: int
     total_srlg_groups: int
     total_revenue_at_risk_usd: float | None = Field(default=None, description="Sum of monthly revenue at risk across all services (USD)")
@@ -111,7 +142,7 @@ class ProactiveActionOut(BaseModel):
     service_id: str
     service_name: str
     risk_trigger: str
-    priority: RiskLevel
+    priority: ActionPriority
     status: ActionStatus
     assigned_to: str | None = None
     description: str

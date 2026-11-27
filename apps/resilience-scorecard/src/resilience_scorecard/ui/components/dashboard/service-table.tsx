@@ -19,7 +19,7 @@ import { isProvisional } from "@/lib/provisional-disclosure";
 import { InterimBadge } from "@/components/ui/interim-badge";
 import selector from "@/lib/selector";
 import { pageBoundary } from "@/lib/action-queue-focus";
-// BUG-DW-189: thresholds 85/70/55/40 now live in the shared lib (also used by the Home Avg card).
+// P363 (V4-KPI-COPY-SPEC §8.2): governed levels (Critical/At Risk/Moderate/Healthy) from the shared lib.
 import { scoreBand } from "@/lib/score-band";
 
 function ScoreGauge({ score, label }: { score: number; label?: string }) {

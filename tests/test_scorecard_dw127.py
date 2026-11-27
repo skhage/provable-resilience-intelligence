@@ -13,15 +13,16 @@ import re
 
 import pytest
 
-from test_scorecard_dw126 import FMT_TS, UI, _card_block, _node_ts, _src
+from test_scorecard_dw126 import FMT_TS, UI, _aria_var, _card_block, _node_ts, _src
 
 DISCLOSURE_TS = os.path.join(UI, "lib", "bb-srlg-disclosure.ts")
 
 ALL_COUNT_CARDS = {
-    "Critical Risk": "critical_count",
-    "High Risk": "high_risk_count",
-    "Medium Risk": "medium_risk_count",
-    "Low Risk": "low_risk_count",
+    # P363: governed risk cards (keys) use riskCardAria(level, var, cuts).
+    "critical": "critical_count",
+    "at_risk": "at_risk_count",
+    "moderate": "moderate_count",
+    "healthy": "healthy_count",
     "Single-Point Failures": "total_single_point_failures",
     "Monitored Services": "total_services",
 }
@@ -31,9 +32,7 @@ ALL_COUNT_CARDS = {
 def test_count_card_flag_gated(label, field):
     src = _src()
     block = _card_block(src, label)
-    aria = re.search(r"aria-label=\{`" + re.escape(label) + r": \$\{(\w+)\}`\}", block)
-    assert aria, f"{label}: aria-label must interpolate a single variable"
-    var = aria.group(1)
+    var = _aria_var(block, label)
     vals = re.findall(r'<div className="kpi-value">\{(\w+)\}</div>', block)
     assert vals == [var], f"{label}: kpi-value must render {var}, got {vals}"
     decl = re.search(r"const " + var + r" = (.+?);", src)

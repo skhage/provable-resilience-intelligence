@@ -47,6 +47,50 @@ export function actionTypeLabel(actionType: string | null | undefined): string {
   return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase() : "";
 }
 
+/**
+ * P363 / V4-KPI-COPY-SPEC §8.3: proactive_action.priority is action urgency, not a risk level.
+ * Stored values are unchanged; only the badge text and aria-label change, so a badge never
+ * reuses a risk word. Order is P1..P4 for any filter or sort control.
+ */
+export const PRIORITY_ORDER: ReadonlyArray<string> = ["critical", "high", "medium", "low"];
+
+export const PRIORITY_LABEL: Readonly<Record<string, string>> = {
+  critical: "P1 Urgent",
+  high: "P2 High",
+  medium: "P3 Normal",
+  low: "P4 Low",
+};
+
+export const PRIORITY_ARIA: Readonly<Record<string, string>> = {
+  critical: "Priority 1, urgent",
+  high: "Priority 2, high",
+  medium: "Priority 3, normal",
+  low: "Priority 4, low",
+};
+
+function priorityKey(priority: string | null | undefined): string | null {
+  if (!priority) return null;
+  const key = String(priority).trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(PRIORITY_LABEL, key) ? key : null;
+}
+
+/** Badge text: 'P1 Urgent'..'P4 Low'; unknown or null -> 'Unranked' (never blank). */
+export function priorityLabel(priority: string | null | undefined): string {
+  const k = priorityKey(priority);
+  return k ? PRIORITY_LABEL[k] : "Unranked";
+}
+
+/** aria-label: 'Priority 1, urgent'..; unknown or null -> 'Priority unranked'. */
+export function priorityAria(priority: string | null | undefined): string {
+  const k = priorityKey(priority);
+  return k ? PRIORITY_ARIA[k] : "Priority unranked";
+}
+
+/** Existing .badge.<priority> colour class (BUG-QA-018 contrast); 'neutral' when unknown. */
+export function priorityBadgeClass(priority: string | null | undefined): string {
+  return priorityKey(priority) ?? "neutral";
+}
+
 /** Success toast after a status change: 'Action marked In progress for <service_name>'. */
 export function statusToast(status: string, serviceName?: string | null): string {
   const base = `Action marked ${statusLabel(status)}`;

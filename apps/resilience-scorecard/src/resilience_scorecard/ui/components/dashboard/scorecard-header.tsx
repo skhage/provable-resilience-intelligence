@@ -24,9 +24,17 @@ import {
 } from "@/lib/v4-delta-format";
 import { badgeVariant, type BadgeVariant } from "@/lib/provisional-disclosure";
 import selector from "@/lib/selector";
-// BUG-DW-189: shared 85/70/55/40 bands (same as the service table gauge). Border colour is
-// mapped from the band and is supplementary; under the v4 flag the band label is visible text.
-import { scoreBand, scoreBandKpiClass } from "@/lib/score-band";
+// P363 (V4-KPI-COPY-SPEC §8.1/§8.2): governed risk levels shared with the service table gauge.
+// Cuts come from the API (summary.risk_level_cuts, read from risk_band_vocabulary); border
+// colour is supplementary and the label/caption is the text signal in both flag states.
+import {
+  scoreBand,
+  scoreBandKpiClass,
+  avgBandCaption,
+  riskLevelCaption,
+  riskCardAria,
+  RISK_LEVEL_LABEL,
+} from "@/lib/score-band";
 
 /**
  * P36-APP-V4-BB-SRLG-DISCLOSURE (V4-KPI-COPY-SPEC §2.1/§2.2, §6.3, §6.4). Rendered only when
@@ -70,15 +78,17 @@ function ScorecardHeaderContent() {
     v4Kpis, summary.report_status, provisionalObjects, "scorecard_header",
   );
   const avgScore = v4Kpis ? formatScore(summary.avg_resilience_score) : summary.avg_resilience_score.toFixed(1);
-  const avgBand = scoreBand(summary.avg_resilience_score);
+  const cuts = summary.risk_level_cuts;
+  const avgBand = scoreBand(summary.avg_resilience_score, cuts);
+  const avgCaption = avgBandCaption(summary.avg_resilience_score, cuts);
   const critical = v4Kpis ? formatKpiCount(summary.critical_count) : summary.critical_count;
-  // BUG-DW-123 (§7.7 #4): High Risk uses the same thousands formatting as Critical under the flag.
-  const highRisk = v4Kpis ? formatKpiCount(summary.high_risk_count) : summary.high_risk_count;
-  // BUG-DW-126: Medium Risk follows the same pattern so the count row never mixes formats.
-  const mediumRisk = v4Kpis ? formatKpiCount(summary.medium_risk_count) : summary.medium_risk_count;
+  // BUG-DW-123 (§7.7 #4): At Risk uses the same thousands formatting as Critical under the flag.
+  const atRisk = v4Kpis ? formatKpiCount(summary.at_risk_count) : summary.at_risk_count;
+  // BUG-DW-126: Moderate follows the same pattern so the count row never mixes formats.
+  const moderate = v4Kpis ? formatKpiCount(summary.moderate_count) : summary.moderate_count;
   // BUG-DW-127: the remaining count cards use the same flag-gated formatter (value + aria-label).
   // SRLG Groups under the flag is formatted inside SrlgGroupsV4Card; its v3 branch is flag-off only.
-  const lowRisk = v4Kpis ? formatKpiCount(summary.low_risk_count) : summary.low_risk_count;
+  const healthy = v4Kpis ? formatKpiCount(summary.healthy_count) : summary.healthy_count;
   const singlePointFailures = v4Kpis ? formatKpiCount(summary.total_single_point_failures) : summary.total_single_point_failures;
   const monitoredServices = v4Kpis ? formatKpiCount(summary.total_services) : summary.total_services;
   // BUG-DW-190: backend/models.py allows None; treat undefined the same way.
@@ -86,8 +96,9 @@ function ScorecardHeaderContent() {
 
   return (
     <div className="kpi-row">
-      <div className={`kpi-card ${scoreBandKpiClass(summary.avg_resilience_score)}`}
-           role="group" aria-label={v4Kpis ? `Avg Resilience Score: ${avgScore}, ${avgBand.label}` : `Avg Resilience Score: ${avgScore}`}>
+      <div className={`kpi-card ${scoreBandKpiClass(summary.avg_resilience_score, cuts)}`}
+           role="group" aria-label={`Avg Resilience Score: ${avgScore}, ${avgCaption.toLowerCase()}`}
+           data-band={avgBand.key}>
         {headerVariant ? (
           <div className="kpi-label kpi-label-row kpi-label-row--interim">
             <span>Avg Resilience Score</span>
@@ -97,43 +108,47 @@ function ScorecardHeaderContent() {
           <div className="kpi-label">Avg Resilience Score</div>
         )}
         <div className="kpi-value score">{avgScore}</div>
-        {/* BUG-DW-189 (WCAG 1.4.1): band as text, solid iron 8.45:1; v4 flag only (v3 freeze unchanged). */}
-        {v4Kpis && <div className="kpi-caption">{avgBand.label}</div>}
+        {/* P363 §8.2 (WCAG 1.4.1): '<Label> band' as text, solid iron 8.45:1, both flag states. */}
+        <div className="kpi-caption">{avgCaption}</div>
       </div>
       <div className="kpi-card critical"
-           role="group" aria-label={`Critical Risk: ${critical}`}>
+           role="group" aria-label={riskCardAria("critical", critical, cuts)}>
         {headerVariant ? (
           <div className="kpi-label kpi-label-row kpi-label-row--interim">
-            <span>Critical Risk</span>
+            <span>{RISK_LEVEL_LABEL.critical}</span>
             <InterimBadge variant={headerVariant} />
           </div>
         ) : (
-          <div className="kpi-label">Critical Risk</div>
+          <div className="kpi-label">{RISK_LEVEL_LABEL.critical}</div>
         )}
         <div className="kpi-value">{critical}</div>
+        <div className="kpi-caption">{riskLevelCaption("critical", cuts)}</div>
       </div>
       <div className="kpi-card high"
-           role="group" aria-label={`High Risk: ${highRisk}`}>
-        {/* §7.2: High Risk also gets the PROVISIONAL badge in partial cutover */}
+           role="group" aria-label={riskCardAria("at_risk", atRisk, cuts)}>
+        {/* §7.2 / §8.1: At Risk (the second risk card) also gets the PROVISIONAL badge in partial cutover */}
         {headerVariant === "provisional" ? (
           <div className="kpi-label kpi-label-row kpi-label-row--interim">
-            <span>High Risk</span>
+            <span>{RISK_LEVEL_LABEL.at_risk}</span>
             <InterimBadge variant="provisional" />
           </div>
         ) : (
-          <div className="kpi-label">High Risk</div>
+          <div className="kpi-label">{RISK_LEVEL_LABEL.at_risk}</div>
         )}
-        <div className="kpi-value">{highRisk}</div>
+        <div className="kpi-value">{atRisk}</div>
+        <div className="kpi-caption">{riskLevelCaption("at_risk", cuts)}</div>
       </div>
       <div className="kpi-card warning"
-           role="group" aria-label={`Medium Risk: ${mediumRisk}`}>
-        <div className="kpi-label">Medium Risk</div>
-        <div className="kpi-value">{mediumRisk}</div>
+           role="group" aria-label={riskCardAria("moderate", moderate, cuts)}>
+        <div className="kpi-label">{RISK_LEVEL_LABEL.moderate}</div>
+        <div className="kpi-value">{moderate}</div>
+        <div className="kpi-caption">{riskLevelCaption("moderate", cuts)}</div>
       </div>
       <div className="kpi-card success"
-           role="group" aria-label={`Low Risk: ${lowRisk}`}>
-        <div className="kpi-label">Low Risk</div>
-        <div className="kpi-value">{lowRisk}</div>
+           role="group" aria-label={riskCardAria("healthy", healthy, cuts)}>
+        <div className="kpi-label">{RISK_LEVEL_LABEL.healthy}</div>
+        <div className="kpi-value">{healthy}</div>
+        <div className="kpi-caption">{riskLevelCaption("healthy", cuts)}</div>
       </div>
       <div className="kpi-card"
            role="group" aria-label={`Single-Point Failures: ${singlePointFailures}`}>

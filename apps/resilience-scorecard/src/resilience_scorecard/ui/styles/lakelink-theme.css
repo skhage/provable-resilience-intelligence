@@ -20,7 +20,7 @@
   --lf-risk-red: #D32F2F;
   --lf-risk-red-text: #B71C1C; /* BUG-DW-172: risk-red for body-size TEXT. 6.57:1 white, 5.36:1 platinum zebra, >=4.98:1 teal hover. #D32F2F is 4.06:1 on platinum (fails 1.4.3) */
   --lf-risk-amber: #F9A825; /* decorative dots on tinted fills only; 1.97:1 white, 1.61:1 platinum */
-  --lf-risk-amber-strong: #B45309; /* BUG-DW-193: non-text amber (WCAG 1.4.11). 5.02:1 white, 4.10:1 platinum. Medium Risk KPI stripe + fair gauge fill */
+  --lf-risk-amber-strong: #B45309; /* BUG-DW-193: non-text amber (WCAG 1.4.11). 5.02:1 white, 4.10:1 platinum. Moderate KPI stripe + moderate gauge fill (P363) */
   --lf-risk-green: #2E7D32;
 
   /* === Hazard Type Colors (HAZARD-VIS-SPEC §1.1) === */
@@ -384,11 +384,11 @@ body {
   transition: width 0.3s ease;
 }
 
-.score-gauge .gauge-fill.excellent { background: var(--score-excellent); }
-.score-gauge .gauge-fill.good { background: var(--score-good); }
-.score-gauge .gauge-fill.fair { background: var(--score-fair); }
-.score-gauge .gauge-fill.poor { background: var(--score-poor); }
-.score-gauge .gauge-fill.failing { background: var(--score-failing); }
+/* P363 (V4-KPI-COPY-SPEC §8.2): gauge keys are the governed levels; existing tokens only. */
+.score-gauge .gauge-fill.healthy { background: var(--score-excellent); }
+.score-gauge .gauge-fill.moderate { background: var(--score-fair); }
+.score-gauge .gauge-fill.at_risk { background: var(--score-poor); }
+.score-gauge .gauge-fill.critical { background: var(--score-failing); }
 
 /* Rating pills */
 /* UX-REM-CONTRAST-PILLS: tinted-bg + dark-text for WCAG AA (≥4.5:1) */

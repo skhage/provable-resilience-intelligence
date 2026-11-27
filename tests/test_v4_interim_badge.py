@@ -62,7 +62,7 @@ class _Live:
     def get_summary(self):
         return {
             "total_services": 8000, "avg_resilience_score": 61.55, "critical_count": 848,
-            "high_risk_count": 1, "medium_risk_count": 1, "low_risk_count": 1,
+            "at_risk_count": 1, "moderate_count": 1, "healthy_count": 1,
             "total_single_point_failures": 0, "total_srlg_groups": 931,
             "total_revenue_at_risk_usd": 48445093.0,
         }
@@ -137,7 +137,8 @@ def test_header_badge_on_three_cards_only_and_v3_markup_preserved():
     assert "badgeVariant(" in t
     # Avg Score, Critical Risk, Revenue at Risk get variant={headerVariant} (3 cards)
     assert t.count('<InterimBadge variant={headerVariant} />') == 3
-    for label in ("Avg Resilience Score", "Critical Risk", "Revenue at Risk"):
+    # P363 §8.1: the Critical card label comes from RISK_LEVEL_LABEL ("Critical").
+    for label in ("Avg Resilience Score", "{RISK_LEVEL_LABEL.critical}", "Revenue at Risk"):
         assert f'<div className="kpi-label">{label}</div>' in t  # v3 branch untouched
         assert f"<span>{label}</span>\n" in t
     # flag-off formatting falls back to the v3 expressions

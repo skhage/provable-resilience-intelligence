@@ -118,19 +118,20 @@ def test_format_kpi_count_known_answers():
     assert d == ["2,932", "0", "999", "1,000", "12,345"]
 
 
+# P363 (V4-KPI-COPY-SPEC §8.1): the 'high' card is now the governed At Risk card.
 def test_high_risk_formatted_like_critical_under_flag():
     src = _read(HEADER)
-    assert "const highRisk = v4Kpis ? formatKpiCount(summary.high_risk_count) : summary.high_risk_count;" in src
-    assert "aria-label={`High Risk: ${highRisk}`}" in src
-    assert '<div className="kpi-value">{highRisk}</div>' in src
+    assert "const atRisk = v4Kpis ? formatKpiCount(summary.at_risk_count) : summary.at_risk_count;" in src
+    assert 'aria-label={riskCardAria("at_risk", atRisk, cuts)}' in src
+    assert '<div className="kpi-value">{atRisk}</div>' in src
     # The raw value must not render anywhere else in the header.
     code = _strip_comments(src)
-    assert code.count("summary.high_risk_count") == 2, "only the highRisk ternary may read the raw count"
+    assert code.count("summary.at_risk_count") == 2, "only the atRisk ternary may read the raw count"
 
 
 def test_high_risk_card_aria_and_value_agree():
     src = _read(HEADER)
     i = src.index('className="kpi-card high"')
     card = src[i:src.index('className="kpi-card warning"', i)]
-    assert "${highRisk}" in card and "{highRisk}</div>" in card
-    assert "summary.high_risk_count" not in card
+    assert ", atRisk, cuts)" in card and "{atRisk}</div>" in card
+    assert "summary.at_risk_count" not in card

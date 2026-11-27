@@ -12,6 +12,8 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 import random
 
+from ..risk_levels import GOVERNED_RISK_CUTS, governed_risk_level
+
 # Fixed base timestamp for deterministic mock data (BUG-QA-014)
 _FIXED_BASE = datetime(2026, 10, 20, 0, 0, 0, tzinfo=timezone.utc)
 
@@ -66,13 +68,8 @@ def _score_to_rating(score: float) -> str:
 
 
 def _risk_level(score: float) -> str:
-    if score < 40:
-        return "critical"
-    if score < 60:
-        return "high"
-    if score < 75:
-        return "medium"
-    return "low"
+    """P363: governed level (critical / at_risk / moderate / healthy, cuts 40/60/80)."""
+    return governed_risk_level(score)
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +112,7 @@ def generate_mock_scores() -> list[dict]:
 
 def generate_mock_summary(scores: list[dict]) -> dict:
     """Derive summary stats from mock scores."""
-    levels = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    levels = {"critical": 0, "at_risk": 0, "moderate": 0, "healthy": 0}
     total_spf = 0
     for s in scores:
         level = _risk_level(s["resilience_score"])
@@ -126,9 +123,10 @@ def generate_mock_summary(scores: list[dict]) -> dict:
         "total_services": len(scores),
         "avg_resilience_score": round(sum(s["resilience_score"] for s in scores) / len(scores), 1),
         "critical_count": levels["critical"],
-        "high_risk_count": levels["high"],
-        "medium_risk_count": levels["medium"],
-        "low_risk_count": levels["low"],
+        "at_risk_count": levels["at_risk"],
+        "moderate_count": levels["moderate"],
+        "healthy_count": levels["healthy"],
+        "risk_level_cuts": [dict(c) for c in GOVERNED_RISK_CUTS],
         "total_single_point_failures": total_spf,
         "total_srlg_groups": 809,  # BUG-DW-031: realistic mock matching shared_risk_group table count
         "total_revenue_at_risk_usd": round(sum(s.get("revenue_at_risk_usd", 0) for s in scores), 2),

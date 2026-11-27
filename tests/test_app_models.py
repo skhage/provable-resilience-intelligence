@@ -104,7 +104,8 @@ class TestPydanticModels:
         }
 
     def test_risk_level_enum_values(self):
-        assert set(RiskLevel) == {"critical", "high", "medium", "low"}
+        # P363 / V4-KPI-COPY-SPEC §8.4: governed levels.
+        assert set(RiskLevel) == {"critical", "at_risk", "moderate", "healthy"}
 
     def test_path_diversity_rating_values(self):
         assert set(PathDiversityRating) == {"A", "B", "C", "D", "F"}
@@ -161,10 +162,12 @@ class TestMockDataGenerators:
         assert _score_to_rating(0) == "F"    # boundary
 
     def test_risk_level_mapping(self):
+        # P363: governed cuts 40/60/80 (75-79.99 is moderate, not the old 'low').
         assert _risk_level(30) == "critical"
-        assert _risk_level(50) == "high"
-        assert _risk_level(65) == "medium"
-        assert _risk_level(80) == "low"
+        assert _risk_level(50) == "at_risk"
+        assert _risk_level(65) == "moderate"
+        assert _risk_level(79.99) == "moderate"
+        assert _risk_level(80) == "healthy"
 
     def test_summary_totals_match(self):
         scores = generate_mock_scores()
@@ -172,9 +175,9 @@ class TestMockDataGenerators:
         assert summary["total_services"] == len(scores)
         level_total = (
             summary["critical_count"]
-            + summary["high_risk_count"]
-            + summary["medium_risk_count"]
-            + summary["low_risk_count"]
+            + summary["at_risk_count"]
+            + summary["moderate_count"]
+            + summary["healthy_count"]
         )
         assert level_total == len(scores)
 

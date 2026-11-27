@@ -19,9 +19,16 @@ import type { BbSrlgCoverage } from "./bb-srlg-disclosure";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type Health = { status: string; data_source?: string; [k: string]: any };
 export type ResilienceScore = { service_id: string; resilience_score: number; [k: string]: any };
+/** P363: one governed band from risk_band_vocabulary (worst to best). */
+export type RiskLevelCut = { level: string; score_min_inclusive: number; score_max_exclusive: number };
 export type ResilienceSummary = {
   avg_resilience_score: number;
+  /** P363 / V4-KPI-COPY-SPEC §8.4: governed levels; the four counts add up to total_services. */
   critical_count: number;
+  at_risk_count: number;
+  moderate_count: number;
+  healthy_count: number;
+  risk_level_cuts?: RiskLevelCut[];
   /** V4-KPI-COPY-SPEC §6.2; set only when PRI_V4_KPIS=true (null/absent = v3 UI). */
   report_status?: "INTERIM" | "FINAL" | null;
   [k: string]: any;

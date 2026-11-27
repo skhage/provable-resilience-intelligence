@@ -24,6 +24,7 @@ from databricks.sdk.service.sql import (
 )
 
 from ..provisional_objects import PROVISIONAL_OBJECTS_SQL
+from ..risk_levels import GOVERNED_RISK_CUTS
 
 if TYPE_CHECKING:
     from ..core import AppConfig
@@ -59,16 +60,6 @@ def _score_to_rating(score: float) -> str:
     return "A" if score >= 85 else "F"
 
 
-def _risk_level(score: float) -> str:
-    if score < 40:
-        return "critical"
-    if score < 60:
-        return "high"
-    if score < 75:
-        return "medium"
-    return "low"
-
-
 # ---------------------------------------------------------------------------
 # SQL Queries
 # ---------------------------------------------------------------------------
@@ -99,18 +90,36 @@ LEFT JOIN geographic_site gz    ON s.site_z_id   = gz.site_id
 ORDER BY r.overall_score ASC
 """
 
+# P363 / V4-KPI-COPY-SPEC §8.4: governed risk levels. Cuts are read from risk_band_vocabulary
+# (GOVERNED_RISK_LEVEL, is_governed) so the app matches the resilience_score MV, Genie and the
+# dashboards (40/60/80). Live 2026-11-27: 848 / 2,932 / 3,172 / 1,048 = 8,000.
+# One literal per statement (test_provisional_dw124 parses _SUMMARY_SQL's FROM/JOIN tables).
 _SUMMARY_SQL = """
+WITH governed AS (
+  SELECT governed_risk_level AS level, score_min_inclusive, score_max_exclusive
+  FROM risk_band_vocabulary
+  WHERE is_governed = TRUE AND vocabulary = 'GOVERNED_RISK_LEVEL'
+)
 SELECT
   COUNT(*)                                           AS total_services,
   ROUND(AVG(r.overall_score), 1)                     AS avg_resilience_score,
-  SUM(CASE WHEN r.overall_score <  40 THEN 1 ELSE 0 END) AS critical_count,
-  SUM(CASE WHEN r.overall_score >= 40 AND r.overall_score < 60 THEN 1 ELSE 0 END) AS high_risk_count,
-  SUM(CASE WHEN r.overall_score >= 60 AND r.overall_score < 75 THEN 1 ELSE 0 END) AS medium_risk_count,
-  SUM(CASE WHEN r.overall_score >= 75 THEN 1 ELSE 0 END)  AS low_risk_count,
+  SUM(CASE WHEN g.level = 'critical' THEN 1 ELSE 0 END) AS critical_count,
+  SUM(CASE WHEN g.level = 'at_risk'  THEN 1 ELSE 0 END) AS at_risk_count,
+  SUM(CASE WHEN g.level = 'moderate' THEN 1 ELSE 0 END) AS moderate_count,
+  SUM(CASE WHEN g.level = 'healthy'  THEN 1 ELSE 0 END) AS healthy_count,
   CAST(SUM(r.active_alarms) AS BIGINT)               AS total_single_point_failures,
   (SELECT CAST(COUNT(DISTINCT srlg_id) AS INT) FROM shared_risk_group) AS total_srlg_groups,
   ROUND(SUM(r.revenue_at_risk_usd), 2)               AS total_revenue_at_risk_usd
 FROM resilience_score_snapshot r
+LEFT JOIN governed g
+  ON r.overall_score >= g.score_min_inclusive AND r.overall_score < g.score_max_exclusive
+"""
+
+_RISK_LEVEL_CUTS_SQL = """
+SELECT governed_risk_level AS level, score_min_inclusive, score_max_exclusive
+FROM risk_band_vocabulary
+WHERE is_governed = TRUE AND vocabulary = 'GOVERNED_RISK_LEVEL'
+ORDER BY governed_sort_order
 """
 
 _RISK_DISTRIBUTION_SQL = """
@@ -982,14 +991,29 @@ class CatalogSqlService:
         return {
             "total_services": int(row.get("total_services", 0)),
             "avg_resilience_score": float(row.get("avg_resilience_score", 0)),
-            "critical_count": int(row.get("critical_count", 0)),
-            "high_risk_count": int(row.get("high_risk_count", 0)),
-            "medium_risk_count": int(row.get("medium_risk_count", 0)),
-            "low_risk_count": int(row.get("low_risk_count", 0)),
+            "critical_count": int(row.get("critical_count", 0) or 0),
+            "at_risk_count": int(row.get("at_risk_count", 0) or 0),
+            "moderate_count": int(row.get("moderate_count", 0) or 0),
+            "healthy_count": int(row.get("healthy_count", 0) or 0),
+            "risk_level_cuts": self.get_risk_level_cuts(),
             "total_single_point_failures": int(row.get("total_single_point_failures", 0)),
             "total_srlg_groups": int(row.get("total_srlg_groups", 0)),
             "total_revenue_at_risk_usd": float(row.get("total_revenue_at_risk_usd", 0) or 0),
         }
+
+    def get_risk_level_cuts(self) -> list[dict]:
+        """Governed bands worst to best from risk_band_vocabulary; falls back to 40/60/80 constants."""
+        rows = self._execute(_RISK_LEVEL_CUTS_SQL)
+        if not rows:
+            return [dict(c) for c in GOVERNED_RISK_CUTS]
+        return [
+            {
+                "level": str(r["level"]),
+                "score_min_inclusive": float(r["score_min_inclusive"]),
+                "score_max_exclusive": float(r["score_max_exclusive"]),
+            }
+            for r in rows
+        ]
 
     def get_risk_distribution(self) -> list[dict] | None:
         """Return risk breakdown by category."""

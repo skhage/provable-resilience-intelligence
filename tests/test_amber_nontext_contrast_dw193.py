@@ -149,11 +149,12 @@ def test_every_kpi_stripe_contrast(css, vars_):
 # --- every gauge-fill band >= 3:1 on the white gauge interior (DW-145) and fair also on platinum ---
 def test_every_gauge_fill_contrast(css, vars_):
     fills = _top_level_rules(css, r"\.score-gauge \.gauge-fill\.([\w-]+)", "background")
-    assert set(fills) == {"excellent", "good", "fair", "poor", "failing"}, fills
+    # P363 §8.2: gauge keys are the governed levels; moderate reuses --score-fair (strong amber).
+    assert set(fills) == {"healthy", "moderate", "at_risk", "critical"}, fills
     bad = [(k, _resolve(v, vars_), round(_cr(_resolve(v, vars_), WHITE), 2))
            for k, v in fills.items() if _cr(_resolve(v, vars_), WHITE) < 3.0]
     assert not bad, bad
-    fair = _resolve(fills["fair"], vars_)
+    fair = _resolve(fills["moderate"], vars_)
     assert _cr(fair, PLATINUM) >= 3.0
 
 
@@ -175,9 +176,9 @@ def test_no_nontext_use_of_pale_amber(css):
 # --- (b) every band has a text label (WCAG 1.4.1) ---
 def test_every_band_has_label():
     ts = _read(BAND_TS)
-    for key, label in [("excellent", "Excellent"), ("good", "Good"), ("fair", "Fair"), ("poor", "Poor")]:
-        assert '{ min: ' in ts and f'key: "{key}", label: "{label}"' in ts
-    assert 'key: "failing", label: "Failing"' in ts
+    # P363: governed labels (V4-KPI-COPY-SPEC §8.1).
+    for key, label in [("critical", "Critical"), ("at_risk", "At Risk"), ("moderate", "Moderate"), ("healthy", "Healthy")]:
+        assert f'{key}: "{label}",' in ts
 
 
 def test_gauge_exposes_band_label():

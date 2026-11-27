@@ -66,7 +66,7 @@ class _Live:
     def get_summary(self):
         return {
             "total_services": 8000, "avg_resilience_score": 61.6, "critical_count": 848,
-            "high_risk_count": 1, "medium_risk_count": 1, "low_risk_count": 1,
+            "at_risk_count": 1, "moderate_count": 1, "healthy_count": 1,
             "total_single_point_failures": 0, "total_srlg_groups": 809,
             "total_revenue_at_risk_usd": 48.4e6,
         }
