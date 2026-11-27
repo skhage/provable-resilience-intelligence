@@ -148,7 +148,7 @@ Source decision: `DEC-PRI-V4-073-SECOND-MISS-PARTIAL-CUTOVER` (decisions id 41, 
 
 | Surface | Source object (partial mode) | Treatment |
 | --- | --- | --- |
-| Scorecard header: Avg Resilience Score, Critical Risk, High Risk, Revenue at Risk | `resilience_score_snapshot` (v3) | PROVISIONAL badge in the label row (same slot as §6.2) |
+| Scorecard header: Avg Resilience Score, Critical, At Risk (was High Risk, renamed by §8), Revenue at Risk | `resilience_score_snapshot` (v3) | PROVISIONAL badge in the label row (same slot as §6.2) |
 | Service table: score and risk-band columns | `resilience_score_snapshot` (v3) | One badge in the table caption, not per row or per header cell |
 | `/hazards` page (exposure counts, impacted services) | HSI-derived (`hazard_span_proximity`, v3 lineage) | Page note (§7.4) under the page title |
 | `/actions` page | `proactive_action` (v3; v4 moves to v4.1) + HSI-derived nearest hazard | Page note (§7.4) |
@@ -198,3 +198,58 @@ If @pm adds `hazard_span_proximity` or `proactive_action` to `PARTIAL_KEEP_V3` (
 4. The header shows 61.5, 848, 2,932 and $48.4M/mo from the API, with no hard-coded numbers.
 5. `grep -riE "lumen"` over `ui/` returns 0, and so does a search for `\bworse\b|declined|deteriorat` in the new copy.
 6. At 320px the badge wraps under the label (`.kpi-label-row--interim` wrap rule) and the page note wraps without truncating.
+
+## 8. Governed risk level copy and action priority labels (P364-DESIGNER-RISK-LEVEL-COPY, 2026-11-26)
+
+Source of truth: `cdm_tmforum.provable_resilience_intelligence.risk_band_vocabulary` (rows where `is_governed = TRUE`). The app must use the same four levels and cuts as the `resilience_score` metric view, Genie and the dashboards. This section applies in BOTH flag states (v3 and v4). It is a correctness fix, not a v4 feature: today 537 services scored 75 to 79.99 show as Low Risk but are governed `moderate`.
+
+### 8.1 KPI risk cards (scorecard-header.tsx)
+
+| Order | Governed level | Card label (verbatim) | Caption (verbatim, `.kpi-caption`, solid iron) | Score rule | Card class | Live count (2026-11-26) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | critical | `Critical` | `Score below 40` | < 40 | `critical` | 848 |
+| 2 | at_risk | `At Risk` | `Score 40 to 59` | 40 to < 60 | `high` | 2,932 |
+| 3 | moderate | `Moderate` | `Score 60 to 79` | 60 to < 80 | `warning` | 3,172 |
+| 4 | healthy | `Healthy` | `Score 80 or above` | >= 80 | `success` | 1,048 |
+
+* aria-label pattern: `<Label>: <count> services, <caption lower-case>`. Example: `At Risk: 2,932 services, score 40 to 59`.
+* Banned card labels: `High Risk`, `Medium Risk`, `Low Risk`, `Low`. The word `Risk` is not appended to the labels.
+* The four counts must add up to Monitored Services (8,000). Cuts come from the API, which reads them from `risk_band_vocabulary` or the MV. No hard-coded 40/60/75/80 in the UI.
+* §7.2 PROVISIONAL badge: the surface formerly named High Risk is now `At Risk`. Same badge slot and rules.
+
+### 8.2 Avg Resilience Score caption: Excellent..Failing is REPLACED
+
+* Decision: retire `score-band.ts` Excellent / Good / Fair / Poor / Failing (85/70/55/40). Two cut sets on one screen contradict each other (avg 61.5 reads `Fair` next to cards that call 60 to 79 `Moderate`).
+* `score-band.ts` keeps its API shape (`scoreBand`, `scoreBandKpiClass`) but returns the governed level: keys `critical | at_risk | moderate | healthy`, labels from §8.1, cuts 40/60/80. Border class map follows the §8.1 Card class column.
+* Avg card caption (verbatim): `<Label> band` for example `Moderate band` (61.5 today). Shown in both flag states. aria-label: `Avg Resilience Score: 61.5, moderate band`.
+* Service table gauge uses the same function, so the gauge text label becomes the governed label too.
+* Banned UI strings after this change: `Excellent`, `Good`, `Fair`, `Poor`, `Failing` as score labels. DW-189 tests must be updated to the new labels and cuts (boundary cases 39.99, 40, 59.99, 60, 79.99, 80, 100, NaN -> Critical).
+
+### 8.3 Action priority badge (action-queue-table.tsx)
+
+`proactive_action.priority` is action urgency, not a risk level. Do not change the data. Change only the display text so it never reuses a risk word.
+
+| Stored value | Badge text (verbatim) | aria-label |
+| --- | --- | --- |
+| critical | `P1 Urgent` | `Priority 1, urgent` |
+| high | `P2 High` | `Priority 2, high` |
+| medium | `P3 Normal` | `Priority 3, normal` |
+| low | `P4 Low` | `Priority 4, low` |
+
+* Column header stays `Priority`. Any priority filter or sort control uses the same four texts in P1 to P4 order.
+* Keep the existing `.badge.<priority>` colour classes (contrast already verified at >= 4.67:1 in BUG-QA-018). Colour stays supplementary (SC 1.4.1): the P-number and word carry the meaning.
+* Unknown or null priority: `Unranked` (never blank).
+
+### 8.4 Backend alignment (for P363)
+
+* `catalog_sql._SUMMARY_SQL`: cuts 40/60/80, return counts for the four governed levels. Field names `at_risk_count`, `moderate_count`, `healthy_count` are preferred; if the old names stay for compatibility, the UI labels above still apply.
+* `models.RiskLevel` enum and `mock_data._risk_level()` move to `critical | at_risk | moderate | healthy` with 40/60/80. Remove the unused `_risk_level()` in `catalog_sql.py`.
+
+### 8.5 Acceptance checks (@designer verifies)
+
+1. Header shows 848 / 2,932 / 3,172 / 1,048 from the API, and they sum to 8,000.
+2. `grep -rnE "High Risk|Medium Risk|Low Risk|Excellent|Failing|\"Fair\"|\"Poor\"" ui/` returns 0 hits outside tests.
+3. Avg card reads `Moderate band` for 61.5, in both flag states.
+4. Action queue badges read P1 Urgent to P4 Low; no badge text equals a risk label.
+5. Captions and badge text are solid iron or existing badge tokens (no new colours); at 320px and 200% zoom, the cards and captions wrap without truncation (SC 1.4.10).
+6. `grep -riE "lumen"` over `ui/` still returns 0 (Lakelink Fiber branding mandate).
